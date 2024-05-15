@@ -87,7 +87,7 @@ pub const Tokenizer = struct {
         return char >= '0' and char <= '9';
     }
 
-    fn isAtEnd(self: *Self) bool {
+    fn isAtEnd(self: *const Self) bool {
         return self.current >= self.source.len;
     }
 
@@ -104,7 +104,7 @@ pub const Tokenizer = struct {
         return true;
     }
 
-    fn peek(self: *Self) ?u8 {
+    fn peek(self: *const Self) ?u8 {
         if (self.isAtEnd()) {
             return null;
         }
@@ -161,7 +161,7 @@ pub const Tokenizer = struct {
         return self.makeToken(.number);
     }
 
-    fn makeToken(self: *Self, kind: Token.Kind) Token {
+    fn makeToken(self: *const Self, kind: Token.Kind) Token {
         return .{
             .kind = kind,
             .lexeme = self.source[self.start..self.current],
@@ -170,7 +170,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn makeEofToken(self: *Self) Token {
+    fn makeEofToken(self: *const Self) Token {
         return .{
             .kind = .eof,
             .lexeme = "",
@@ -179,7 +179,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn makeInvalidToken(self: *Self) Token {
+    fn makeInvalidToken(self: *const Self) Token {
         return .{
             .kind = .invalid,
             .lexeme = "",

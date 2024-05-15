@@ -1,10 +1,12 @@
 const std = @import("std");
 const io_handler = @import("io_handler.zig");
-const tokenizer = @import("tokenizer.zig");
+const tokenizer_pkg = @import("tokenizer.zig");
+const parser_pkg = @import("parser.zig");
 
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const IoHandler = io_handler.IoHandler;
-const Tokenizer = tokenizer.Tokenizer;
+const Tokenizer = tokenizer_pkg.Tokenizer;
+const Parser = parser_pkg.Parser;
 
 pub fn main() !void {
     var gpa = GeneralPurposeAllocator(.{}){};
@@ -17,19 +19,21 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "//2";
-    var t = Tokenizer.init(source);
+    const source = "(2 + 2) * -2";
+    var tokenizer = Tokenizer.init(source);
 
-    while (true) {
-        const token = t.scanToken();
+    var parser = Parser.init(&tokenizer);
+    const expr = parser.parse(allocator) catch |err| switch (err) {
+        error.ParseFailure => {
+            io.outf("{s}\n", .{parser.err.?.message});
+            return;
+        },
+        else => return err,
+    };
+    defer expr.destroy(allocator);
 
-        token.print(&io);
-        io.out("\n");
-
-        if (token.kind == .eof) {
-            break;
-        }
-    }
+    expr.print(&io);
+    io.out("\n");
 }
 
 test {
