@@ -1,11 +1,19 @@
 const std = @import("std");
+const io_handler = @import("io_handler.zig");
+
+const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const IoHandler = io_handler.IoHandler;
 
 pub fn main() !void {
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    var gpa = GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
 
-    try stdout.print("Hello, world!", .{});
+    var stdout = std.io.getStdOut().writer();
+    var stderr = std.io.getStdErr().writer();
+    var stdin = std.io.getStdIn().reader();
 
-    try bw.flush();
+    var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
+    defer io.deinit();
+
+    io.out("Hello, world!!");
 }
