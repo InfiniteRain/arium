@@ -1,12 +1,12 @@
 const std = @import("std");
 const io_handler = @import("io_handler.zig");
-const tokenizer_pkg = @import("tokenizer.zig");
-const parser_pkg = @import("parser.zig");
+const tokenizer_mod = @import("tokenizer.zig");
+const parser_mod = @import("parser.zig");
 
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const IoHandler = io_handler.IoHandler;
-const Tokenizer = tokenizer_pkg.Tokenizer;
-const Parser = parser_pkg.Parser;
+const Tokenizer = tokenizer_mod.Tokenizer;
+const Parser = parser_mod.Parser;
 
 pub fn main() !void {
     var gpa = GeneralPurposeAllocator(.{}){};

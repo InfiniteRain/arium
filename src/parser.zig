@@ -1,12 +1,12 @@
 const std = @import("std");
-const tokenizer_pkg = @import("tokenizer.zig");
-const expression_pkg = @import("expression.zig");
+const tokenizer_mod = @import("tokenizer.zig");
+const expression_mod = @import("expression.zig");
 
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Token = tokenizer_pkg.Token;
-const Tokenizer = tokenizer_pkg.Tokenizer;
-const Expression = expression_pkg.Expression;
+const assert = std.debug.assert;
+const Token = tokenizer_mod.Token;
+const Tokenizer = tokenizer_mod.Tokenizer;
+const Expression = expression_mod.Expression;
 
 pub const ParserError = error{
     OutOfMemory,

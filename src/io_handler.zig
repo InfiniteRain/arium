@@ -1,13 +1,10 @@
 const std = @import("std");
 
-const fs = std.fs;
-const io = std.io;
-const mem = std.mem;
-const Writer = fs.File.Writer;
-const Reader = fs.File.Reader;
-const FixedBufferStream = io.FixedBufferStream;
-const fixedBufferStream = io.fixedBufferStream;
-const Allocator = mem.Allocator;
+const Writer = std.fs.File.Writer;
+const Reader = std.fs.File.Reader;
+const FixedBufferStream = std.io.FixedBufferStream;
+const fixedBufferStream = std.io.fixedBufferStream;
+const Allocator = std.mem.Allocator;
 
 pub const IoHandler = struct {
     const Self = @This();
