@@ -5,6 +5,11 @@ const mem = std.mem;
 const expect = std.testing.expect;
 const IoHandler = io_handler.IoHandler;
 
+pub const Position = struct {
+    line: u64,
+    column: u64,
+};
+
 pub const Token = struct {
     const Self = @This();
 
@@ -23,15 +28,14 @@ pub const Token = struct {
 
     kind: Kind,
     lexeme: []const u8,
-    line: u64,
-    column: u64,
+    position: Position,
 
     pub fn print(self: *const Self, io: *IoHandler) void {
         io.outf("[kind = .{s}, lexeme = \"{s}\", line = {}, column = {}]", .{
             @tagName(self.kind),
             self.lexeme,
-            self.line,
-            self.column,
+            self.position.line,
+            self.position.column,
         });
     }
 };
@@ -165,8 +169,10 @@ pub const Tokenizer = struct {
         return .{
             .kind = kind,
             .lexeme = self.source[self.start..self.current],
-            .line = self.line,
-            .column = self.column_start,
+            .position = .{
+                .line = self.line,
+                .column = self.column_start,
+            },
         };
     }
 
@@ -174,8 +180,10 @@ pub const Tokenizer = struct {
         return .{
             .kind = .eof,
             .lexeme = "",
-            .line = self.line,
-            .column = self.column + 1,
+            .position = .{
+                .line = self.line,
+                .column = self.column + 1,
+            },
         };
     }
 
@@ -183,8 +191,10 @@ pub const Tokenizer = struct {
         return .{
             .kind = .invalid,
             .lexeme = "",
-            .line = self.line,
-            .column = self.column_start,
+            .position = .{
+                .line = self.line,
+                .column = self.column_start,
+            },
         };
     }
 };
@@ -200,8 +210,8 @@ test "tokenizer results with eof on an empty string" {
     // THEN
     try expect(token.kind == .eof);
     try expect(token.lexeme.len == 0);
-    try expect(token.line == 1);
-    try expect(token.column == 1);
+    try expect(token.position.line == 1);
+    try expect(token.position.column == 1);
 }
 
 test "tokenizer correctly handles a string with only a newline" {
@@ -215,8 +225,8 @@ test "tokenizer correctly handles a string with only a newline" {
     // THEN
     try expect(token.kind == .eof);
     try expect(token.lexeme.len == 0);
-    try expect(token.line == 2);
-    try expect(token.column == 1);
+    try expect(token.position.line == 2);
+    try expect(token.position.column == 1);
 }
 
 test "tokenizer parses numbers correctly" {
@@ -232,18 +242,18 @@ test "tokenizer parses numbers correctly" {
     // THEN
     try expect(token1.kind == .number);
     try expect(mem.eql(u8, token1.lexeme, "1"));
-    try expect(token1.line == 1);
-    try expect(token1.column == 1);
+    try expect(token1.position.line == 1);
+    try expect(token1.position.column == 1);
 
     try expect(token2.kind == .number);
     try expect(mem.eql(u8, token2.lexeme, "12345"));
-    try expect(token2.line == 1);
-    try expect(token2.column == 3);
+    try expect(token2.position.line == 1);
+    try expect(token2.position.column == 3);
 
     try expect(token3.kind == .eof);
     try expect(token3.lexeme.len == 0);
-    try expect(token3.line == 1);
-    try expect(token3.column == 8);
+    try expect(token3.position.line == 1);
+    try expect(token3.position.column == 8);
 }
 
 test "tokenizer keeps track of lines correctly" {
@@ -260,23 +270,23 @@ test "tokenizer keeps track of lines correctly" {
     // THEN
     try expect(token1.kind == .number);
     try expect(mem.eql(u8, token1.lexeme, "1"));
-    try expect(token1.line == 1);
-    try expect(token1.column == 1);
+    try expect(token1.position.line == 1);
+    try expect(token1.position.column == 1);
 
     try expect(token2.kind == .number);
     try expect(mem.eql(u8, token2.lexeme, "123"));
-    try expect(token2.line == 2);
-    try expect(token2.column == 1);
+    try expect(token2.position.line == 2);
+    try expect(token2.position.column == 1);
 
     try expect(token3.kind == .number);
     try expect(mem.eql(u8, token3.lexeme, "1256"));
-    try expect(token3.line == 3);
-    try expect(token3.column == 1);
+    try expect(token3.position.line == 3);
+    try expect(token3.position.column == 1);
 
     try expect(token4.kind == .eof);
     try expect(token4.lexeme.len == 0);
-    try expect(token4.line == 3);
-    try expect(token4.column == 5);
+    try expect(token4.position.line == 3);
+    try expect(token4.position.column == 5);
 }
 
 test "tokenizer parses single character tokens correctly" {
@@ -298,8 +308,8 @@ test "tokenizer parses single character tokens correctly" {
             else => @panic("unexpected char"),
         });
         try expect(token.lexeme.len == 1 and token.lexeme[0] == char);
-        try expect(token.line == 1);
-        try expect(token.column == line);
+        try expect(token.position.line == 1);
+        try expect(token.position.column == line);
     }
 }
 
@@ -316,18 +326,18 @@ test "tokenizer parses comments before eof correctly" {
     // THEN
     try expect(token1.kind == .number);
     try expect(mem.eql(u8, token1.lexeme, "123"));
-    try expect(token1.line == 1);
-    try expect(token1.column == 1);
+    try expect(token1.position.line == 1);
+    try expect(token1.position.column == 1);
 
     try expect(token2.kind == .comment);
     try expect(mem.eql(u8, token2.lexeme, "// some comment here"));
-    try expect(token2.line == 1);
-    try expect(token2.column == 5);
+    try expect(token2.position.line == 1);
+    try expect(token2.position.column == 5);
 
     try expect(token3.kind == .eof);
     try expect(token3.lexeme.len == 0);
-    try expect(token3.line == 1);
-    try expect(token3.column == 25);
+    try expect(token3.position.line == 1);
+    try expect(token3.position.column == 25);
 }
 
 test "tokenizer parses comment before newline correctly" {
@@ -344,21 +354,21 @@ test "tokenizer parses comment before newline correctly" {
     // THEN
     try expect(token1.kind == .number);
     try expect(mem.eql(u8, token1.lexeme, "1"));
-    try expect(token1.line == 1);
-    try expect(token1.column == 1);
+    try expect(token1.position.line == 1);
+    try expect(token1.position.column == 1);
 
     try expect(token2.kind == .comment);
     try expect(mem.eql(u8, token2.lexeme, "//c"));
-    try expect(token2.line == 1);
-    try expect(token2.column == 2);
+    try expect(token2.position.line == 1);
+    try expect(token2.position.column == 2);
 
     try expect(token3.kind == .number);
     try expect(mem.eql(u8, token3.lexeme, "2"));
-    try expect(token3.line == 2);
-    try expect(token3.column == 1);
+    try expect(token3.position.line == 2);
+    try expect(token3.position.column == 1);
 
     try expect(token4.kind == .eof);
     try expect(token4.lexeme.len == 0);
-    try expect(token4.line == 2);
-    try expect(token4.column == 2);
+    try expect(token4.position.line == 2);
+    try expect(token4.position.column == 2);
 }

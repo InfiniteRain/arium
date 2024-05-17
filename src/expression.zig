@@ -9,6 +9,20 @@ const IoHandler = io_handler_mod.IoHandler;
 pub const Expression = union(enum) {
     const Self = @This();
 
+    pub const Literal = struct {
+        token: Token,
+
+        pub fn create(allocator: Allocator, token: Token) !*Self {
+            const expression = try allocator.create(Self);
+
+            expression.* = .{
+                .literal = .{ .token = token },
+            };
+
+            return expression;
+        }
+    };
+
     pub const Binary = struct {
         left: *Expression,
         operator: Token,
@@ -28,20 +42,6 @@ pub const Expression = union(enum) {
                     .operator = operator,
                     .right = right,
                 },
-            };
-
-            return expression;
-        }
-    };
-
-    pub const Literal = struct {
-        token: Token,
-
-        pub fn create(allocator: Allocator, token: Token) !*Self {
-            const expression = try allocator.create(Self);
-
-            expression.* = .{
-                .literal = .{ .token = token },
             };
 
             return expression;
@@ -70,8 +70,8 @@ pub const Expression = union(enum) {
         }
     };
 
-    binary: Binary,
     literal: Literal,
+    binary: Binary,
     unary: Unary,
 
     pub fn destroy(self: *Self, allocator: Allocator) void {

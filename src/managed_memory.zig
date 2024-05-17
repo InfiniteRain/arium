@@ -1,7 +1,13 @@
 const std = @import("std");
+const chunk_mod = @import("chunk.zig");
 
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
+const Chunk = chunk_mod.Chunk;
+
+pub const CompiledState = struct {
+    root_chunk: Chunk,
+};
 
 pub const ManagedMemory = struct {
     const Self = @This();
@@ -9,11 +15,18 @@ pub const ManagedMemory = struct {
     backing_allocator: Allocator,
     bytes_allocated: usize = 0,
     is_gc_active: bool = false,
+    compiled_state: ?CompiledState = null,
 
     pub fn init(backing_allocator: Allocator) Self {
         return .{
             .backing_allocator = backing_allocator,
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.compiled_state) |*compiled_state| {
+            compiled_state.root_chunk.deinit();
+        }
     }
 
     pub fn allocator(self: *Self) Allocator {
