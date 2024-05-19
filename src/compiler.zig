@@ -2,12 +2,14 @@ const std = @import("std");
 const managed_memory_mod = @import("./managed_memory.zig");
 const chunk_mod = @import("./chunk.zig");
 const expression_mod = @import("./expression.zig");
+const stack_mod = @import("stack.zig");
 
 const Allocator = std.mem.Allocator;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const Expression = expression_mod.Expression;
+const Stack = stack_mod.Stack;
 
 const CompilerError = error{
     OutOfMemory,
@@ -17,7 +19,6 @@ const CompilerError = error{
 pub const Compiler = struct {
     const Self = @This();
 
-    memory: *ManagedMemory,
     allocator: Allocator,
     chunk: Chunk,
 
@@ -25,7 +26,6 @@ pub const Compiler = struct {
         const allocator = memory.allocator();
 
         var compiler = Self{
-            .memory = memory,
             .allocator = allocator,
             .chunk = try Chunk.init(memory),
         };
@@ -33,8 +33,10 @@ pub const Compiler = struct {
         try compiler.compileExpression(expression);
         try compiler.chunk.writeByte(.return_, null);
 
-        memory.compiled_state = .{
-            .root_chunk = compiler.chunk,
+        memory.vm_state = .{
+            .chunk = compiler.chunk,
+            .ip = @ptrCast(&compiler.chunk.code.items[0]),
+            .stack = try Stack.init(allocator),
         };
     }
 

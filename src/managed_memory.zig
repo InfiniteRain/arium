@@ -1,12 +1,18 @@
 const std = @import("std");
 const chunk_mod = @import("chunk.zig");
+const stack_mod = @import("stack.zig");
+const value_mod = @import("value.zig");
 
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const Chunk = chunk_mod.Chunk;
+const Stack = stack_mod.Stack;
+const Value = value_mod.Value;
 
-pub const CompiledState = struct {
-    root_chunk: Chunk,
+pub const VmState = struct {
+    chunk: Chunk,
+    ip: [*]u8,
+    stack: Stack,
 };
 
 pub const ManagedMemory = struct {
@@ -15,7 +21,7 @@ pub const ManagedMemory = struct {
     backing_allocator: Allocator,
     bytes_allocated: usize = 0,
     is_gc_active: bool = false,
-    compiled_state: ?CompiledState = null,
+    vm_state: ?VmState = null,
 
     pub fn init(backing_allocator: Allocator) Self {
         return .{
@@ -24,8 +30,9 @@ pub const ManagedMemory = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        if (self.compiled_state) |*compiled_state| {
-            compiled_state.root_chunk.deinit();
+        if (self.vm_state) |*vm_state| {
+            vm_state.chunk.deinit();
+            vm_state.stack.deinit();
         }
     }
 
