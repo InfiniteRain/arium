@@ -3,6 +3,7 @@ const managed_memory_mod = @import("managed_memory.zig");
 const value_mod = @import("value.zig");
 const chunk_mod = @import("chunk.zig");
 const stack_mod = @import("stack.zig");
+const io_handler = @import("io_handler.zig");
 
 const Allocator = std.mem.Allocator;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
@@ -11,6 +12,7 @@ const Value = value_mod.Value;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const Stack = stack_mod.Stack;
+const IoHandler = io_handler.IoHandler;
 
 const VmError = error{
     OutOfMemory,
@@ -21,14 +23,16 @@ pub const Vm = struct {
     const Self = @This();
 
     memory: *ManagedMemory,
+    io: *IoHandler,
     allocator: Allocator,
     state: VmState,
 
-    pub fn interpret(memory: *ManagedMemory) VmError!void {
+    pub fn interpret(memory: *ManagedMemory, io: *IoHandler) VmError!void {
         const allocator = memory.allocator();
 
         var vm = Vm{
             .memory = memory,
+            .io = io,
             .allocator = allocator,
             .state = memory.vm_state.?,
         };
@@ -46,35 +50,36 @@ pub const Vm = struct {
                     self.push(self.chunk().constants.items[index]);
                 },
                 .negate => {
-                    self.push(-self.pop());
+                    self.push(.{ .int = -self.pop().int });
                 },
                 .add => {
                     const b = self.pop();
                     const a = self.pop();
 
-                    self.push(a + b);
+                    self.push(.{ .int = a.int + b.int });
                 },
                 .subtract => {
                     const b = self.pop();
                     const a = self.pop();
 
-                    self.push(a - b);
+                    self.push(.{ .int = a.int - b.int });
                 },
                 .multiply => {
                     const b = self.pop();
                     const a = self.pop();
 
-                    self.push(a * b);
+                    self.push(.{ .int = a.int * b.int });
                 },
                 .divide => {
                     const b = self.pop();
                     const a = self.pop();
 
-                    self.push(@divFloor(a, b));
+                    self.push(.{ .int = @divFloor(a.int, b.int) });
                 },
                 .return_ => {
                     const value = self.pop();
-                    std.debug.print("{}\n", .{value});
+                    value.print(self.io);
+                    self.io.out("\n");
                     return;
                 },
                 .pop => {

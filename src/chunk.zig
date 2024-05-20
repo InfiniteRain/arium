@@ -138,7 +138,7 @@ pub const Chunk = struct {
 
         Self.printOpCode(op_code, io);
         io.outf(" {: <4} '", .{index});
-        io.outf("{}", .{self.constants.items[index]});
+        self.constants.items[index].print(io);
         io.out("'\n");
 
         return 2;

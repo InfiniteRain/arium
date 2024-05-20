@@ -10,13 +10,23 @@ pub const Expression = union(enum) {
     const Self = @This();
 
     pub const Literal = struct {
-        token: Token,
+        const Kind = enum {
+            int,
+            float,
+            bool,
+        };
 
-        pub fn create(allocator: Allocator, token: Token) !*Self {
+        token: Token,
+        kind: Kind,
+
+        pub fn create(allocator: Allocator, token: Token, literal_kind: Kind) !*Self {
             const expression = try allocator.create(Self);
 
             expression.* = .{
-                .literal = .{ .token = token },
+                .literal = .{
+                    .token = token,
+                    .kind = literal_kind,
+                },
             };
 
             return expression;

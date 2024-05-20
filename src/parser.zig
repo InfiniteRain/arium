@@ -96,11 +96,12 @@ pub const Parser = struct {
     }
 
     fn primary(self: *Self, allocator: Allocator) ParserError!*Expression {
+        if (self.match(.true_) or self.match(.false_)) {
+            return try Expression.Literal.create(allocator, self.previous(), .bool);
+        }
+
         if (self.match(.number)) {
-            return try Expression.Literal.create(
-                allocator,
-                self.previous(),
-            );
+            return try Expression.Literal.create(allocator, self.previous(), .int);
         }
 
         if (self.match(.left_paren)) {

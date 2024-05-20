@@ -20,7 +20,13 @@ pub const Token = struct {
         plus,
         slash,
         star,
+
+        identifier,
         number,
+
+        true_,
+        false_,
+
         comment,
         eof,
         invalid,
@@ -72,10 +78,6 @@ pub const Tokenizer = struct {
         const char = self.advance();
         self.column_start = self.column;
 
-        if (Self.isDigit(char)) {
-            return self.number();
-        }
-
         return switch (char) {
             '(' => self.makeToken(.left_paren),
             ')' => self.makeToken(.right_paren),
@@ -83,12 +85,32 @@ pub const Tokenizer = struct {
             '+' => self.makeToken(.plus),
             '/' => if (self.match('/')) self.comment() else self.makeToken(.slash),
             '*' => self.makeToken(.star),
-            else => self.makeInvalidToken(),
+            else => {
+                if (Self.isAlpha(char)) {
+                    return self.identifier();
+                }
+
+                if (Self.isDigit(char)) {
+                    return self.number();
+                }
+
+                return self.makeInvalidToken();
+            },
         };
     }
 
-    fn isDigit(char: u8) bool {
+    fn isDigit(char_opt: ?u8) bool {
+        const char = char_opt orelse return false;
+
         return char >= '0' and char <= '9';
+    }
+
+    fn isAlpha(char_opt: ?u8) bool {
+        const char = char_opt orelse return false;
+
+        return (char >= 'a' and char <= 'z') or
+            (char >= 'A' and char <= 'Z') or
+            char == '_';
     }
 
     fn isAtEnd(self: *const Self) bool {
@@ -157,12 +179,46 @@ pub const Tokenizer = struct {
         return self.makeToken(.comment);
     }
 
+    fn identifier(self: *Self) Token {
+        while (true) {
+            const char = self.peek();
+
+            if (!Self.isAlpha(char) and !Self.isDigit(char)) {
+                break;
+            }
+
+            _ = self.advance();
+        }
+
+        return self.makeToken(self.identifierKind());
+    }
+
     fn number(self: *Self) Token {
         while (Self.isDigit(self.peek() orelse 0)) {
             _ = self.advance();
         }
 
         return self.makeToken(.number);
+    }
+
+    fn identifierKind(self: *Self) Token.Kind {
+        // todo: this could probably be comptime generated
+
+        const string = self.source[self.start..self.current];
+
+        return switch (string[0]) {
+            't' => self.checkKeyword("true", .true_),
+            'f' => self.checkKeyword("false", .false_),
+            else => .identifier,
+        };
+    }
+
+    fn checkKeyword(self: *Self, lexeme: []const u8, kind: Token.Kind) Token.Kind {
+        if (mem.eql(u8, self.source[self.start..self.current], lexeme)) {
+            return kind;
+        }
+
+        return .identifier;
     }
 
     fn makeToken(self: *const Self, kind: Token.Kind) Token {

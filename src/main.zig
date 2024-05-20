@@ -27,7 +27,7 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "5 + \n10 * \n(30 / 12)";
+    const source = "false";
     var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(&tokenizer);
@@ -40,14 +40,20 @@ pub fn main() !void {
     };
     defer expr.destroy(allocator);
 
+    io.out("== TREE ==\n");
+    expr.print(&io);
+    io.out("\n");
+
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();
 
     try Compiler.compile(&memory, expr);
 
+    io.out("== CHUNK ==\n");
     memory.vm_state.?.chunk.print(&io);
 
-    try Vm.interpret(&memory);
+    io.out("===========\n");
+    try Vm.interpret(&memory, &io);
 }
 
 test {

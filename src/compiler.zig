@@ -3,13 +3,16 @@ const managed_memory_mod = @import("./managed_memory.zig");
 const chunk_mod = @import("./chunk.zig");
 const expression_mod = @import("./expression.zig");
 const stack_mod = @import("stack.zig");
+const value_mod = @import("value.zig");
 
-const Allocator = std.mem.Allocator;
+const mem = std.mem;
+const Allocator = mem.Allocator;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const Expression = expression_mod.Expression;
 const Stack = stack_mod.Stack;
+const Value = value_mod.Value;
 
 const CompilerError = error{
     OutOfMemory,
@@ -43,11 +46,18 @@ pub const Compiler = struct {
     fn compileExpression(self: *Self, expression: *Expression) CompilerError!void {
         switch (expression.*) {
             .literal => |literal| {
-                try self.chunk.writeConstant(std.fmt.parseInt(
-                    i64,
-                    literal.token.lexeme,
-                    10,
-                ) catch unreachable, literal.token.position);
+                const lexeme = literal.token.lexeme;
+                const value = switch (literal.kind) {
+                    .int => Value{
+                        .int = std.fmt.parseInt(i64, lexeme, 10) catch unreachable,
+                    },
+                    .float => Value{
+                        .float = std.fmt.parseFloat(f64, lexeme) catch unreachable,
+                    },
+                    .bool => Value{ .bool = if (mem.eql(u8, "true", lexeme)) true else false },
+                };
+
+                try self.chunk.writeConstant(value, literal.token.position);
             },
             .binary => |binary| {
                 try self.compileExpression(binary.left);
