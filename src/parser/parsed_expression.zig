@@ -71,6 +71,7 @@ pub const ParsedExpression = union(enum) {
     pub const Unary = struct {
         pub const OperatorKind = enum {
             negate,
+            invert,
         };
 
         operator_token: Token,

@@ -27,7 +27,7 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "-10";
+    const source = "!false";
     var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(&tokenizer);

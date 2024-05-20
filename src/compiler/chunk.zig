@@ -21,6 +21,7 @@ const ChunkError = error{
 pub const OpCode = enum(u8) {
     constant,
     negate,
+    invert,
     add,
     subtract,
     multiply,
@@ -109,6 +110,7 @@ pub const Chunk = struct {
             index += switch (op_code) {
                 .constant => self.printConstantInstruction(io, index),
                 .negate,
+                .invert,
                 .add,
                 .subtract,
                 .multiply,

@@ -54,7 +54,7 @@ pub const Compiler = struct {
                     .float => .{
                         .float = std.fmt.parseFloat(f64, lexeme) catch unreachable,
                     },
-                    .bool => .{ .bool = mem.eql(u8, "true", lexeme) },
+                    .bool => .{ .bool = lexeme.len == 4 },
                 };
 
                 try self.chunk.writeConstant(value, literal.token.position);
@@ -71,7 +71,10 @@ pub const Compiler = struct {
             },
             .unary => |unary| {
                 try self.compileExpression(unary.right);
-                try self.chunk.writeByte(.negate, unary.operator_token.position);
+                try self.chunk.writeByte(
+                    if (unary.operator_kind == .negate) OpCode.negate else OpCode.invert,
+                    unary.operator_token.position,
+                );
             },
         }
     }

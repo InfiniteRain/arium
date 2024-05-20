@@ -52,6 +52,9 @@ pub const Vm = struct {
                 .negate => {
                     self.push(.{ .int = -self.pop().int });
                 },
+                .invert => {
+                    self.push(.{ .bool = !self.pop().bool });
+                },
                 .add => {
                     const b = self.pop();
                     const a = self.pop();

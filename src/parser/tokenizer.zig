@@ -21,6 +21,8 @@ pub const Token = struct {
         slash,
         star,
 
+        bang,
+
         identifier,
         number,
 
@@ -85,6 +87,7 @@ pub const Tokenizer = struct {
             '+' => self.makeToken(.plus),
             '/' => if (self.match('/')) self.comment() else self.makeToken(.slash),
             '*' => self.makeToken(.star),
+            '!' => self.makeToken(.bang),
             else => {
                 if (Self.isAlpha(char)) {
                     return self.identifier();

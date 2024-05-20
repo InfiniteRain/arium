@@ -93,9 +93,13 @@ pub const Parser = struct {
     }
 
     fn unary(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
-        if (self.match(.minus)) {
+        if (self.match(.minus) or self.match(.bang)) {
+            const OperatorKind = ParsedExpression.Unary.OperatorKind;
             const operator_token = self.previous();
-            const operator_kind = .negate;
+            const operator_kind: OperatorKind = if (operator_token.kind == .minus)
+                .negate
+            else
+                .invert;
             const right = try self.unary(allocator);
 
             return try ParsedExpression.Unary.create(
