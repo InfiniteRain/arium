@@ -49,35 +49,62 @@ pub const Vm = struct {
                     const index = self.readU8();
                     self.push(self.chunk().constants.items[index]);
                 },
-                .negate => {
-                    self.push(.{ .int = -self.pop().int });
-                },
                 .invert => {
                     self.push(.{ .bool = !self.pop().bool });
                 },
-                .add => {
-                    const b = self.pop();
-                    const a = self.pop();
-
-                    self.push(.{ .int = a.int + b.int });
+                .negate_int => {
+                    self.push(.{ .int = -self.pop().int });
                 },
-                .subtract => {
-                    const b = self.pop();
-                    const a = self.pop();
-
-                    self.push(.{ .int = a.int - b.int });
+                .negate_float => {
+                    self.push(.{ .float = -self.pop().float });
                 },
-                .multiply => {
-                    const b = self.pop();
-                    const a = self.pop();
+                .add_int => {
+                    const b = self.pop().int;
+                    const a = self.pop().int;
 
-                    self.push(.{ .int = a.int * b.int });
+                    self.push(.{ .int = a + b });
                 },
-                .divide => {
-                    const b = self.pop();
-                    const a = self.pop();
+                .add_float => {
+                    const b = self.pop().float;
+                    const a = self.pop().float;
 
-                    self.push(.{ .int = @divFloor(a.int, b.int) });
+                    self.push(.{ .float = a + b });
+                },
+                .subtract_int => {
+                    const b = self.pop().int;
+                    const a = self.pop().int;
+
+                    self.push(.{ .int = a - b });
+                },
+                .subtract_float => {
+                    const b = self.pop().float;
+                    const a = self.pop().float;
+
+                    self.push(.{ .float = a - b });
+                },
+                .multiply_int => {
+                    const b = self.pop().int;
+                    const a = self.pop().int;
+
+                    self.push(.{ .int = a * b });
+                },
+                .multiply_float => {
+                    const b = self.pop().float;
+                    const a = self.pop().float;
+
+                    self.push(.{ .float = a * b });
+                },
+                .divide_int => {
+                    const b = self.pop().int;
+                    const a = self.pop().int;
+
+                    self.push(.{ .int = @divFloor(a, b) });
+                },
+                .divide_float => {
+                    const b = self.pop().float;
+                    const a = self.pop().float;
+
+                    self.push(.{ .float = a / b });
                 },
                 .return_ => {
                     const value = self.pop();

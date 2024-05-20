@@ -13,7 +13,7 @@ pub const Value = union(enum) {
     pub fn print(self: Self, io: *IoHandler) void {
         switch (self) {
             .int => io.outf("{}", .{self.int}),
-            .float => io.outf("{}", .{self.float}),
+            .float => io.outf("{d}", .{self.float}),
             .bool => io.outf("{}", .{self.bool}),
         }
     }

@@ -63,16 +63,16 @@ pub const Compiler = struct {
                 try self.compileExpression(binary.left);
                 try self.compileExpression(binary.right);
                 try self.chunk.writeByte(switch (binary.operator_kind) {
-                    .subtract => OpCode.subtract,
-                    .add => OpCode.add,
-                    .divide => OpCode.divide,
-                    .multiply => OpCode.multiply,
+                    .subtract => OpCode.subtract_int,
+                    .add => OpCode.add_int,
+                    .divide => OpCode.divide_int,
+                    .multiply => OpCode.multiply_int,
                 }, binary.operator_token.position);
             },
             .unary => |unary| {
                 try self.compileExpression(unary.right);
                 try self.chunk.writeByte(
-                    if (unary.operator_kind == .negate) OpCode.negate else OpCode.invert,
+                    if (unary.operator_kind == .negate) OpCode.negate_int else OpCode.invert,
                     unary.operator_token.position,
                 );
             },

@@ -24,7 +24,8 @@ pub const Token = struct {
         bang,
 
         identifier,
-        number,
+        int,
+        float,
 
         true_,
         false_,
@@ -141,6 +142,14 @@ pub const Tokenizer = struct {
         return self.source[self.current];
     }
 
+    fn peekNext(self: *Self) ?u8 {
+        if (self.current + 1 >= self.source.len) {
+            return null;
+        }
+
+        return self.source[self.current + 1];
+    }
+
     fn advance(self: *Self) u8 {
         const char = self.source[self.current];
         self.current += 1;
@@ -197,11 +206,22 @@ pub const Tokenizer = struct {
     }
 
     fn number(self: *Self) Token {
+        var is_float = false;
+
         while (Self.isDigit(self.peek() orelse 0)) {
             _ = self.advance();
         }
 
-        return self.makeToken(.number);
+        if (self.peek() == '.' and Self.isDigit(self.peekNext())) {
+            is_float = true;
+            _ = self.advance();
+
+            while (Self.isDigit(self.peek())) {
+                _ = self.advance();
+            }
+        }
+
+        return self.makeToken(if (is_float) .float else .int);
     }
 
     fn identifierKind(self: *Self) Token.Kind {

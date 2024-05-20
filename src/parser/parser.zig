@@ -118,8 +118,12 @@ pub const Parser = struct {
             return try ParsedExpression.Literal.create(allocator, self.previous(), .bool);
         }
 
-        if (self.match(.number)) {
+        if (self.match(.int)) {
             return try ParsedExpression.Literal.create(allocator, self.previous(), .int);
+        }
+
+        if (self.match(.float)) {
+            return try ParsedExpression.Literal.create(allocator, self.previous(), .float);
         }
 
         if (self.match(.left_paren)) {
