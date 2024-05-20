@@ -1,6 +1,6 @@
 const std = @import("std");
 const tokenizer_mod = @import("tokenizer.zig");
-const expression_mod = @import("expression.zig");
+const expression_mod = @import("parsed_expression.zig");
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
