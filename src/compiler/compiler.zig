@@ -1,9 +1,9 @@
 const std = @import("std");
-const managed_memory_mod = @import("./managed_memory.zig");
-const chunk_mod = @import("./chunk.zig");
-const expression_mod = @import("parser/expression.zig");
-const stack_mod = @import("stack.zig");
-const value_mod = @import("value.zig");
+const managed_memory_mod = @import("../managed_memory.zig");
+const chunk_mod = @import("chunk.zig");
+const expression_mod = @import("../parser/expression.zig");
+const stack_mod = @import("../stack.zig");
+const value_mod = @import("../value.zig");
 
 const mem = std.mem;
 const Allocator = mem.Allocator;

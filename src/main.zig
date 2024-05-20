@@ -3,8 +3,8 @@ const io_handler = @import("io_handler.zig");
 const tokenizer_mod = @import("parser/tokenizer.zig");
 const parser_mod = @import("parser/parser.zig");
 const managed_memory_mod = @import("managed_memory.zig");
-const compiler_mod = @import("compiler.zig");
-const chunk_mod = @import("chunk.zig");
+const compiler_mod = @import("compiler/compiler.zig");
+const chunk_mod = @import("compiler/chunk.zig");
 const vm_mod = @import("vm.zig");
 
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;

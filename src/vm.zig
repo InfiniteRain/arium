@@ -1,7 +1,7 @@
 const std = @import("std");
 const managed_memory_mod = @import("managed_memory.zig");
 const value_mod = @import("value.zig");
-const chunk_mod = @import("chunk.zig");
+const chunk_mod = @import("compiler/chunk.zig");
 const stack_mod = @import("stack.zig");
 const io_handler = @import("io_handler.zig");
 

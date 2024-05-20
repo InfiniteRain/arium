@@ -1,5 +1,5 @@
 const std = @import("std");
-const chunk_mod = @import("chunk.zig");
+const chunk_mod = @import("compiler/chunk.zig");
 const stack_mod = @import("stack.zig");
 const value_mod = @import("value.zig");
 
