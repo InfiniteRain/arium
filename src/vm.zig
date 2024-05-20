@@ -1,8 +1,8 @@
 const std = @import("std");
-const managed_memory_mod = @import("managed_memory.zig");
-const value_mod = @import("value.zig");
+const managed_memory_mod = @import("state/managed_memory.zig");
+const value_mod = @import("state/value.zig");
 const chunk_mod = @import("compiler/chunk.zig");
-const stack_mod = @import("stack.zig");
+const stack_mod = @import("state/stack.zig");
 const io_handler = @import("io_handler.zig");
 
 const Allocator = std.mem.Allocator;

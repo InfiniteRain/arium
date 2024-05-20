@@ -1,5 +1,5 @@
 const std = @import("std");
-const io_handler_mod = @import("io_handler.zig");
+const io_handler_mod = @import("../io_handler.zig");
 
 const IoHandler = io_handler_mod.IoHandler;
 

@@ -1,7 +1,7 @@
 const std = @import("std");
-const chunk_mod = @import("compiler/chunk.zig");
-const stack_mod = @import("stack.zig");
-const value_mod = @import("value.zig");
+const chunk_mod = @import("../compiler/chunk.zig");
+const stack_mod = @import("../state/stack.zig");
+const value_mod = @import("../state/value.zig");
 
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
