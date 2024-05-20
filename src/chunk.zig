@@ -1,7 +1,7 @@
 const std = @import("std");
 const managed_memory_mod = @import("managed_memory.zig");
 const value_mod = @import("value.zig");
-const tokenizer_mod = @import("tokenizer.zig");
+const tokenizer_mod = @import("parser/tokenizer.zig");
 const io_handler_mod = @import("io_handler.zig");
 
 const Allocator = std.mem.Allocator;

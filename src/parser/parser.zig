@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
-const Expression = expression_mod.Expression;
+const ParsedExpression = expression_mod.ParsedExpression;
 
 pub const ParserError = error{
     OutOfMemory,
@@ -35,22 +35,22 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Self, allocator: Allocator) ParserError!*Expression {
+    pub fn parse(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
         return try self.expression(allocator);
     }
 
-    fn expression(self: *Self, allocator: Allocator) ParserError!*Expression {
+    fn expression(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
         return try self.term(allocator);
     }
 
-    fn term(self: *Self, allocator: Allocator) ParserError!*Expression {
+    fn term(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
         var expr = try self.factor(allocator);
 
         while (self.match(.minus) or self.match(.plus)) {
             const operator = self.previous();
             const right = try self.factor(allocator);
 
-            expr = try Expression.Binary.create(
+            expr = try ParsedExpression.Binary.create(
                 allocator,
                 expr,
                 operator,
@@ -61,7 +61,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn factor(self: *Self, allocator: Allocator) ParserError!*Expression {
+    fn factor(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
         var expr = try self.unary(allocator);
 
         while (self.match(.slash) or self.match(.star)) {
@@ -69,7 +69,7 @@ pub const Parser = struct {
             const right = try self.unary(allocator);
 
             expr =
-                try Expression.Binary.create(
+                try ParsedExpression.Binary.create(
                 allocator,
                 expr,
                 operator,
@@ -80,12 +80,12 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn unary(self: *Self, allocator: Allocator) ParserError!*Expression {
+    fn unary(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
         if (self.match(.minus)) {
             const operator = self.previous();
             const right = try self.unary(allocator);
 
-            return try Expression.Unary.create(
+            return try ParsedExpression.Unary.create(
                 allocator,
                 operator,
                 right,
@@ -95,13 +95,13 @@ pub const Parser = struct {
         return try self.primary(allocator);
     }
 
-    fn primary(self: *Self, allocator: Allocator) ParserError!*Expression {
+    fn primary(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
         if (self.match(.true_) or self.match(.false_)) {
-            return try Expression.Literal.create(allocator, self.previous(), .bool);
+            return try ParsedExpression.Literal.create(allocator, self.previous(), .bool);
         }
 
         if (self.match(.number)) {
-            return try Expression.Literal.create(allocator, self.previous(), .int);
+            return try ParsedExpression.Literal.create(allocator, self.previous(), .int);
         }
 
         if (self.match(.left_paren)) {

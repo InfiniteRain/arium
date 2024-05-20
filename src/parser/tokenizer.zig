@@ -1,5 +1,5 @@
 const std = @import("std");
-const io_handler = @import("io_handler.zig");
+const io_handler = @import("../io_handler.zig");
 
 const mem = std.mem;
 const expect = std.testing.expect;

@@ -1,12 +1,12 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
-const io_handler_mod = @import("io_handler.zig");
+const io_handler_mod = @import("../io_handler.zig");
 
 const Allocator = std.mem.Allocator;
 const Token = tokenizer.Token;
 const IoHandler = io_handler_mod.IoHandler;
 
-pub const Expression = union(enum) {
+pub const ParsedExpression = union(enum) {
     const Self = @This();
 
     pub const Literal = struct {
@@ -34,15 +34,15 @@ pub const Expression = union(enum) {
     };
 
     pub const Binary = struct {
-        left: *Expression,
+        left: *Self,
         operator: Token,
-        right: *Expression,
+        right: *Self,
 
         pub fn create(
             allocator: Allocator,
-            left: *Expression,
+            left: *Self,
             operator: Token,
-            right: *Expression,
+            right: *Self,
         ) !*Self {
             const expression = try allocator.create(Self);
 
@@ -60,12 +60,12 @@ pub const Expression = union(enum) {
 
     pub const Unary = struct {
         operator: Token,
-        right: *Expression,
+        right: *Self,
 
         pub fn create(
             allocator: Allocator,
             operator: Token,
-            right: *Expression,
+            right: *Self,
         ) !*Self {
             const expression = try allocator.create(Self);
 
