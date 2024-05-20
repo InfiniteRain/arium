@@ -10,7 +10,7 @@ pub const ParsedExpression = union(enum) {
     const Self = @This();
 
     pub const Literal = struct {
-        const Kind = enum {
+        pub const Kind = enum {
             int,
             float,
             bool,
@@ -34,14 +34,23 @@ pub const ParsedExpression = union(enum) {
     };
 
     pub const Binary = struct {
+        pub const OperatorKind = enum {
+            add,
+            subtract,
+            divide,
+            multiply,
+        };
+
         left: *Self,
-        operator: Token,
+        operator_token: Token,
+        operator_kind: OperatorKind,
         right: *Self,
 
         pub fn create(
             allocator: Allocator,
             left: *Self,
-            operator: Token,
+            operator_token: Token,
+            operator_kind: OperatorKind,
             right: *Self,
         ) !*Self {
             const expression = try allocator.create(Self);
@@ -49,7 +58,8 @@ pub const ParsedExpression = union(enum) {
             expression.* = .{
                 .binary = .{
                     .left = left,
-                    .operator = operator,
+                    .operator_token = operator_token,
+                    .operator_kind = operator_kind,
                     .right = right,
                 },
             };
@@ -59,19 +69,26 @@ pub const ParsedExpression = union(enum) {
     };
 
     pub const Unary = struct {
-        operator: Token,
+        pub const OperatorKind = enum {
+            negate,
+        };
+
+        operator_token: Token,
+        operator_kind: OperatorKind,
         right: *Self,
 
         pub fn create(
             allocator: Allocator,
-            operator: Token,
+            operator_token: Token,
+            operator_kind: OperatorKind,
             right: *Self,
         ) !*Self {
             const expression = try allocator.create(Self);
 
             expression.* = .{
                 .unary = .{
-                    .operator = operator,
+                    .operator_token = operator_token,
+                    .operator_kind = operator_kind,
                     .right = right,
                 },
             };
@@ -103,13 +120,13 @@ pub const ParsedExpression = union(enum) {
         switch (self.*) {
             .binary => |binary| Self.printParenthesized(
                 io,
-                binary.operator.lexeme,
+                binary.operator_token.lexeme,
                 .{ binary.left, binary.right },
             ),
             .literal => |literal| io.outf("{s}", .{literal.token.lexeme}),
             .unary => |unary| Self.printParenthesized(
                 io,
-                unary.operator.lexeme,
+                unary.operator_token.lexeme,
                 .{unary.right},
             ),
         }

@@ -44,16 +44,22 @@ pub const Parser = struct {
     }
 
     fn term(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
+        const OperatorKind = ParsedExpression.Binary.OperatorKind;
         var expr = try self.factor(allocator);
 
         while (self.match(.minus) or self.match(.plus)) {
-            const operator = self.previous();
+            const operator_token = self.previous();
+            const operator_kind: OperatorKind = if (operator_token.kind == .minus)
+                .subtract
+            else
+                .add;
             const right = try self.factor(allocator);
 
             expr = try ParsedExpression.Binary.create(
                 allocator,
                 expr,
-                operator,
+                operator_token,
+                operator_kind,
                 right,
             );
         }
@@ -62,17 +68,23 @@ pub const Parser = struct {
     }
 
     fn factor(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
+        const OperatorKind = ParsedExpression.Binary.OperatorKind;
         var expr = try self.unary(allocator);
 
         while (self.match(.slash) or self.match(.star)) {
-            const operator = self.previous();
+            const operator_token = self.previous();
+            const operator_kind: OperatorKind = if (operator_token.kind == .slash)
+                .divide
+            else
+                .multiply;
             const right = try self.unary(allocator);
 
             expr =
                 try ParsedExpression.Binary.create(
                 allocator,
                 expr,
-                operator,
+                operator_token,
+                operator_kind,
                 right,
             );
         }
@@ -82,12 +94,14 @@ pub const Parser = struct {
 
     fn unary(self: *Self, allocator: Allocator) ParserError!*ParsedExpression {
         if (self.match(.minus)) {
-            const operator = self.previous();
+            const operator_token = self.previous();
+            const operator_kind = .negate;
             const right = try self.unary(allocator);
 
             return try ParsedExpression.Unary.create(
                 allocator,
-                operator,
+                operator_token,
+                operator_kind,
                 right,
             );
         }

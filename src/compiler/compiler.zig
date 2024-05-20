@@ -47,14 +47,14 @@ pub const Compiler = struct {
         switch (expression.*) {
             .literal => |literal| {
                 const lexeme = literal.token.lexeme;
-                const value = switch (literal.kind) {
-                    .int => Value{
+                const value: Value = switch (literal.kind) {
+                    .int => .{
                         .int = std.fmt.parseInt(i64, lexeme, 10) catch unreachable,
                     },
-                    .float => Value{
+                    .float => .{
                         .float = std.fmt.parseFloat(f64, lexeme) catch unreachable,
                     },
-                    .bool => Value{ .bool = if (mem.eql(u8, "true", lexeme)) true else false },
+                    .bool => .{ .bool = mem.eql(u8, "true", lexeme) },
                 };
 
                 try self.chunk.writeConstant(value, literal.token.position);
@@ -62,17 +62,16 @@ pub const Compiler = struct {
             .binary => |binary| {
                 try self.compileExpression(binary.left);
                 try self.compileExpression(binary.right);
-                try self.chunk.writeByte(switch (binary.operator.lexeme[0]) {
-                    '-' => OpCode.subtract,
-                    '+' => OpCode.add,
-                    '/' => OpCode.divide,
-                    '*' => OpCode.multiply,
-                    else => unreachable,
-                }, binary.operator.position);
+                try self.chunk.writeByte(switch (binary.operator_kind) {
+                    .subtract => OpCode.subtract,
+                    .add => OpCode.add,
+                    .divide => OpCode.divide,
+                    .multiply => OpCode.multiply,
+                }, binary.operator_token.position);
             },
             .unary => |unary| {
                 try self.compileExpression(unary.right);
-                try self.chunk.writeByte(.negate, unary.operator.position);
+                try self.chunk.writeByte(.negate, unary.operator_token.position);
             },
         }
     }
