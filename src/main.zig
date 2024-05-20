@@ -5,7 +5,7 @@ const parser_mod = @import("parser/parser.zig");
 const managed_memory_mod = @import("state/managed_memory.zig");
 const compiler_mod = @import("compiler/compiler.zig");
 const chunk_mod = @import("compiler/chunk.zig");
-const vm_mod = @import("vm.zig");
+const vm_mod = @import("vm/vm.zig");
 
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const IoHandler = io_handler.IoHandler;
