@@ -49,7 +49,7 @@ pub const Vm = struct {
                     const index = self.readU8();
                     self.push(self.chunk().constants.items[index]);
                 },
-                .invert => {
+                .negate_bool => {
                     self.push(.{ .bool = !self.pop().bool });
                 },
                 .negate_int => {

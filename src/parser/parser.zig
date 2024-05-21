@@ -1,12 +1,12 @@
 const std = @import("std");
 const tokenizer_mod = @import("tokenizer.zig");
-const expression_mod = @import("parsed_expression.zig");
+const parsed_expression_mod = @import("parsed_expression.zig");
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
-const ParsedExpression = expression_mod.ParsedExpression;
+const ParsedExpression = parsed_expression_mod.ParsedExpression;
 
 pub const ParserError = error{
     OutOfMemory,
@@ -97,9 +97,9 @@ pub const Parser = struct {
             const OperatorKind = ParsedExpression.Unary.OperatorKind;
             const operator_token = self.previous();
             const operator_kind: OperatorKind = if (operator_token.kind == .minus)
-                .negate
+                .negate_num
             else
-                .invert;
+                .negate_bool;
             const right = try self.unary(allocator);
 
             return try ParsedExpression.Unary.create(
