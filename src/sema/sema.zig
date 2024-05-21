@@ -2,13 +2,18 @@ const std = @import("std");
 const parsed_expression_mod = @import("../parser/parsed_expression.zig");
 const sema_expression_mod = @import("sema_expression.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
+const parser_mod = @import("../parser/parser.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const allocPrint = std.fmt.allocPrint;
+const expectError = std.testing.expectError;
 const ParsedExpression = parsed_expression_mod.ParsedExpression;
 const SemaExpression = sema_expression_mod.SemaExpression;
+const Tokenizer = tokenizer_mod.Tokenizer;
+const Token = tokenizer_mod.Token;
 const Position = tokenizer_mod.Position;
+const Parser = parser_mod.Parser;
 
 pub const SemaError = error{
     OutOfMemory,
@@ -182,3 +187,41 @@ pub const Sema = struct {
         self.errs.deinit();
     }
 };
+
+test "should free all memory on successful analysis" {
+    // GIVEN
+    const allocator = std.testing.allocator;
+
+    const source = "(2 + 2) * -2";
+    var tokenizer = Tokenizer.init(source);
+    var parser = Parser.init(&tokenizer);
+
+    const parsed_expr = try parser.parse(allocator);
+    defer parsed_expr.destroy(allocator);
+
+    // WHEN - THEN
+    var sema = Sema.init(allocator);
+    defer sema.deinit();
+
+    const sema_expr = try sema.analyze(parsed_expr);
+    defer sema_expr.destroy(allocator);
+}
+
+test "should free all memory on unsuccessful analysis" {
+    // GIVEN
+    const allocator = std.testing.allocator;
+
+    const source = "(2 + 2) * -false";
+    var tokenizer = Tokenizer.init(source);
+    var parser = Parser.init(&tokenizer);
+
+    const parsed_expr = try parser.parse(allocator);
+    defer parsed_expr.destroy(allocator);
+
+    // WHEN - THEN
+    var sema = Sema.init(allocator);
+    defer sema.deinit();
+
+    const result = sema.analyze(parsed_expr);
+    try expectError(SemaError.SemaFailure, result);
+}

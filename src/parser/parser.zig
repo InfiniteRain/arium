@@ -196,12 +196,14 @@ pub const Parser = struct {
 };
 
 test "should free all memory" {
+    // GIVEN
     const allocator = std.testing.allocator;
 
     const source = "(2 + 2) * -2";
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(&tokenizer);
 
+    // WHEN - THEN
     const expr = try parser.parse(allocator);
     defer expr.destroy(allocator);
 }
