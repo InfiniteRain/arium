@@ -212,13 +212,13 @@ test "writeConstant should work" {
     defer chunk.deinit();
 
     // WHEN
-    try chunk.writeConstant(10, .{ .line = 1, .column = 1 });
-    try chunk.writeConstant(20, .{ .line = 2, .column = 2 });
+    try chunk.writeConstant(.{ .int = 10 }, .{ .line = 1, .column = 1 });
+    try chunk.writeConstant(.{ .int = 20 }, .{ .line = 2, .column = 2 });
 
     // THEN
     try expect(chunk.constants.items.len == 2);
 
-    try expect(chunk.constants.items[0] == 10);
+    try expect(chunk.constants.items[0].int == 10);
     try expect(chunk.code.items[0] == @intFromEnum(OpCode.constant));
     try expect(chunk.code.items[1] == 0);
     try expect(chunk.positions.items[0].?.line == 1);
@@ -226,7 +226,7 @@ test "writeConstant should work" {
     try expect(chunk.positions.items[1].?.line == 1);
     try expect(chunk.positions.items[1].?.column == 1);
 
-    try expect(chunk.constants.items[1] == 20);
+    try expect(chunk.constants.items[1].int == 20);
     try expect(chunk.code.items[2] == @intFromEnum(OpCode.constant));
     try expect(chunk.code.items[3] == 1);
     try expect(chunk.positions.items[2].?.line == 2);

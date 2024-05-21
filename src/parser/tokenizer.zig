@@ -319,12 +319,12 @@ test "tokenizer parses numbers correctly" {
     const token3 = tokenizer.scanToken();
 
     // THEN
-    try expect(token1.kind == .number);
+    try expect(token1.kind == .int);
     try expect(mem.eql(u8, token1.lexeme, "1"));
     try expect(token1.position.line == 1);
     try expect(token1.position.column == 1);
 
-    try expect(token2.kind == .number);
+    try expect(token2.kind == .int);
     try expect(mem.eql(u8, token2.lexeme, "12345"));
     try expect(token2.position.line == 1);
     try expect(token2.position.column == 3);
@@ -347,17 +347,17 @@ test "tokenizer keeps track of lines correctly" {
     const token4 = tokenizer.scanToken();
 
     // THEN
-    try expect(token1.kind == .number);
+    try expect(token1.kind == .int);
     try expect(mem.eql(u8, token1.lexeme, "1"));
     try expect(token1.position.line == 1);
     try expect(token1.position.column == 1);
 
-    try expect(token2.kind == .number);
+    try expect(token2.kind == .int);
     try expect(mem.eql(u8, token2.lexeme, "123"));
     try expect(token2.position.line == 2);
     try expect(token2.position.column == 1);
 
-    try expect(token3.kind == .number);
+    try expect(token3.kind == .int);
     try expect(mem.eql(u8, token3.lexeme, "1256"));
     try expect(token3.position.line == 3);
     try expect(token3.position.column == 1);
@@ -403,7 +403,7 @@ test "tokenizer parses comments before eof correctly" {
     const token3 = tokenizer.scanToken();
 
     // THEN
-    try expect(token1.kind == .number);
+    try expect(token1.kind == .int);
     try expect(mem.eql(u8, token1.lexeme, "123"));
     try expect(token1.position.line == 1);
     try expect(token1.position.column == 1);
@@ -431,7 +431,7 @@ test "tokenizer parses comment before newline correctly" {
     const token4 = tokenizer.scanToken();
 
     // THEN
-    try expect(token1.kind == .number);
+    try expect(token1.kind == .int);
     try expect(mem.eql(u8, token1.lexeme, "1"));
     try expect(token1.position.line == 1);
     try expect(token1.position.column == 1);
@@ -441,7 +441,7 @@ test "tokenizer parses comment before newline correctly" {
     try expect(token2.position.line == 1);
     try expect(token2.position.column == 2);
 
-    try expect(token3.kind == .number);
+    try expect(token3.kind == .int);
     try expect(mem.eql(u8, token3.lexeme, "2"));
     try expect(token3.position.line == 2);
     try expect(token3.position.column == 1);
