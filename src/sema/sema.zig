@@ -79,14 +79,14 @@ pub const Sema = struct {
                 var binary_kind: BinaryKind = undefined;
 
                 if (left.eval_type != .int and left.eval_type != .float) {
-                    try self.err(
+                    try self.semaError(
                         binary.operator_token.position,
                         "Can't perform arithmetic operation on {s}.",
                         .{left.eval_type.stringify()},
                     );
                     binary_kind = .invalid;
                 } else if (left.eval_type != right.eval_type) {
-                    try self.err(
+                    try self.semaError(
                         binary.operator_token.position,
                         "Operand is expected to be of type {s}, got {s}.",
                         .{ left.eval_type.stringify(), right.eval_type.stringify() },
@@ -129,7 +129,7 @@ pub const Sema = struct {
                         unary_kind = .negate_bool;
                     },
                     else => {
-                        try self.err(
+                        try self.semaError(
                             unary.operator_token.position,
                             "Can't perform logical negation on {s}.",
                             .{eval_type.stringify()},
@@ -144,7 +144,7 @@ pub const Sema = struct {
                         unary_kind = .negate_float;
                     },
                     else => {
-                        try self.err(
+                        try self.semaError(
                             unary.operator_token.position,
                             "Can't perform arithmetic negation on {s}.",
                             .{eval_type.stringify()},
@@ -165,7 +165,7 @@ pub const Sema = struct {
         }
     }
 
-    fn err(
+    fn semaError(
         self: *Self,
         position: Position,
         comptime fmt: []const u8,
@@ -180,8 +180,8 @@ pub const Sema = struct {
     }
 
     fn deinitErrs(self: *Self) void {
-        for (self.errs.items) |item| {
-            self.allocator.free(item.message);
+        for (self.errs.items) |semaErr| {
+            self.allocator.free(semaErr.message);
         }
 
         self.errs.deinit();
@@ -194,9 +194,9 @@ test "should free all memory on successful analysis" {
 
     const source = "(2 + 2) * -2";
     var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(&tokenizer);
+    var parser = Parser.init(allocator);
 
-    const parsed_expr = try parser.parse(allocator);
+    const parsed_expr = try parser.parse(&tokenizer);
     defer parsed_expr.destroy(allocator);
 
     // WHEN - THEN
@@ -213,9 +213,9 @@ test "should free all memory on unsuccessful analysis" {
 
     const source = "(2 + 2) * -false";
     var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(&tokenizer);
+    var parser = Parser.init(allocator);
 
-    const parsed_expr = try parser.parse(allocator);
+    const parsed_expr = try parser.parse(&tokenizer);
     defer parsed_expr.destroy(allocator);
 
     // WHEN - THEN

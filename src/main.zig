@@ -29,22 +29,29 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "-true";
+    const source = "(2 + 2 * (2 + 2)";
     var tokenizer = Tokenizer.init(source);
 
-    var parser = Parser.init(&tokenizer);
-    const expr = parser.parse(allocator) catch |err| switch (err) {
+    var parser = Parser.init(allocator);
+    defer parser.deinit();
+
+    const parsed_expr = parser.parse(&tokenizer) catch |err| switch (err) {
         error.ParseFailure => {
-            // todo: MEMORY LEAK HERE
-            io.outf("{s}\n", .{parser.err.?.message});
+            for (parser.errs.items) |parser_err| {
+                io.outf("Error at {}:{}: {s}\n", .{
+                    parser_err.token.position.line,
+                    parser_err.token.position.column,
+                    parser_err.message,
+                });
+            }
             return;
         },
         else => return err,
     };
-    defer expr.destroy(allocator);
+    defer parsed_expr.destroy(allocator);
 
     io.out("== TREE ==\n");
-    expr.print(&io);
+    parsed_expr.print(&io);
     io.out("\n");
 
     var sema = Sema.init(allocator);
@@ -53,13 +60,13 @@ pub fn main() !void {
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();
 
-    var sema_expression = sema.analyze(expr) catch |err| switch (err) {
+    var sema_expression = sema.analyze(parsed_expr) catch |err| switch (err) {
         error.SemaFailure => {
-            for (sema.errs.items) |item| {
+            for (sema.errs.items) |sema_err| {
                 io.outf("Error at {}:{}: {s}\n", .{
-                    item.position.line,
-                    item.position.column,
-                    item.message,
+                    sema_err.position.line,
+                    sema_err.position.column,
+                    sema_err.message,
                 });
             }
             return;
