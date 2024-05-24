@@ -79,35 +79,54 @@ pub const Sema = struct {
                 const right = try self.analyzeExpression(binary.right);
                 var binary_kind: BinaryKind = undefined;
 
-                if (left.eval_type != .int and left.eval_type != .float) {
-                    try self.semaError(
-                        binary.operator_token.position,
-                        "Can't perform arithmetic operation on {s}.",
-                        .{left.eval_type.stringify()},
-                    );
-                    binary_kind = .invalid;
-                } else if (left.eval_type != right.eval_type) {
-                    try self.semaError(
-                        binary.operator_token.position,
-                        "Operand is expected to be of type {s}, got {s}.",
-                        .{ left.eval_type.stringify(), right.eval_type.stringify() },
-                    );
-                    binary_kind = .invalid;
-                } else if (left.eval_type == .int) {
-                    binary_kind = switch (binary.operator_kind) {
-                        .add => .add_int,
-                        .subtract => .subtract_int,
-                        .multiply => .multiply_int,
-                        .divide => .divide_int,
-                    };
-                } else {
-                    binary_kind = switch (binary.operator_kind) {
-                        .add => .add_float,
-                        .subtract => .subtract_float,
-                        .multiply => .multiply_float,
-                        .divide => .divide_float,
-                    };
+                switch (binary.operator_kind) {
+                    .add, .subtract, .divide, .multiply => {
+                        if (left.eval_type != .int and left.eval_type != .float) {
+                            try self.semaError(
+                                binary.operator_token.position,
+                                "Can't perform arithmetic operation on {s}.",
+                                .{left.eval_type.stringify()},
+                            );
+                            binary_kind = .invalid;
+                        } else if (left.eval_type != right.eval_type) {
+                            try self.semaError(
+                                binary.operator_token.position,
+                                "Operand is expected to be of type {s}, got {s}.",
+                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                            );
+                            binary_kind = .invalid;
+                        } else if (left.eval_type == .int) {
+                            binary_kind = switch (binary.operator_kind) {
+                                .add => .add_int,
+                                .subtract => .subtract_int,
+                                .multiply => .multiply_int,
+                                .divide => .divide_int,
+                                else => unreachable,
+                            };
+                        } else {
+                            binary_kind = switch (binary.operator_kind) {
+                                .add => .add_float,
+                                .subtract => .subtract_float,
+                                .multiply => .multiply_float,
+                                .divide => .divide_float,
+                                else => unreachable,
+                            };
+                        }
+                    },
+                    .concat => {
+                        if (left.eval_type != .string or right.eval_type != .string) {
+                            try self.semaError(
+                                binary.operator_token.position,
+                                "Can't perform a concatenation on types {s} and {s}.",
+                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                            );
+                            binary_kind = .invalid;
+                        } else {
+                            binary_kind = .concat;
+                        }
+                    },
                 }
+
                 const position = binary.operator_token.position;
 
                 return SemaExpression.Kind.Binary.create(

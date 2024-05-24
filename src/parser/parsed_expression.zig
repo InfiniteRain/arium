@@ -40,6 +40,7 @@ pub const ParsedExpression = union(enum) {
             subtract,
             divide,
             multiply,
+            concat,
         };
 
         left: *Self,

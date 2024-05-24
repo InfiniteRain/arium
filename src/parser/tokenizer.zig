@@ -20,6 +20,7 @@ pub const Token = struct {
         plus,
         slash,
         star,
+        plus_plus,
 
         bang,
 
@@ -86,7 +87,7 @@ pub const Tokenizer = struct {
             '(' => self.makeToken(.left_paren),
             ')' => self.makeToken(.right_paren),
             '-' => self.makeToken(.minus),
-            '+' => self.makeToken(.plus),
+            '+' => if (self.match('+')) self.makeToken(.plus_plus) else self.makeToken(.plus),
             '/' => if (self.match('/')) self.comment() else self.makeToken(.slash),
             '*' => self.makeToken(.star),
             '!' => self.makeToken(.bang),

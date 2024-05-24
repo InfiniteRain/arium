@@ -4,6 +4,7 @@ const value_mod = @import("../state/value.zig");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const io_handler = @import("../io_handler.zig");
+const object_mod = @import("../state/object.zig");
 
 const Allocator = std.mem.Allocator;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
@@ -13,6 +14,7 @@ const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const Stack = stack_mod.Stack;
 const IoHandler = io_handler.IoHandler;
+const Object = object_mod.Object;
 
 const VmError = error{
     OutOfMemory,
@@ -25,7 +27,7 @@ pub const Vm = struct {
     memory: *ManagedMemory,
     io: *IoHandler,
     allocator: Allocator,
-    state: VmState,
+    state: *VmState,
 
     pub fn interpret(memory: *ManagedMemory, io: *IoHandler) VmError!void {
         const allocator = memory.allocator();
@@ -34,7 +36,7 @@ pub const Vm = struct {
             .memory = memory,
             .io = io,
             .allocator = allocator,
-            .state = memory.vm_state.?,
+            .state = &memory.vm_state.?,
         };
 
         try vm.run();
@@ -106,6 +108,9 @@ pub const Vm = struct {
 
                     self.push(.{ .float = a / b });
                 },
+                .concat => {
+                    try self.concat();
+                },
                 .return_ => {
                     const value = self.pop();
                     value.print(self.io);
@@ -118,6 +123,27 @@ pub const Vm = struct {
                 _ => return error.InterpretError,
             }
         }
+    }
+
+    fn concat(self: *Self) VmError!void {
+        const b = self.peek(0).object.as(Object.String);
+        const a = self.peek(1).object.as(Object.String);
+
+        const new_length = a.chars.len + b.chars.len;
+        const new_chars = try self.allocator.alloc(u8, new_length);
+        @memcpy(new_chars[0..a.chars.len], a.chars);
+        @memcpy(new_chars[a.chars.len..(a.chars.len + b.chars.len)], b.chars);
+
+        const result = try Object.String.createFromOwned(
+            self.allocator,
+            self.state,
+            new_chars,
+        );
+
+        _ = self.pop();
+        _ = self.pop();
+
+        self.push(.{ .object = &result.object });
     }
 
     fn readOpCode(self: *Self) OpCode {

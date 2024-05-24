@@ -42,6 +42,7 @@ pub const SemaExpression = struct {
                 multiply_float,
                 divide_int,
                 divide_float,
+                concat,
                 invalid,
             };
 

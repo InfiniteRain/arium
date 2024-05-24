@@ -82,6 +82,7 @@ pub const Compiler = struct {
                     .multiply_float => OpCode.multiply_float,
                     .divide_int => OpCode.divide_int,
                     .divide_float => OpCode.divide_float,
+                    .concat => OpCode.concat,
                     .invalid => @panic("invalid binary expression"),
                 }, expression.position);
             },

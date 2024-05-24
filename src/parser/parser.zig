@@ -80,7 +80,7 @@ pub const Parser = struct {
 
     fn factor(self: *Self) ParserError!*ParsedExpression {
         const OperatorKind = ParsedExpression.Binary.OperatorKind;
-        var expr = try self.unary();
+        var expr = try self.concat();
 
         while (self.match(.slash) or self.match(.star)) {
             const operator_token = self.previous();
@@ -88,10 +88,30 @@ pub const Parser = struct {
                 .divide
             else
                 .multiply;
+            const right = try self.concat();
+
+            expr = try ParsedExpression.Binary.create(
+                self.allocator,
+                expr,
+                operator_token,
+                operator_kind,
+                right,
+            );
+        }
+
+        return expr;
+    }
+
+    fn concat(self: *Self) ParserError!*ParsedExpression {
+        const OperatorKind = ParsedExpression.Binary.OperatorKind;
+        var expr = try self.unary();
+
+        while (self.match(.plus_plus)) {
+            const operator_token = self.previous();
+            const operator_kind: OperatorKind = .concat;
             const right = try self.unary();
 
-            expr =
-                try ParsedExpression.Binary.create(
+            expr = try ParsedExpression.Binary.create(
                 self.allocator,
                 expr,
                 operator_token,

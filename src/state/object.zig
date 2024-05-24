@@ -89,16 +89,6 @@ pub const Object = struct {
         }
     }
 
-    pub fn destroyChain(self: ?*Self, allocator: Allocator) void {
-        var current = self;
-
-        while (current) |object| {
-            const next = object.next;
-            object.destroy(allocator);
-            current = next;
-        }
-    }
-
     fn create(
         KindType: type,
         allocator: Allocator,
