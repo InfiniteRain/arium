@@ -4,15 +4,18 @@ const chunk_mod = @import("chunk.zig");
 const sema_expression_mod = @import("../sema/sema_expression.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
+const object_mod = @import("../state/object.zig");
 
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
+const VmState = managed_memory_mod.VmState;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const SemaExpression = sema_expression_mod.SemaExpression;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
+const Object = object_mod.Object;
 
 const CompilerError = error{
     OutOfMemory,
@@ -22,13 +25,19 @@ const CompilerError = error{
 pub const Compiler = struct {
     const Self = @This();
 
+    vm_state: *VmState,
     allocator: Allocator,
     chunk: Chunk,
 
     pub fn compile(memory: *ManagedMemory, expression: *const SemaExpression) CompilerError!void {
         const allocator = memory.allocator();
 
+        var vm_state: VmState = undefined;
+
+        vm_state.objects = null;
+
         var compiler = Self{
+            .vm_state = &vm_state,
             .allocator = allocator,
             .chunk = try Chunk.init(memory),
         };
@@ -36,12 +45,11 @@ pub const Compiler = struct {
         try compiler.compileExpression(expression);
         try compiler.chunk.writeByte(.return_, null);
 
-        memory.vm_state = .{
-            .chunk = compiler.chunk,
-            .ip = @ptrCast(&compiler.chunk.code.items[0]),
-            .stack = try Stack.init(allocator),
-            .objects = null,
-        };
+        vm_state.chunk = compiler.chunk;
+        vm_state.ip = @ptrCast(&compiler.chunk.code.items[0]);
+        vm_state.stack = try Stack.init(allocator);
+
+        memory.vm_state = vm_state;
     }
 
     fn compileExpression(self: *Self, expression: *const SemaExpression) CompilerError!void {
@@ -51,6 +59,13 @@ pub const Compiler = struct {
                     .int => |int| .{ .int = int },
                     .float => |float| .{ .float = float },
                     .bool => |boolean| .{ .bool = boolean },
+                    .string => |string| .{
+                        .object = &(try Object.String.createFromCopied(
+                            self.allocator,
+                            self.vm_state,
+                            string,
+                        )).object,
+                    },
                 };
 
                 try self.chunk.writeConstant(value, expression.position);

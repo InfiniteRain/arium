@@ -137,6 +137,10 @@ pub const Parser = struct {
             return try ParsedExpression.Literal.create(self.allocator, self.previous(), .float);
         }
 
+        if (self.match(.string)) {
+            return try ParsedExpression.Literal.create(self.allocator, self.previous(), .string);
+        }
+
         if (self.match(.left_paren)) {
             const expr = try self.expression();
             errdefer expr.destroy(self.allocator);

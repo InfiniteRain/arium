@@ -62,11 +62,12 @@ pub const Sema = struct {
     ) SemaError!*SemaExpression {
         switch (expression.*) {
             .literal => |literal| {
-                const lexeme = literal.token.lexeme;
+                var lexeme = literal.token.lexeme;
                 const literal_variant: SemaExpression.Kind.Literal = switch (literal.kind) {
                     .int => .{ .int = std.fmt.parseInt(i64, lexeme, 10) catch unreachable },
                     .float => .{ .float = std.fmt.parseFloat(f64, lexeme) catch unreachable },
                     .bool => .{ .bool = lexeme.len == 4 },
+                    .string => .{ .string = lexeme[1 .. lexeme.len - 1] },
                 };
                 const position = literal.token.position;
 

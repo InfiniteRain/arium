@@ -12,6 +12,7 @@ pub const SemaExpression = struct {
             int: i64,
             float: f64,
             bool: bool,
+            string: []const u8, // not owned by SemaExpression, but by tokenizer
 
             pub fn create(allocator: Allocator, literal: Literal, position: Position) !*Self {
                 const expression = try allocator.create(Self);
@@ -22,6 +23,7 @@ pub const SemaExpression = struct {
                         .int => .int,
                         .float => .float,
                         .bool => .bool,
+                        .string => .string,
                     },
                     .position = position,
                 };
@@ -117,12 +119,14 @@ pub const SemaExpression = struct {
         int,
         float,
         bool,
+        string,
 
         pub fn stringify(self: EvalType) []const u8 {
             return switch (self) {
                 .int => "Int",
                 .float => "Float",
                 .bool => "Bool",
+                .string => "String",
             };
         }
     };

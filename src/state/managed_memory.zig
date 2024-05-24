@@ -38,7 +38,14 @@ pub const ManagedMemory = struct {
         if (self.vm_state) |*vm_state| {
             vm_state.chunk.deinit();
             vm_state.stack.deinit();
-            Object.destroyChain(vm_state.objects, local_allocator);
+
+            var current = vm_state.objects;
+
+            while (current) |object| {
+                const next = object.next;
+                object.destroy(local_allocator);
+                current = next;
+            }
         }
     }
 

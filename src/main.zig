@@ -29,9 +29,8 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "(2 + 2 * (2 + 2)";
+    const source = "\"Hello, world!\"";
     var tokenizer = Tokenizer.init(source);
-
     var parser = Parser.init(allocator);
     defer parser.deinit();
 
@@ -50,15 +49,12 @@ pub fn main() !void {
     };
     defer parsed_expr.destroy(allocator);
 
-    io.out("== TREE ==\n");
+    io.out("\n== TREE ==\n");
     parsed_expr.print(&io);
     io.out("\n");
 
     var sema = Sema.init(allocator);
     defer sema.deinit();
-
-    var memory = ManagedMemory.init(allocator);
-    defer memory.deinit();
 
     var sema_expression = sema.analyze(parsed_expr) catch |err| switch (err) {
         error.SemaFailure => {
@@ -74,6 +70,9 @@ pub fn main() !void {
         else => return err,
     };
     defer sema_expression.destroy(allocator);
+
+    var memory = ManagedMemory.init(allocator);
+    defer memory.deinit();
 
     try Compiler.compile(&memory, sema_expression);
 

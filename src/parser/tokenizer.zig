@@ -26,6 +26,7 @@ pub const Token = struct {
         identifier,
         int,
         float,
+        string,
 
         true_,
         false_,
@@ -89,6 +90,7 @@ pub const Tokenizer = struct {
             '/' => if (self.match('/')) self.comment() else self.makeToken(.slash),
             '*' => self.makeToken(.star),
             '!' => self.makeToken(.bang),
+            '"' => self.string(),
             else => {
                 if (Self.isAlpha(char)) {
                     return self.identifier();
@@ -98,7 +100,7 @@ pub const Tokenizer = struct {
                     return self.number();
                 }
 
-                return self.makeInvalidToken();
+                return self.makeInvalidToken("Invalid character.");
             },
         };
     }
@@ -224,12 +226,29 @@ pub const Tokenizer = struct {
         return self.makeToken(if (is_float) .float else .int);
     }
 
+    fn string(self: *Self) Token {
+        while (self.peek() != '"' and !self.isAtEnd()) {
+            if (self.peek() == '\n') {
+                self.line += 1;
+            }
+
+            _ = self.advance();
+        }
+
+        if (self.isAtEnd()) {
+            return self.makeInvalidToken("Unterminated string.");
+        }
+
+        _ = self.advance();
+        return self.makeToken(.string);
+    }
+
     fn identifierKind(self: *Self) Token.Kind {
         // todo: this could probably be comptime generated
 
-        const string = self.source[self.start..self.current];
+        const lexeme = self.source[self.start..self.current];
 
-        return switch (string[0]) {
+        return switch (lexeme[0]) {
             't' => self.checkKeyword("true", .true_),
             'f' => self.checkKeyword("false", .false_),
             else => .identifier,
@@ -266,10 +285,10 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn makeInvalidToken(self: *const Self) Token {
+    fn makeInvalidToken(self: *const Self, message: []const u8) Token {
         return .{
             .kind = .invalid,
-            .lexeme = "",
+            .lexeme = message,
             .position = .{
                 .line = self.line,
                 .column = self.column_start,

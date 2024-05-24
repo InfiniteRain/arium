@@ -2,7 +2,7 @@ const std = @import("std");
 const managed_memory_mod = @import("managed_memory.zig");
 
 const Allocator = std.mem.Allocator;
-const ManagedMemory = managed_memory_mod.ManagedMemory;
+const VmState = managed_memory_mod.VmState;
 
 const ObjectError = error{
     OutOfMemory,
@@ -21,11 +21,12 @@ pub const Object = struct {
         hash: u32,
 
         fn create(
-            memory: *ManagedMemory,
+            allocator: Allocator,
+            vm_state: *VmState,
             owned_buf: []u8,
             content_hash: u32,
         ) ObjectError!*String {
-            const string_obj = try Self.create(String, memory).as(String);
+            const string_obj = (try Self.create(String, allocator, vm_state)).as(String);
             string_obj.chars = owned_buf;
             string_obj.hash = content_hash;
 
@@ -33,24 +34,26 @@ pub const Object = struct {
         }
 
         pub fn createFromOwned(
-            memory: *ManagedMemory,
+            allocator: Allocator,
+            vm_state: *VmState,
             owned_buf: []u8,
         ) ObjectError!*String {
             const content_hash = hash(owned_buf);
 
-            return try String.create(memory, owned_buf, content_hash);
+            return try String.create(allocator, vm_state, owned_buf, content_hash);
         }
 
         pub fn createFromCopied(
-            memory: *ManagedMemory,
+            allocator: Allocator,
+            vm_state: *VmState,
             buf: []const u8,
         ) ObjectError!*String {
             const content_hash = hash(buf);
-            const owned_buf = try memory.allocator().alloc(u8, buf.len);
+            const owned_buf = try allocator.alloc(u8, buf.len);
 
             @memcpy(owned_buf, buf);
 
-            return try String.create(memory, owned_buf, content_hash);
+            return try String.create(allocator, vm_state, owned_buf, content_hash);
         }
 
         fn hash(buf: []const u8) u32 {
@@ -96,17 +99,21 @@ pub const Object = struct {
         }
     }
 
-    fn create(KindType: type, memory: *ManagedMemory) ObjectError!*Self {
-        const unknown_obj = try memory.allocator().create(KindType);
+    fn create(
+        KindType: type,
+        allocator: Allocator,
+        vm_state: *VmState,
+    ) ObjectError!*Self {
+        const unknown_obj = try allocator.create(KindType);
 
-        unknown_obj.obj = .{
+        unknown_obj.object = .{
             .kind = kindTypeToKind(KindType),
-            .next = memory.vm_state.?.objects,
+            .next = vm_state.objects,
         };
 
-        memory.vm_state.?.objects = &unknown_obj.obj;
+        vm_state.objects = &unknown_obj.object;
 
-        return &unknown_obj.obj;
+        return &unknown_obj.object;
     }
 
     fn kindTypeToKind(KindType: type) Kind {

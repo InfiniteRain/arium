@@ -14,6 +14,7 @@ pub const ParsedExpression = union(enum) {
             int,
             float,
             bool,
+            string,
         };
 
         token: Token,
