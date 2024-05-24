@@ -40,6 +40,7 @@ pub const Compiler = struct {
             .chunk = compiler.chunk,
             .ip = @ptrCast(&compiler.chunk.code.items[0]),
             .stack = try Stack.init(allocator),
+            .objects = null,
         };
     }
 

@@ -2,17 +2,20 @@ const std = @import("std");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
+const object_mod = @import("object.zig");
 
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const Chunk = chunk_mod.Chunk;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
+const Object = object_mod.Object;
 
 pub const VmState = struct {
     chunk: Chunk,
     ip: [*]u8,
     stack: Stack,
+    objects: ?*Object,
 };
 
 pub const ManagedMemory = struct {
@@ -30,9 +33,12 @@ pub const ManagedMemory = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        const local_allocator = self.allocator();
+
         if (self.vm_state) |*vm_state| {
             vm_state.chunk.deinit();
             vm_state.stack.deinit();
+            Object.destroyChain(vm_state.objects, local_allocator);
         }
     }
 
