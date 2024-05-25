@@ -8,6 +8,7 @@ const Object = object_mod.Object;
 pub const Value = union(enum) {
     const Self = @This();
 
+    unit,
     int: i64,
     float: f64,
     bool: bool,
@@ -15,6 +16,7 @@ pub const Value = union(enum) {
 
     pub fn print(self: Self, io: *IoHandler) void {
         switch (self) {
+            .unit => io.out("unit"),
             .int => io.outf("{}", .{self.int}),
             .float => io.outf("{d}", .{self.float}),
             .bool => io.outf("{}", .{self.bool}),

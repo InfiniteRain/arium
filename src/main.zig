@@ -7,6 +7,7 @@ const compiler_mod = @import("compiler/compiler.zig");
 const chunk_mod = @import("compiler/chunk.zig");
 const vm_mod = @import("vm/vm.zig");
 const sema_mod = @import("sema/sema.zig");
+const hash_table_mod = @import("state/hash_table.zig");
 
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const IoHandler = io_handler.IoHandler;
@@ -29,7 +30,7 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "\"eeee\" ++ \"dsa\" ++ \"asd\"";
+    const source = "\"hello world\" ++ \"bte world\" ++ \"asd\"";
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(allocator);
     defer parser.deinit();

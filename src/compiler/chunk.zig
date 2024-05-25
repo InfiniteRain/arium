@@ -40,17 +40,13 @@ pub const OpCode = enum(u8) {
 pub const Chunk = struct {
     const Self = @This();
 
-    memory: *ManagedMemory,
     allocator: Allocator,
     code: ArrayList(u8),
     positions: ArrayList(?Position), // todo: replace with RLE
     constants: ArrayList(Value),
 
-    pub fn init(memory: *ManagedMemory) ChunkError!Self {
-        const allocator = memory.allocator();
-
+    pub fn init(allocator: Allocator) ChunkError!Self {
         return .{
-            .memory = memory,
             .allocator = allocator,
             .code = ArrayList(u8).init(allocator),
             .positions = ArrayList(?Position).init(allocator),
@@ -183,7 +179,7 @@ pub const Chunk = struct {
 test "writeByte works for all supported types" {
     // GIVEN
     var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = try Chunk.init(&memory);
+    var chunk = try Chunk.init(memory.allocator());
     defer chunk.deinit();
 
     // WHEN
@@ -210,7 +206,7 @@ test "writeByte works for all supported types" {
 test "writeConstant should work" {
     // GIVEN
     var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = try Chunk.init(&memory);
+    var chunk = try Chunk.init(memory.allocator());
     defer chunk.deinit();
 
     // WHEN

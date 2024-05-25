@@ -30,6 +30,10 @@ pub const Object = struct {
             string_obj.chars = owned_buf;
             string_obj.hash = content_hash;
 
+            vm_state.stack.push(.{ .object = &string_obj.object });
+            _ = try vm_state.strings.set(string_obj, .unit);
+            _ = vm_state.stack.pop();
+
             return string_obj;
         }
 
@@ -39,6 +43,12 @@ pub const Object = struct {
             owned_buf: []u8,
         ) ObjectError!*String {
             const content_hash = hash(owned_buf);
+            const interned_opt = vm_state.strings.findString(owned_buf, content_hash);
+
+            if (interned_opt) |interned| {
+                allocator.free(owned_buf);
+                return interned;
+            }
 
             return try String.create(allocator, vm_state, owned_buf, content_hash);
         }
@@ -49,8 +59,13 @@ pub const Object = struct {
             buf: []const u8,
         ) ObjectError!*String {
             const content_hash = hash(buf);
-            const owned_buf = try allocator.alloc(u8, buf.len);
+            const interned_opt = vm_state.strings.findString(buf, content_hash);
 
+            if (interned_opt) |interned| {
+                return interned;
+            }
+
+            const owned_buf = try allocator.alloc(u8, buf.len);
             @memcpy(owned_buf, buf);
 
             return try String.create(allocator, vm_state, owned_buf, content_hash);
