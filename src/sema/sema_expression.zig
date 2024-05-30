@@ -43,7 +43,6 @@ pub const SemaExpression = struct {
                 divide_int,
                 divide_float,
                 concat,
-                invalid,
             };
 
             kind: Binary.Kind,
@@ -81,7 +80,6 @@ pub const SemaExpression = struct {
                 negate_bool,
                 negate_int,
                 negate_float,
-                invalid,
             };
 
             kind: Unary.Kind,
@@ -111,9 +109,27 @@ pub const SemaExpression = struct {
             }
         };
 
+        pub const Invalid = struct {
+            pub fn create(allocator: Allocator) !*Self {
+                const expression = try allocator.create(Self);
+
+                expression.* = .{
+                    .kind = .invalid,
+                    .eval_type = .invalid,
+                    .position = .{
+                        .line = 0,
+                        .column = 0,
+                    },
+                };
+
+                return expression;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
+        invalid: Invalid,
     };
 
     pub const EvalType = enum {
@@ -121,6 +137,7 @@ pub const SemaExpression = struct {
         float,
         bool,
         string,
+        invalid,
 
         pub fn stringify(self: EvalType) []const u8 {
             return switch (self) {
@@ -128,6 +145,7 @@ pub const SemaExpression = struct {
                 .float => "Float",
                 .bool => "Bool",
                 .string => "String",
+                .invalid => "Invalid",
             };
         }
     };
@@ -146,6 +164,7 @@ pub const SemaExpression = struct {
             .unary => |unary| {
                 unary.right.destroy(allocator);
             },
+            .invalid => {},
         }
         allocator.destroy(self);
     }

@@ -30,7 +30,7 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "\"hello world\" ++ \"bte world\" ++ \"asd\"";
+    const source = "10.5 + 30 / \"hello\"";
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(allocator);
     defer parser.deinit();
@@ -71,17 +71,17 @@ pub fn main() !void {
         else => return err,
     };
     defer sema_expression.destroy(allocator);
-
-    var memory = ManagedMemory.init(allocator);
-    defer memory.deinit();
-
-    try Compiler.compile(&memory, sema_expression);
-
-    io.out("== CHUNK ==\n");
-    memory.vm_state.?.chunk.print(&io);
-
-    io.out("===========\n");
-    try Vm.interpret(&memory, &io);
+    //
+    // var memory = ManagedMemory.init(allocator);
+    // defer memory.deinit();
+    //
+    // try Compiler.compile(&memory, sema_expression);
+    //
+    // io.out("== CHUNK ==\n");
+    // memory.vm_state.?.chunk.print(&io);
+    //
+    // io.out("===========\n");
+    // try Vm.interpret(&memory, &io);
 }
 
 test {

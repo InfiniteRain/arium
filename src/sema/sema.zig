@@ -79,51 +79,52 @@ pub const Sema = struct {
                 const right = try self.analyzeExpression(binary.right);
                 var binary_kind: BinaryKind = undefined;
 
+                if (left.kind == .invalid or right.kind == .invalid) {
+                    return self.createInvalidExpr();
+                }
+
                 switch (binary.operator_kind) {
                     .add, .subtract, .divide, .multiply => {
                         if (left.eval_type != .int and left.eval_type != .float) {
-                            try self.semaError(
+                            return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
                                 "Can't perform arithmetic operation on {s}.",
                                 .{left.eval_type.stringify()},
                             );
-                            binary_kind = .invalid;
-                        } else if (left.eval_type != right.eval_type) {
-                            try self.semaError(
+                        }
+
+                        if (left.eval_type != right.eval_type) {
+                            return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
                                 "Operand is expected to be of type {s}, got {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
                             );
-                            binary_kind = .invalid;
-                        } else if (left.eval_type == .int) {
-                            binary_kind = switch (binary.operator_kind) {
-                                .add => .add_int,
-                                .subtract => .subtract_int,
-                                .multiply => .multiply_int,
-                                .divide => .divide_int,
-                                else => unreachable,
-                            };
-                        } else {
-                            binary_kind = switch (binary.operator_kind) {
-                                .add => .add_float,
-                                .subtract => .subtract_float,
-                                .multiply => .multiply_float,
-                                .divide => .divide_float,
-                                else => unreachable,
-                            };
                         }
+
+                        binary_kind = if (left.eval_type == .int) switch (binary.operator_kind) {
+                            .add => .add_int,
+                            .subtract => .subtract_int,
+                            .multiply => .multiply_int,
+                            .divide => .divide_int,
+                            else => unreachable,
+                        } else switch (binary.operator_kind) {
+                            .add => .add_float,
+                            .subtract => .subtract_float,
+                            .multiply => .multiply_float,
+                            .divide => .divide_float,
+                            else => unreachable,
+                        };
                     },
                     .concat => {
                         if (left.eval_type != .string or right.eval_type != .string) {
-                            try self.semaError(
+                            return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
                                 "Can't perform a concatenation on types {s} and {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
                             );
-                            binary_kind = .invalid;
-                        } else {
-                            binary_kind = .concat;
                         }
+
+                        binary_kind = .concat;
                     },
                 }
 
@@ -141,37 +142,30 @@ pub const Sema = struct {
             .unary => |unary| {
                 const UnaryKind = SemaExpression.Kind.Unary.Kind;
                 const right = try self.analyzeExpression(unary.right);
-                const eval_type = right.eval_type;
-                var unary_kind: UnaryKind = undefined;
 
-                if (unary.operator_kind == .negate_bool) switch (right.eval_type) {
-                    .bool => {
-                        unary_kind = .negate_bool;
-                    },
-                    else => {
-                        try self.semaError(
+                if (right.kind == .invalid) {
+                    return self.createInvalidExpr();
+                }
+
+                const eval_type = right.eval_type;
+                const unary_kind: UnaryKind = if (unary.operator_kind == .negate_bool)
+                    switch (right.eval_type) {
+                        .bool => .negate_bool,
+                        else => return try self.semaErrorWithInvalidExpr(
                             unary.operator_token.position,
                             "Can't perform logical negation on {s}.",
                             .{eval_type.stringify()},
-                        );
-                        unary_kind = .invalid;
-                    },
-                } else switch (right.eval_type) {
-                    .int => {
-                        unary_kind = .negate_int;
-                    },
-                    .float => {
-                        unary_kind = .negate_float;
-                    },
-                    else => {
-                        try self.semaError(
-                            unary.operator_token.position,
-                            "Can't perform arithmetic negation on {s}.",
-                            .{eval_type.stringify()},
-                        );
-                        unary_kind = .invalid;
-                    },
-                }
+                        ),
+                    }
+                else switch (right.eval_type) {
+                    .int => .negate_int,
+                    .float => .negate_float,
+                    else => return try self.semaErrorWithInvalidExpr(
+                        unary.operator_token.position,
+                        "Can't perform arithmetic negation on {s}.",
+                        .{eval_type.stringify()},
+                    ),
+                };
                 const position = unary.operator_token.position;
 
                 return SemaExpression.Kind.Unary.create(
@@ -183,6 +177,20 @@ pub const Sema = struct {
                 );
             },
         }
+    }
+
+    fn createInvalidExpr(self: *const Self) SemaError!*SemaExpression {
+        return try SemaExpression.Kind.Invalid.create(self.allocator);
+    }
+
+    fn semaErrorWithInvalidExpr(
+        self: *Self,
+        position: Position,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) SemaError!*SemaExpression {
+        try self.semaError(position, fmt, args);
+        return try self.createInvalidExpr();
     }
 
     fn semaError(
