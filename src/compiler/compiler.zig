@@ -1,7 +1,7 @@
 const std = @import("std");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const chunk_mod = @import("chunk.zig");
-const sema_expression_mod = @import("../sema/sema_expression.zig");
+const sema_expr_mod = @import("../sema/sema_expr.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const object_mod = @import("../state/object.zig");
@@ -13,7 +13,7 @@ const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
-const SemaExpression = sema_expression_mod.SemaExpression;
+const SemaExpr = sema_expr_mod.SemaExpr;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
 const Object = object_mod.Object;
@@ -31,7 +31,7 @@ pub const Compiler = struct {
     allocator: Allocator,
     chunk: Chunk,
 
-    pub fn compile(memory: *ManagedMemory, expression: *const SemaExpression) CompilerError!void {
+    pub fn compile(memory: *ManagedMemory, expr: *const SemaExpr) CompilerError!void {
         const allocator = memory.allocator();
 
         var vm_state: VmState = undefined;
@@ -46,7 +46,7 @@ pub const Compiler = struct {
             .chunk = try Chunk.init(allocator),
         };
 
-        try compiler.compileExpression(expression);
+        try compiler.compileExpr(expr);
         try compiler.chunk.writeByte(.return_, null);
 
         vm_state.chunk = compiler.chunk;
@@ -55,8 +55,8 @@ pub const Compiler = struct {
         memory.vm_state = vm_state;
     }
 
-    fn compileExpression(self: *Self, expression: *const SemaExpression) CompilerError!void {
-        switch (expression.kind) {
+    fn compileExpr(self: *Self, expr: *const SemaExpr) CompilerError!void {
+        switch (expr.kind) {
             .literal => |literal| {
                 const value: Value = switch (literal) {
                     .int => |int| .{ .int = int },
@@ -71,11 +71,11 @@ pub const Compiler = struct {
                     },
                 };
 
-                try self.chunk.writeConstant(value, expression.position);
+                try self.chunk.writeConstant(value, expr.position);
             },
             .binary => |binary| {
-                try self.compileExpression(binary.left);
-                try self.compileExpression(binary.right);
+                try self.compileExpr(binary.left);
+                try self.compileExpr(binary.right);
                 try self.chunk.writeByte(switch (binary.kind) {
                     .add_int => OpCode.add_int,
                     .add_float => OpCode.add_float,
@@ -86,19 +86,19 @@ pub const Compiler = struct {
                     .divide_int => OpCode.divide_int,
                     .divide_float => OpCode.divide_float,
                     .concat => OpCode.concat,
-                    .invalid => @panic("invalid binary expression"),
-                }, expression.position);
+                    .invalid => @panic("invalid binary expr"),
+                }, expr.position);
             },
             .unary => |unary| {
-                try self.compileExpression(unary.right);
+                try self.compileExpr(unary.right);
                 try self.chunk.writeByte(
                     switch (unary.kind) {
                         .negate_bool => OpCode.negate_bool,
                         .negate_int => OpCode.negate_int,
                         .negate_float => OpCode.negate_float,
-                        .invalid => @panic("invalid unary expression"),
+                        .invalid => @panic("invalid unary expr"),
                     },
-                    expression.position,
+                    expr.position,
                 );
             },
         }

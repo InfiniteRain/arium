@@ -4,7 +4,7 @@ const tokenizer_mod = @import("../parser/tokenizer.zig");
 const Allocator = std.mem.Allocator;
 const Position = tokenizer_mod.Position;
 
-pub const SemaExpression = struct {
+pub const SemaExpr = struct {
     const Self = @This();
 
     pub const Kind = union(enum) {
@@ -12,12 +12,12 @@ pub const SemaExpression = struct {
             int: i64,
             float: f64,
             bool: bool,
-            string: []const u8, // not owned by SemaExpression, but by tokenizer
+            string: []const u8, // not owned by SemaExpr, but by tokenizer
 
             pub fn create(allocator: Allocator, literal: Literal, position: Position) !*Self {
-                const expression = try allocator.create(Self);
+                const expr = try allocator.create(Self);
 
-                expression.* = .{
+                expr.* = .{
                     .kind = .{ .literal = literal },
                     .eval_type = switch (literal) {
                         .int => .int,
@@ -28,7 +28,7 @@ pub const SemaExpression = struct {
                     .position = position,
                 };
 
-                return expression;
+                return expr;
             }
         };
 
@@ -46,8 +46,8 @@ pub const SemaExpression = struct {
             };
 
             kind: Binary.Kind,
-            left: *SemaExpression,
-            right: *SemaExpression,
+            left: *SemaExpr,
+            right: *SemaExpr,
 
             pub fn create(
                 allocator: Allocator,
@@ -57,9 +57,9 @@ pub const SemaExpression = struct {
                 left: *Self,
                 right: *Self,
             ) !*Self {
-                const expression = try allocator.create(Self);
+                const expr = try allocator.create(Self);
 
-                expression.* = .{
+                expr.* = .{
                     .kind = .{
                         .binary = .{
                             .kind = kind,
@@ -71,7 +71,7 @@ pub const SemaExpression = struct {
                     .position = position,
                 };
 
-                return expression;
+                return expr;
             }
         };
 
@@ -83,7 +83,7 @@ pub const SemaExpression = struct {
             };
 
             kind: Unary.Kind,
-            right: *SemaExpression,
+            right: *SemaExpr,
 
             pub fn create(
                 allocator: Allocator,
@@ -92,9 +92,9 @@ pub const SemaExpression = struct {
                 position: Position,
                 right: *Self,
             ) !*Self {
-                const expression = try allocator.create(Self);
+                const expr = try allocator.create(Self);
 
-                expression.* = .{
+                expr.* = .{
                     .kind = .{
                         .unary = .{
                             .kind = kind,
@@ -105,15 +105,15 @@ pub const SemaExpression = struct {
                     .position = position,
                 };
 
-                return expression;
+                return expr;
             }
         };
 
         pub const Invalid = struct {
             pub fn create(allocator: Allocator) !*Self {
-                const expression = try allocator.create(Self);
+                const expr = try allocator.create(Self);
 
-                expression.* = .{
+                expr.* = .{
                     .kind = .invalid,
                     .eval_type = .invalid,
                     .position = .{
@@ -122,7 +122,7 @@ pub const SemaExpression = struct {
                     },
                 };
 
-                return expression;
+                return expr;
             }
         };
 

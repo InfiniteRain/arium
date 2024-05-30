@@ -1,6 +1,6 @@
 const std = @import("std");
-const parsed_expression_mod = @import("../parser/parsed_expression.zig");
-const sema_expression_mod = @import("sema_expression.zig");
+const parsed_expr_mod = @import("../parser/parsed_expr.zig");
+const sema_expr_mod = @import("sema_expr.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const parser_mod = @import("../parser/parser.zig");
 
@@ -8,8 +8,8 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
-const ParsedExpression = parsed_expression_mod.ParsedExpression;
-const SemaExpression = sema_expression_mod.SemaExpression;
+const ParsedExpr = parsed_expr_mod.ParsedExpr;
+const SemaExpr = sema_expr_mod.SemaExpr;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Token = tokenizer_mod.Token;
 const Position = tokenizer_mod.Position;
@@ -42,28 +42,28 @@ pub const Sema = struct {
         self.deinitErrs();
     }
 
-    pub fn analyze(self: *Self, expression: *ParsedExpression) SemaError!*SemaExpression {
+    pub fn analyze(self: *Self, expr: *ParsedExpr) SemaError!*SemaExpr {
         self.deinitErrs();
         self.errs = ArrayList(SemaErrorInfo).init(self.allocator);
 
-        const sema_expression = try self.analyzeExpression(expression);
+        const sema_expr = try self.analyzeExpr(expr);
 
         if (self.errs.items.len > 0) {
-            sema_expression.destroy(self.allocator);
+            sema_expr.destroy(self.allocator);
             return error.SemaFailure;
         }
 
-        return sema_expression;
+        return sema_expr;
     }
 
-    fn analyzeExpression(
+    fn analyzeExpr(
         self: *Self,
-        expression: *ParsedExpression,
-    ) SemaError!*SemaExpression {
-        switch (expression.*) {
+        expr: *ParsedExpr,
+    ) SemaError!*SemaExpr {
+        switch (expr.*) {
             .literal => |literal| {
                 var lexeme = literal.token.lexeme;
-                const literal_variant: SemaExpression.Kind.Literal = switch (literal.kind) {
+                const literal_variant: SemaExpr.Kind.Literal = switch (literal.kind) {
                     .int => .{ .int = std.fmt.parseInt(i64, lexeme, 10) catch unreachable },
                     .float => .{ .float = std.fmt.parseFloat(f64, lexeme) catch unreachable },
                     .bool => .{ .bool = lexeme.len == 4 },
@@ -71,12 +71,12 @@ pub const Sema = struct {
                 };
                 const position = literal.token.position;
 
-                return SemaExpression.Kind.Literal.create(self.allocator, literal_variant, position);
+                return SemaExpr.Kind.Literal.create(self.allocator, literal_variant, position);
             },
             .binary => |binary| {
-                const BinaryKind = SemaExpression.Kind.Binary.Kind;
-                const left = try self.analyzeExpression(binary.left);
-                const right = try self.analyzeExpression(binary.right);
+                const BinaryKind = SemaExpr.Kind.Binary.Kind;
+                const left = try self.analyzeExpr(binary.left);
+                const right = try self.analyzeExpr(binary.right);
                 var binary_kind: BinaryKind = undefined;
 
                 if (left.kind == .invalid or right.kind == .invalid) {
@@ -130,7 +130,7 @@ pub const Sema = struct {
 
                 const position = binary.operator_token.position;
 
-                return SemaExpression.Kind.Binary.create(
+                return SemaExpr.Kind.Binary.create(
                     self.allocator,
                     binary_kind,
                     left.eval_type,
@@ -140,8 +140,8 @@ pub const Sema = struct {
                 );
             },
             .unary => |unary| {
-                const UnaryKind = SemaExpression.Kind.Unary.Kind;
-                const right = try self.analyzeExpression(unary.right);
+                const UnaryKind = SemaExpr.Kind.Unary.Kind;
+                const right = try self.analyzeExpr(unary.right);
 
                 if (right.kind == .invalid) {
                     return self.createInvalidExpr();
@@ -168,7 +168,7 @@ pub const Sema = struct {
                 };
                 const position = unary.operator_token.position;
 
-                return SemaExpression.Kind.Unary.create(
+                return SemaExpr.Kind.Unary.create(
                     self.allocator,
                     unary_kind,
                     eval_type,
@@ -179,8 +179,8 @@ pub const Sema = struct {
         }
     }
 
-    fn createInvalidExpr(self: *const Self) SemaError!*SemaExpression {
-        return try SemaExpression.Kind.Invalid.create(self.allocator);
+    fn createInvalidExpr(self: *const Self) SemaError!*SemaExpr {
+        return try SemaExpr.Kind.Invalid.create(self.allocator);
     }
 
     fn semaErrorWithInvalidExpr(
@@ -188,7 +188,7 @@ pub const Sema = struct {
         position: Position,
         comptime fmt: []const u8,
         args: anytype,
-    ) SemaError!*SemaExpression {
+    ) SemaError!*SemaExpr {
         try self.semaError(position, fmt, args);
         return try self.createInvalidExpr();
     }

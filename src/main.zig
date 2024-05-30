@@ -57,7 +57,7 @@ pub fn main() !void {
     var sema = Sema.init(allocator);
     defer sema.deinit();
 
-    var sema_expression = sema.analyze(parsed_expr) catch |err| switch (err) {
+    var sema_expr = sema.analyze(parsed_expr) catch |err| switch (err) {
         error.SemaFailure => {
             for (sema.errs.items) |sema_err| {
                 io.outf("Error at {}:{}: {s}\n", .{
@@ -70,12 +70,12 @@ pub fn main() !void {
         },
         else => return err,
     };
-    defer sema_expression.destroy(allocator);
+    defer sema_expr.destroy(allocator);
     //
     // var memory = ManagedMemory.init(allocator);
     // defer memory.deinit();
     //
-    // try Compiler.compile(&memory, sema_expression);
+    // try Compiler.compile(&memory, sema_expr);
     //
     // io.out("== CHUNK ==\n");
     // memory.vm_state.?.chunk.print(&io);

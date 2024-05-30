@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const Token = tokenizer.Token;
 const IoHandler = io_handler_mod.IoHandler;
 
-pub const ParsedExpression = union(enum) {
+pub const ParsedExpr = union(enum) {
     const Self = @This();
 
     pub const Literal = struct {
@@ -21,16 +21,16 @@ pub const ParsedExpression = union(enum) {
         kind: Kind,
 
         pub fn create(allocator: Allocator, token: Token, literal_kind: Kind) !*Self {
-            const expression = try allocator.create(Self);
+            const expr = try allocator.create(Self);
 
-            expression.* = .{
+            expr.* = .{
                 .literal = .{
                     .token = token,
                     .kind = literal_kind,
                 },
             };
 
-            return expression;
+            return expr;
         }
     };
 
@@ -55,9 +55,9 @@ pub const ParsedExpression = union(enum) {
             operator_kind: OperatorKind,
             right: *Self,
         ) !*Self {
-            const expression = try allocator.create(Self);
+            const expr = try allocator.create(Self);
 
-            expression.* = .{
+            expr.* = .{
                 .binary = .{
                     .left = left,
                     .operator_token = operator_token,
@@ -66,7 +66,7 @@ pub const ParsedExpression = union(enum) {
                 },
             };
 
-            return expression;
+            return expr;
         }
     };
 
@@ -86,9 +86,9 @@ pub const ParsedExpression = union(enum) {
             operator_kind: OperatorKind,
             right: *Self,
         ) !*Self {
-            const expression = try allocator.create(Self);
+            const expr = try allocator.create(Self);
 
-            expression.* = .{
+            expr.* = .{
                 .unary = .{
                     .operator_token = operator_token,
                     .operator_kind = operator_kind,
@@ -96,7 +96,7 @@ pub const ParsedExpression = union(enum) {
                 },
             };
 
-            return expression;
+            return expr;
         }
     };
 
@@ -138,22 +138,22 @@ pub const ParsedExpression = union(enum) {
     fn printParenthesized(
         io: *IoHandler,
         name: []const u8,
-        expressions: anytype,
+        expr: anytype,
     ) void {
-        const ExpressionsType = @TypeOf(expressions);
-        const expressions_type_info = @typeInfo(ExpressionsType);
+        const ExprsType = @TypeOf(expr);
+        const exprs_type_info = @typeInfo(ExprsType);
 
-        if (expressions_type_info != .Struct) {
-            @compileError("expected tuple, found " ++ @typeName(ExpressionsType));
+        if (exprs_type_info != .Struct) {
+            @compileError("expected tuple, found " ++ @typeName(ExprsType));
         }
 
-        const fields = expressions_type_info.Struct.fields;
+        const fields = exprs_type_info.Struct.fields;
 
         io.outf("({s} ", .{name});
 
         inline for (fields, 0..) |field, i| {
             const union_index = comptime std.fmt.parseInt(usize, field.name, 10) catch unreachable;
-            expressions[union_index].print(io);
+            expr[union_index].print(io);
 
             if (i != fields.len - 1) {
                 io.out(" ");

@@ -1,6 +1,6 @@
 const std = @import("std");
 const tokenizer_mod = @import("tokenizer.zig");
-const parsed_expression_mod = @import("parsed_expression.zig");
+const parsed_expr_mod = @import("parsed_expr.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -9,7 +9,7 @@ const expectError = std.testing.expectError;
 const allocPrint = std.fmt.allocPrint;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
-const ParsedExpression = parsed_expression_mod.ParsedExpression;
+const ParsedExpr = parsed_expr_mod.ParsedExpr;
 
 pub const ParserError = error{
     OutOfMemory,
@@ -41,22 +41,22 @@ pub const Parser = struct {
         self.deinitErrs();
     }
 
-    pub fn parse(self: *Self, tokenizer: *Tokenizer) ParserError!*ParsedExpression {
+    pub fn parse(self: *Self, tokenizer: *Tokenizer) ParserError!*ParsedExpr {
         self.deinitErrs();
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanToken();
         self.errs = ArrayList(ParserErrorInfo).init(self.allocator);
 
-        return try self.expression();
+        return try self.parseExpr();
     }
 
-    fn expression(self: *Self) ParserError!*ParsedExpression {
-        return try self.term();
+    fn parseExpr(self: *Self) ParserError!*ParsedExpr {
+        return try self.parseTerm();
     }
 
-    fn term(self: *Self) ParserError!*ParsedExpression {
-        const OperatorKind = ParsedExpression.Binary.OperatorKind;
-        var expr = try self.factor();
+    fn parseTerm(self: *Self) ParserError!*ParsedExpr {
+        const OperatorKind = ParsedExpr.Binary.OperatorKind;
+        var expr = try self.parseFactor();
 
         while (self.match(.minus) or self.match(.plus)) {
             const operator_token = self.previous();
@@ -64,9 +64,9 @@ pub const Parser = struct {
                 .subtract
             else
                 .add;
-            const right = try self.factor();
+            const right = try self.parseFactor();
 
-            expr = try ParsedExpression.Binary.create(
+            expr = try ParsedExpr.Binary.create(
                 self.allocator,
                 expr,
                 operator_token,
@@ -78,9 +78,9 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn factor(self: *Self) ParserError!*ParsedExpression {
-        const OperatorKind = ParsedExpression.Binary.OperatorKind;
-        var expr = try self.concat();
+    fn parseFactor(self: *Self) ParserError!*ParsedExpr {
+        const OperatorKind = ParsedExpr.Binary.OperatorKind;
+        var expr = try self.parseConcat();
 
         while (self.match(.slash) or self.match(.star)) {
             const operator_token = self.previous();
@@ -88,9 +88,9 @@ pub const Parser = struct {
                 .divide
             else
                 .multiply;
-            const right = try self.concat();
+            const right = try self.parseConcat();
 
-            expr = try ParsedExpression.Binary.create(
+            expr = try ParsedExpr.Binary.create(
                 self.allocator,
                 expr,
                 operator_token,
@@ -102,16 +102,16 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn concat(self: *Self) ParserError!*ParsedExpression {
-        const OperatorKind = ParsedExpression.Binary.OperatorKind;
-        var expr = try self.unary();
+    fn parseConcat(self: *Self) ParserError!*ParsedExpr {
+        const OperatorKind = ParsedExpr.Binary.OperatorKind;
+        var expr = try self.parseUnary();
 
         while (self.match(.plus_plus)) {
             const operator_token = self.previous();
             const operator_kind: OperatorKind = .concat;
-            const right = try self.unary();
+            const right = try self.parseUnary();
 
-            expr = try ParsedExpression.Binary.create(
+            expr = try ParsedExpr.Binary.create(
                 self.allocator,
                 expr,
                 operator_token,
@@ -123,17 +123,17 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn unary(self: *Self) ParserError!*ParsedExpression {
+    fn parseUnary(self: *Self) ParserError!*ParsedExpr {
         if (self.match(.minus) or self.match(.bang)) {
-            const OperatorKind = ParsedExpression.Unary.OperatorKind;
+            const OperatorKind = ParsedExpr.Unary.OperatorKind;
             const operator_token = self.previous();
             const operator_kind: OperatorKind = if (operator_token.kind == .minus)
                 .negate_num
             else
                 .negate_bool;
-            const right = try self.unary();
+            const right = try self.parseUnary();
 
-            return try ParsedExpression.Unary.create(
+            return try ParsedExpr.Unary.create(
                 self.allocator,
                 operator_token,
                 operator_kind,
@@ -141,28 +141,28 @@ pub const Parser = struct {
             );
         }
 
-        return try self.primary();
+        return try self.parsePrimary();
     }
 
-    fn primary(self: *Self) ParserError!*ParsedExpression {
+    fn parsePrimary(self: *Self) ParserError!*ParsedExpr {
         if (self.match(.true_) or self.match(.false_)) {
-            return try ParsedExpression.Literal.create(self.allocator, self.previous(), .bool);
+            return try ParsedExpr.Literal.create(self.allocator, self.previous(), .bool);
         }
 
         if (self.match(.int)) {
-            return try ParsedExpression.Literal.create(self.allocator, self.previous(), .int);
+            return try ParsedExpr.Literal.create(self.allocator, self.previous(), .int);
         }
 
         if (self.match(.float)) {
-            return try ParsedExpression.Literal.create(self.allocator, self.previous(), .float);
+            return try ParsedExpr.Literal.create(self.allocator, self.previous(), .float);
         }
 
         if (self.match(.string)) {
-            return try ParsedExpression.Literal.create(self.allocator, self.previous(), .string);
+            return try ParsedExpr.Literal.create(self.allocator, self.previous(), .string);
         }
 
         if (self.match(.left_paren)) {
-            const expr = try self.expression();
+            const expr = try self.parseExpr();
             errdefer expr.destroy(self.allocator);
 
             _ = try self.consume(.right_paren, "Expected ')' after expression.");
@@ -201,7 +201,6 @@ pub const Parser = struct {
         if (self.isAtEnd()) {
             return false;
         }
-
         return self.peek().kind == kind;
     }
 
