@@ -86,7 +86,6 @@ pub const Compiler = struct {
                     .divide_int => OpCode.divide_int,
                     .divide_float => OpCode.divide_float,
                     .concat => OpCode.concat,
-                    .invalid => @panic("invalid binary expr"),
                 }, expr.position);
             },
             .unary => |unary| {
@@ -96,11 +95,11 @@ pub const Compiler = struct {
                         .negate_bool => OpCode.negate_bool,
                         .negate_int => OpCode.negate_int,
                         .negate_float => OpCode.negate_float,
-                        .invalid => @panic("invalid unary expr"),
                     },
                     expr.position,
                 );
             },
+            .invalid => @panic("invalid expression"),
         }
     }
 };
