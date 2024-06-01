@@ -142,13 +142,13 @@ pub const Sema = struct {
                             .int => .equal_int,
                             .float => .equal_float,
                             .bool => .equal_bool,
-                            .object => .equal_obj,
+                            .obj => .equal_obj,
                             .invalid => unreachable,
                         } else switch (left.eval_type) {
                             .int => .not_equal_int,
                             .float => .not_equal_float,
                             .bool => .not_equal_bool,
-                            .object => .not_equal_obj,
+                            .obj => .not_equal_obj,
                             .invalid => unreachable,
                         };
                     },
@@ -210,7 +210,7 @@ pub const Sema = struct {
     }
 
     fn isString(eval_type: SemaExpr.EvalType) bool {
-        return eval_type == .object and eval_type.object == .string;
+        return eval_type == .obj and eval_type.obj == .string;
     }
 
     fn semaErrorWithInvalidExpr(

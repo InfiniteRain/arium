@@ -4,11 +4,11 @@ const managed_memory_mod = @import("managed_memory.zig");
 const Allocator = std.mem.Allocator;
 const VmState = managed_memory_mod.VmState;
 
-const ObjectError = error{
+const ObjError = error{
     OutOfMemory,
 };
 
-pub const Object = struct {
+pub const Obj = struct {
     const Self = @This();
 
     const Kind = enum {
@@ -16,7 +16,7 @@ pub const Object = struct {
     };
 
     pub const String = struct {
-        object: Self,
+        obj: Self,
         chars: []u8,
         hash: u32,
 
@@ -25,12 +25,12 @@ pub const Object = struct {
             vm_state: *VmState,
             owned_buf: []u8,
             content_hash: u32,
-        ) ObjectError!*String {
+        ) ObjError!*String {
             const string_obj = (try Self.create(String, allocator, vm_state)).as(String);
             string_obj.chars = owned_buf;
             string_obj.hash = content_hash;
 
-            vm_state.stack.push(.{ .object = &string_obj.object });
+            vm_state.stack.push(.{ .obj = &string_obj.obj });
             _ = try vm_state.strings.set(string_obj, .unit);
             _ = vm_state.stack.pop();
 
@@ -41,7 +41,7 @@ pub const Object = struct {
             allocator: Allocator,
             vm_state: *VmState,
             owned_buf: []u8,
-        ) ObjectError!*String {
+        ) ObjError!*String {
             const content_hash = hash(owned_buf);
             const interned_opt = vm_state.strings.findString(owned_buf, content_hash);
 
@@ -57,7 +57,7 @@ pub const Object = struct {
             allocator: Allocator,
             vm_state: *VmState,
             buf: []const u8,
-        ) ObjectError!*String {
+        ) ObjError!*String {
             const content_hash = hash(buf);
             const interned_opt = vm_state.strings.findString(buf, content_hash);
 
@@ -84,14 +84,14 @@ pub const Object = struct {
     };
 
     kind: Kind,
-    next: ?*Object,
+    next: ?*Obj,
 
     pub fn is(self: *Self, KindType: type) bool {
         return self.kind == kindTypeToKind(KindType);
     }
 
     pub fn as(self: *Self, KindType: type) *KindType {
-        return @fieldParentPtr("object", self);
+        return @fieldParentPtr("obj", self);
     }
 
     pub fn destroy(self: *Self, allocator: Allocator) void {
@@ -108,17 +108,17 @@ pub const Object = struct {
         KindType: type,
         allocator: Allocator,
         vm_state: *VmState,
-    ) ObjectError!*Self {
+    ) ObjError!*Self {
         const unknown_obj = try allocator.create(KindType);
 
-        unknown_obj.object = .{
+        unknown_obj.obj = .{
             .kind = kindTypeToKind(KindType),
-            .next = vm_state.objects,
+            .next = vm_state.objs,
         };
 
-        vm_state.objects = &unknown_obj.object;
+        vm_state.objs = &unknown_obj.obj;
 
-        return &unknown_obj.object;
+        return &unknown_obj.obj;
     }
 
     fn kindTypeToKind(KindType: type) Kind {

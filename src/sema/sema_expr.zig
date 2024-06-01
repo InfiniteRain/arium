@@ -24,7 +24,7 @@ pub const SemaExpr = struct {
                         .int => .int,
                         .float => .float,
                         .bool => .bool,
-                        .string => .{ .object = .string },
+                        .string => .{ .obj = .string },
                     },
                     .position = position,
                 };
@@ -145,14 +145,14 @@ pub const SemaExpr = struct {
 
     pub const EvalType = union(enum) {
         const Tag = meta.Tag(EvalType);
-        pub const ObjectKind = enum {
+        pub const ObjKind = enum {
             string,
         };
 
         int,
         float,
         bool,
-        object: ObjectKind,
+        obj: ObjKind,
         invalid,
 
         pub fn stringify(self: EvalType) []const u8 {
@@ -160,7 +160,7 @@ pub const SemaExpr = struct {
                 .int => "Int",
                 .float => "Float",
                 .bool => "Bool",
-                .object => switch (self.object) {
+                .obj => switch (self.obj) {
                     .string => "String",
                 },
                 .invalid => "Invalid",

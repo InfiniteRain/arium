@@ -2,7 +2,7 @@ const std = @import("std");
 const managed_memory_mod = @import("managed_memory.zig");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("stack.zig");
-const object_mod = @import("object.zig");
+const obj_mod = @import("obj.zig");
 const hash_table_mod = @import("hash_table.zig");
 
 const Allocator = std.mem.Allocator;
@@ -10,7 +10,7 @@ const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const Chunk = chunk_mod.Chunk;
 const Stack = stack_mod.Stack;
-const Object = object_mod.Object;
+const Obj = obj_mod.Obj;
 const HashTable = hash_table_mod.HashTable;
 
 const TestSuiteError = error{
@@ -39,7 +39,7 @@ pub const TestUtil = struct {
             .chunk = chunk,
             .ip = @ptrCast(&chunk.code.items[0]),
             .stack = try Stack.init(allocator),
-            .objects = null,
+            .objs = null,
             .strings = try HashTable.init(allocator),
         };
 
@@ -61,8 +61,8 @@ pub const TestUtil = struct {
         self.backing_allocator.destroy(self.memory);
     }
 
-    pub fn createString(self: *Self, buf: []const u8) TestSuiteError!*Object.String {
-        return try Object.String.createFromCopied(
+    pub fn createString(self: *Self, buf: []const u8) TestSuiteError!*Obj.String {
+        return try Obj.String.createFromCopied(
             self.memory.allocator(),
             self.vm_state,
             buf,

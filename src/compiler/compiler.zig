@@ -4,7 +4,7 @@ const chunk_mod = @import("chunk.zig");
 const sema_expr_mod = @import("../sema/sema_expr.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
-const object_mod = @import("../state/object.zig");
+const obj_mod = @import("../state/obj.zig");
 const hash_table_mod = @import("../state/hash_table.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 
@@ -17,7 +17,7 @@ const OpCode = chunk_mod.OpCode;
 const SemaExpr = sema_expr_mod.SemaExpr;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
-const Object = object_mod.Object;
+const Obj = obj_mod.Obj;
 const HashTable = hash_table_mod.HashTable;
 const Position = tokenizer_mod.Position;
 
@@ -39,7 +39,7 @@ pub const Compiler = struct {
 
         var vm_state: VmState = undefined;
 
-        vm_state.objects = null;
+        vm_state.objs = null;
         vm_state.strings = try HashTable.init(allocator);
         vm_state.stack = try Stack.init(allocator);
 
@@ -89,11 +89,11 @@ pub const Compiler = struct {
                     },
                     .string => |string| try self.chunk.writeConstant(
                         .{
-                            .object = &(try Object.String.createFromCopied(
+                            .obj = &(try Obj.String.createFromCopied(
                                 self.allocator,
                                 self.vm_state,
                                 string,
-                            )).object,
+                            )).obj,
                         },
                         expr.position,
                     ),

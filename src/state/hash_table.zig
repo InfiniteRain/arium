@@ -1,12 +1,12 @@
 const std = @import("std");
-const object_mod = @import("object.zig");
+const obj_mod = @import("obj.zig");
 const value_mod = @import("value.zig");
 const managed_memory_mod = @import("managed_memory.zig");
 const test_util_mod = @import("test_util.zig");
 
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
-const Object = object_mod.Object;
+const Obj = obj_mod.Obj;
 const Value = value_mod.Value;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
@@ -17,7 +17,7 @@ const HashTableError = error{
 };
 
 pub const Entry = struct {
-    key: ?*Object.String,
+    key: ?*Obj.String,
     value: Value,
 };
 
@@ -40,7 +40,7 @@ pub const HashTable = struct {
         self.allocator.free(self.entries);
     }
 
-    pub fn set(self: *Self, key: *Object.String, value: Value) HashTableError!bool {
+    pub fn set(self: *Self, key: *Obj.String, value: Value) HashTableError!bool {
         const flen: f64 = @floatFromInt(self.entries.len);
         const threshold: usize = @intFromFloat(flen * max_load);
 
@@ -61,7 +61,7 @@ pub const HashTable = struct {
         return is_new_key;
     }
 
-    pub fn get(self: *Self, key: *Object.String) ?Value {
+    pub fn get(self: *Self, key: *Obj.String) ?Value {
         if (self.entries.len == 0) {
             return null;
         }
@@ -75,7 +75,7 @@ pub const HashTable = struct {
         return entry.value;
     }
 
-    pub fn delete(self: *Self, key: *Object.String) bool {
+    pub fn delete(self: *Self, key: *Obj.String) bool {
         if (self.entries.len == 0) {
             return false;
         }
@@ -92,7 +92,7 @@ pub const HashTable = struct {
         return true;
     }
 
-    pub fn findString(self: *Self, buf: []const u8, hash: u32) ?*Object.String {
+    pub fn findString(self: *Self, buf: []const u8, hash: u32) ?*Obj.String {
         if (self.count == 0) {
             return null;
         }
@@ -141,7 +141,7 @@ pub const HashTable = struct {
         self.entries = new_entries;
     }
 
-    fn findEntry(entries: []Entry, key: *Object.String) *Entry {
+    fn findEntry(entries: []Entry, key: *Obj.String) *Entry {
         var index = key.hash & (entries.len - 1);
         var tombstone_opt: ?*Entry = null;
 
@@ -297,16 +297,16 @@ test "set should properly handle collisions" {
 
     // THEN
     try expect(t.table.entries[1].value.bool);
-    try expect(&t.table.entries[1].key.?.object == &s_key1.object);
+    try expect(&t.table.entries[1].key.?.obj == &s_key1.obj);
 
     try expect(!t.table.entries[2].value.bool);
-    try expect(&t.table.entries[2].key.?.object == &s_key2.object);
+    try expect(&t.table.entries[2].key.?.obj == &s_key2.obj);
 
     try expect(!t2.table.entries[1].value.bool);
-    try expect(&t2.table.entries[1].key.?.object == &s2_key2.object);
+    try expect(&t2.table.entries[1].key.?.obj == &s2_key2.obj);
 
     try expect(t2.table.entries[2].value.bool);
-    try expect(&t2.table.entries[2].key.?.object == &s2_key1.object);
+    try expect(&t2.table.entries[2].key.?.obj == &s2_key1.obj);
 }
 
 test "get should return true on existent items" {
@@ -387,7 +387,7 @@ test "get should resolve with correct values" {
     _ = try t.table.set(str1, .unit);
     _ = try t.table.set(str2, .{ .int = 10 });
     _ = try t.table.set(str3, .{ .bool = false });
-    _ = try t.table.set(str4, .{ .object = &(try t.createString("some value")).object });
+    _ = try t.table.set(str4, .{ .obj = &(try t.createString("some value")).obj });
     _ = try t.table.set(str2, .{ .int = 20 });
 
     // WHEN
@@ -400,7 +400,7 @@ test "get should resolve with correct values" {
     try expect(val1.? == .unit);
     try expect(val2.?.int == 20);
     try expect(!val3.?.bool);
-    try expect(val4.?.object == &(try t.createString("some value")).object);
+    try expect(val4.?.obj == &(try t.createString("some value")).obj);
 }
 
 test "delete returns true on successful deletion" {

@@ -2,7 +2,7 @@ const std = @import("std");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
-const object_mod = @import("object.zig");
+const obj_mod = @import("obj.zig");
 const hash_table_mod = @import("hash_table.zig");
 
 const Allocator = std.mem.Allocator;
@@ -10,14 +10,14 @@ const expect = std.testing.expect;
 const Chunk = chunk_mod.Chunk;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
-const Object = object_mod.Object;
+const Obj = obj_mod.Obj;
 const HashTable = hash_table_mod.HashTable;
 
 pub const VmState = struct {
     chunk: Chunk,
     ip: [*]u8,
     stack: Stack,
-    objects: ?*Object,
+    objs: ?*Obj,
     strings: HashTable,
 };
 
@@ -43,11 +43,11 @@ pub const ManagedMemory = struct {
             vm_state.stack.deinit();
             vm_state.strings.deinit();
 
-            var current = vm_state.objects;
+            var current = vm_state.objs;
 
-            while (current) |object| {
-                const next = object.next;
-                object.destroy(local_allocator);
+            while (current) |obj| {
+                const next = obj.next;
+                obj.destroy(local_allocator);
                 current = next;
             }
         }

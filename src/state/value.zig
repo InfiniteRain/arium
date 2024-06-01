@@ -1,9 +1,9 @@
 const std = @import("std");
 const io_handler_mod = @import("../io_handler.zig");
-const object_mod = @import("object.zig");
+const obj_mod = @import("obj.zig");
 
 const IoHandler = io_handler_mod.IoHandler;
-const Object = object_mod.Object;
+const Obj = obj_mod.Obj;
 
 pub const Value = union(enum) {
     const Self = @This();
@@ -12,7 +12,7 @@ pub const Value = union(enum) {
     int: i64,
     float: f64,
     bool: bool,
-    object: *Object,
+    obj: *Obj,
 
     pub fn print(self: Self, io: *IoHandler) void {
         switch (self) {
@@ -20,8 +20,8 @@ pub const Value = union(enum) {
             .int => io.outf("{}", .{self.int}),
             .float => io.outf("{d}", .{self.float}),
             .bool => io.outf("{}", .{self.bool}),
-            .object => |object| switch (object.kind) {
-                .string => io.outf("{s}", .{object.as(Object.String).chars}),
+            .obj => |obj| switch (obj.kind) {
+                .string => io.outf("{s}", .{obj.as(Obj.String).chars}),
             },
         }
     }
