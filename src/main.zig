@@ -31,7 +31,7 @@ pub fn main() !void {
     defer io.deinit();
 
     const source =
-        \\"asd" == "dsa"
+        \\0 < 10 == true
     ;
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(allocator);

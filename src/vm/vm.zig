@@ -154,6 +154,42 @@ pub const Vm = struct {
                         self.state.ip += offset;
                     }
                 },
+                .if_greater_int => {
+                    const offset = self.readU16();
+                    const b = self.pop().int;
+                    const a = self.pop().int;
+
+                    if (a > b) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_greater_float => {
+                    const offset = self.readU16();
+                    const b = self.pop().float;
+                    const a = self.pop().float;
+
+                    if (a > b) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_greater_equal_int => {
+                    const offset = self.readU16();
+                    const b = self.pop().int;
+                    const a = self.pop().int;
+
+                    if (a >= b) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_greater_equal_float => {
+                    const offset = self.readU16();
+                    const b = self.pop().float;
+                    const a = self.pop().float;
+
+                    if (a >= b) {
+                        self.state.ip += offset;
+                    }
+                },
                 .jump => {
                     const offset = self.readU16();
                     self.state.ip += offset;

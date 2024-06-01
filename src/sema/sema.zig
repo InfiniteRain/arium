@@ -138,7 +138,7 @@ pub const Sema = struct {
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Can't perform comparison between types {s} and {s}.",
+                                "Can't perform equality operation between types {s} and {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
                                 left,
                                 right,
@@ -158,6 +158,46 @@ pub const Sema = struct {
                             .bool => .not_equal_bool,
                             .obj => .not_equal_obj,
                             .invalid => unreachable,
+                        };
+                    },
+                    .greater, .greater_equal, .less, .less_equal => {
+                        if (left.eval_type != .int and right.eval_type != .float) {
+                            return try self.semaErrorWithInvalidExpr(
+                                binary.operator_token.position,
+                                "Can't perform comparison operation on {s}.",
+                                .{left.eval_type.stringify()},
+                                left,
+                                right,
+                            );
+                        }
+
+                        if (left.eval_type.tag() != right.eval_type.tag()) {
+                            return try self.semaErrorWithInvalidExpr(
+                                binary.operator_token.position,
+                                "Operand is expected to be of type {s}, got {s}.",
+                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                left,
+                                right,
+                            );
+                        }
+
+                        eval_type = .bool;
+                        binary_kind = switch (left.eval_type) {
+                            .int => switch (binary.operator_kind) {
+                                .greater => .greater_int,
+                                .greater_equal => .greater_equal_int,
+                                .less => .less_int,
+                                .less_equal => .less_equal_int,
+                                else => unreachable,
+                            },
+                            .float => switch (binary.operator_kind) {
+                                .greater => .greater_float,
+                                .greater_equal => .greater_equal_float,
+                                .less => .less_float,
+                                .less_equal => .less_equal_float,
+                                else => unreachable,
+                            },
+                            else => unreachable,
                         };
                     },
                 }

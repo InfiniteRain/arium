@@ -54,6 +54,15 @@ pub const SemaExpr = struct {
                 not_equal_float,
                 not_equal_bool,
                 not_equal_obj,
+
+                greater_int,
+                greater_float,
+                greater_equal_int,
+                greater_equal_float,
+                less_int,
+                less_float,
+                less_equal_int,
+                less_equal_float,
             };
 
             kind: Binary.Kind,

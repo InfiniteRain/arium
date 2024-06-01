@@ -53,6 +53,10 @@ pub const OpCode = enum(u8) {
     if_not_equal_float,
     if_not_equal_bool,
     if_not_equal_obj,
+    if_greater_int,
+    if_greater_equal_int,
+    if_greater_float,
+    if_greater_equal_float,
     jump,
 
     return_,
@@ -196,6 +200,10 @@ pub const Chunk = struct {
                 .if_not_equal_float,
                 .if_not_equal_bool,
                 .if_not_equal_obj,
+                .if_greater_int,
+                .if_greater_equal_int,
+                .if_greater_float,
+                .if_greater_equal_float,
                 .jump,
                 => self.printJumpInstruction(io, index),
 

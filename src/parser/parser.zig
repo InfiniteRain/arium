@@ -56,7 +56,7 @@ pub const Parser = struct {
 
     fn parseEquality(self: *Self) ParserError!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
-        var expr = try self.parseTerm();
+        var expr = try self.parseComparison();
 
         while (self.match(.bang_equal) or self.match(.equal_equal)) {
             const operator_token = self.previous();
@@ -64,9 +64,46 @@ pub const Parser = struct {
                 .not_equal
             else
                 .equal;
+            const right = try self.parseComparison();
+
+            expr = try ParsedExpr.Binary.create(
+                self.allocator,
+                expr,
+                operator_token,
+                operator_kind,
+                right,
+            );
+        }
+
+        return expr;
+    }
+
+    fn parseComparison(self: *Self) ParserError!*ParsedExpr {
+        const OperatorKind = ParsedExpr.Binary.OperatorKind;
+        var expr = try self.parseTerm();
+
+        while (self.match(.greater) or
+            self.match(.greater_equal) or
+            self.match(.less) or
+            self.match(.less_equal))
+        {
+            const operator_token = self.previous();
+            const operator_kind: OperatorKind = switch (operator_token.kind) {
+                .greater => .greater,
+                .greater_equal => .greater_equal,
+                .less => .less,
+                .less_equal => .less_equal,
+                else => unreachable,
+            };
             const right = try self.parseTerm();
 
-            expr = try ParsedExpr.Binary.create(self.allocator, expr, operator_token, operator_kind, right);
+            expr = try ParsedExpr.Binary.create(
+                self.allocator,
+                expr,
+                operator_token,
+                operator_kind,
+                right,
+            );
         }
 
         return expr;

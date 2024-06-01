@@ -123,6 +123,14 @@ pub const Compiler = struct {
                     .not_equal_float,
                     .not_equal_bool,
                     .not_equal_obj,
+                    .greater_int,
+                    .greater_float,
+                    .greater_equal_int,
+                    .greater_equal_float,
+                    .less_int,
+                    .less_float,
+                    .less_equal_int,
+                    .less_equal_float,
                     => try self.equal(binary.kind, expr.position),
                 }
             },
@@ -177,6 +185,38 @@ pub const Compiler = struct {
             .not_equal_obj => {
                 is_negated = true;
                 if_op_code = .if_not_equal_obj;
+            },
+            .greater_int => {
+                is_negated = true;
+                if_op_code = .if_greater_int;
+            },
+            .greater_float => {
+                is_negated = true;
+                if_op_code = .if_greater_float;
+            },
+            .greater_equal_int => {
+                is_negated = true;
+                if_op_code = .if_greater_equal_int;
+            },
+            .greater_equal_float => {
+                is_negated = true;
+                if_op_code = .if_greater_equal_float;
+            },
+            .less_int => {
+                is_negated = false;
+                if_op_code = .if_greater_equal_int;
+            },
+            .less_float => {
+                is_negated = false;
+                if_op_code = .if_greater_equal_float;
+            },
+            .less_equal_int => {
+                is_negated = false;
+                if_op_code = .if_greater_int;
+            },
+            .less_equal_float => {
+                is_negated = false;
+                if_op_code = .if_greater_float;
             },
             else => unreachable,
         }
