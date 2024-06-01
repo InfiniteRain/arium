@@ -57,8 +57,8 @@ pub const SemaExpr = struct {
             };
 
             kind: Binary.Kind,
-            left: *SemaExpr,
-            right: *SemaExpr,
+            left: *Self,
+            right: *Self,
 
             pub fn create(
                 allocator: Allocator,
@@ -94,7 +94,7 @@ pub const SemaExpr = struct {
             };
 
             kind: Unary.Kind,
-            right: *SemaExpr,
+            right: *Self,
 
             pub fn create(
                 allocator: Allocator,
@@ -121,11 +121,19 @@ pub const SemaExpr = struct {
         };
 
         pub const Invalid = struct {
-            pub fn create(allocator: Allocator) !*Self {
+            left_opt: ?*Self,
+            right_opt: ?*Self,
+
+            pub fn create(allocator: Allocator, left_opt: ?*Self, right_opt: ?*Self) !*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
-                    .kind = .invalid,
+                    .kind = .{
+                        .invalid = .{
+                            .left_opt = left_opt,
+                            .right_opt = right_opt,
+                        },
+                    },
                     .eval_type = .invalid,
                     .position = .{
                         .line = 0,
@@ -186,7 +194,15 @@ pub const SemaExpr = struct {
             .unary => |unary| {
                 unary.right.destroy(allocator);
             },
-            .invalid => {},
+            .invalid => |invalid| {
+                if (invalid.left_opt) |left| {
+                    left.destroy(allocator);
+                }
+
+                if (invalid.right_opt) |right| {
+                    right.destroy(allocator);
+                }
+            },
         }
         allocator.destroy(self);
     }

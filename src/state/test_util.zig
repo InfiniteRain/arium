@@ -16,6 +16,7 @@ const HashTable = hash_table_mod.HashTable;
 const TestSuiteError = error{
     OutOfMemory,
     TooManyConstants,
+    JumpTooBig,
 };
 
 pub const TestUtil = struct {

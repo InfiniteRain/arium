@@ -82,7 +82,7 @@ pub const Sema = struct {
                 var eval_type = left.eval_type;
 
                 if (left.kind == .invalid or right.kind == .invalid) {
-                    return self.createInvalidExpr();
+                    return self.createInvalidExpr(left, right);
                 }
 
                 switch (binary.operator_kind) {
@@ -92,6 +92,8 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform arithmetic operation on {s}.",
                                 .{left.eval_type.stringify()},
+                                left,
+                                right,
                             );
                         }
 
@@ -100,6 +102,8 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Operand is expected to be of type {s}, got {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                left,
+                                right,
                             );
                         }
 
@@ -123,6 +127,8 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform a concatenation on types {s} and {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                left,
+                                right,
                             );
                         }
 
@@ -134,6 +140,8 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform comparison between types {s} and {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                left,
+                                right,
                             );
                         }
 
@@ -170,7 +178,7 @@ pub const Sema = struct {
                 const right = try self.analyzeExpr(unary.right);
 
                 if (right.kind == .invalid) {
-                    return self.createInvalidExpr();
+                    return self.createInvalidExpr(right, null);
                 }
 
                 const eval_type = right.eval_type;
@@ -181,6 +189,8 @@ pub const Sema = struct {
                             unary.operator_token.position,
                             "Can't perform logical negation on {s}.",
                             .{eval_type.stringify()},
+                            right,
+                            null,
                         ),
                     }
                 else switch (right.eval_type) {
@@ -190,6 +200,8 @@ pub const Sema = struct {
                         unary.operator_token.position,
                         "Can't perform arithmetic negation on {s}.",
                         .{eval_type.stringify()},
+                        right,
+                        null,
                     ),
                 };
                 const position = unary.operator_token.position;
@@ -205,8 +217,12 @@ pub const Sema = struct {
         }
     }
 
-    fn createInvalidExpr(self: *const Self) SemaError!*SemaExpr {
-        return try SemaExpr.Kind.Invalid.create(self.allocator);
+    fn createInvalidExpr(
+        self: *const Self,
+        left_opt: ?*SemaExpr,
+        right_opt: ?*SemaExpr,
+    ) SemaError!*SemaExpr {
+        return try SemaExpr.Kind.Invalid.create(self.allocator, left_opt, right_opt);
     }
 
     fn isString(eval_type: SemaExpr.EvalType) bool {
@@ -218,9 +234,11 @@ pub const Sema = struct {
         position: Position,
         comptime fmt: []const u8,
         args: anytype,
+        left_opt: ?*SemaExpr,
+        right_opt: ?*SemaExpr,
     ) SemaError!*SemaExpr {
         try self.semaError(position, fmt, args);
-        return try self.createInvalidExpr();
+        return try self.createInvalidExpr(left_opt, right_opt);
     }
 
     fn semaError(
