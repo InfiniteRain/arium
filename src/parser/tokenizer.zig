@@ -62,21 +62,14 @@ pub const Tokenizer = struct {
     const Self = @This();
 
     source: []const u8,
-    start: usize,
-    current: usize,
-    line: u64,
-    column: u64,
-    column_start: u64,
+    start: usize = 0,
+    current: usize = 0,
+    line: u64 = 1,
+    column: u64 = 0,
+    column_start: u64 = 0,
 
     pub fn init(source: []const u8) Self {
-        return .{
-            .source = source,
-            .start = 0,
-            .current = 0,
-            .line = 1,
-            .column = 0,
-            .column_start = 0,
-        };
+        return .{ .source = source };
     }
 
     pub fn scanToken(self: *Self) Token {
