@@ -30,7 +30,9 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
-    const source = "10 + 1230 + 40 / 2";
+    const source =
+        \\"asd" == "dsa"
+    ;
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(allocator);
     defer parser.deinit();

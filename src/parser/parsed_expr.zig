@@ -41,6 +41,9 @@ pub const ParsedExpr = union(enum) {
             divide,
             multiply,
             concat,
+
+            equal,
+            not_equal,
         };
 
         left: *Self,

@@ -6,6 +6,7 @@ const parser_mod = @import("../parser/parser.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const meta = std.meta;
 const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
 const ParsedExpr = parsed_expr_mod.ParsedExpr;
@@ -78,6 +79,7 @@ pub const Sema = struct {
                 const left = try self.analyzeExpr(binary.left);
                 const right = try self.analyzeExpr(binary.right);
                 var binary_kind: BinaryKind = undefined;
+                var eval_type = left.eval_type;
 
                 if (left.kind == .invalid or right.kind == .invalid) {
                     return self.createInvalidExpr();
@@ -93,7 +95,7 @@ pub const Sema = struct {
                             );
                         }
 
-                        if (left.eval_type != right.eval_type) {
+                        if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
                                 "Operand is expected to be of type {s}, got {s}.",
@@ -116,7 +118,7 @@ pub const Sema = struct {
                         };
                     },
                     .concat => {
-                        if (left.eval_type != .string or right.eval_type != .string) {
+                        if (isString(eval_type) or !isString(right.eval_type)) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
                                 "Can't perform a concatenation on types {s} and {s}.",
@@ -126,6 +128,30 @@ pub const Sema = struct {
 
                         binary_kind = .concat;
                     },
+                    .equal, .not_equal => {
+                        if (left.eval_type.tag() != right.eval_type.tag()) {
+                            return try self.semaErrorWithInvalidExpr(
+                                binary.operator_token.position,
+                                "Can't perform comparison between types {s} and {s}.",
+                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                            );
+                        }
+
+                        eval_type = .bool;
+                        binary_kind = if (binary.operator_kind == .equal) switch (left.eval_type) {
+                            .int => .equal_int,
+                            .float => .equal_float,
+                            .bool => .equal_bool,
+                            .object => .equal_obj,
+                            .invalid => unreachable,
+                        } else switch (left.eval_type) {
+                            .int => .not_equal_int,
+                            .float => .not_equal_float,
+                            .bool => .not_equal_bool,
+                            .object => .not_equal_obj,
+                            .invalid => unreachable,
+                        };
+                    },
                 }
 
                 const position = binary.operator_token.position;
@@ -133,7 +159,7 @@ pub const Sema = struct {
                 return SemaExpr.Kind.Binary.create(
                     self.allocator,
                     binary_kind,
-                    left.eval_type,
+                    eval_type,
                     position,
                     left,
                     right,
@@ -181,6 +207,10 @@ pub const Sema = struct {
 
     fn createInvalidExpr(self: *const Self) SemaError!*SemaExpr {
         return try SemaExpr.Kind.Invalid.create(self.allocator);
+    }
+
+    fn isString(eval_type: SemaExpr.EvalType) bool {
+        return eval_type == .object and eval_type.object == .string;
     }
 
     fn semaErrorWithInvalidExpr(

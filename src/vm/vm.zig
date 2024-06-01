@@ -51,15 +51,22 @@ pub const Vm = struct {
                     const index = self.readU8();
                     self.push(self.chunk().constants.items[index]);
                 },
-                .negate_bool => {
-                    self.push(.{ .bool = !self.pop().bool });
-                },
-                .negate_int => {
-                    self.push(.{ .int = -self.pop().int });
-                },
-                .negate_float => {
-                    self.push(.{ .float = -self.pop().float });
-                },
+                .constant_bool_false => self.push(.{ .bool = false }),
+                .constant_bool_true => self.push(.{ .bool = true }),
+                .constant_int_n1 => self.push(.{ .int = -1 }),
+                .constant_int_0 => self.push(.{ .int = 0 }),
+                .constant_int_1 => self.push(.{ .int = 1 }),
+                .constant_int_2 => self.push(.{ .int = 2 }),
+                .constant_int_3 => self.push(.{ .int = 3 }),
+                .constant_int_4 => self.push(.{ .int = 4 }),
+                .constant_int_5 => self.push(.{ .int = 5 }),
+                .constant_float_0 => self.push(.{ .float = 0 }),
+                .constant_float_1 => self.push(.{ .float = 1 }),
+                .constant_float_2 => self.push(.{ .float = 2 }),
+
+                .negate_bool => self.push(.{ .bool = !self.pop().bool }),
+                .negate_int => self.push(.{ .int = -self.pop().int }),
+                .negate_float => self.push(.{ .float = -self.pop().float }),
                 .add_int => {
                     const b = self.pop().int;
                     const a = self.pop().int;
@@ -108,18 +115,57 @@ pub const Vm = struct {
 
                     self.push(.{ .float = a / b });
                 },
-                .concat => {
-                    try self.concat();
+
+                .concat => try self.concat(),
+
+                .if_not_equal_int => {
+                    const offset = self.readU16();
+                    const b = self.pop().int;
+                    const a = self.pop().int;
+
+                    if (a != b) {
+                        self.state.ip += offset;
+                    }
                 },
+                .if_not_equal_float => {
+                    const offset = self.readU16();
+                    const b = self.pop().float;
+                    const a = self.pop().float;
+
+                    if (a != b) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_not_equal_bool => {
+                    const offset = self.readU16();
+                    const b = self.pop().bool;
+                    const a = self.pop().bool;
+
+                    if (a != b) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_not_equal_obj => {
+                    const offset = self.readU16();
+                    const b = self.pop().object;
+                    const a = self.pop().object;
+
+                    if (a != b) {
+                        self.state.ip += offset;
+                    }
+                },
+                .jump => {
+                    const offset = self.readU16();
+                    self.state.ip += offset;
+                },
+
                 .return_ => {
                     const value = self.pop();
                     value.print(self.io);
                     self.io.out("\n");
                     return;
                 },
-                .pop => {
-                    _ = self.pop();
-                },
+                .pop => _ = self.pop(),
                 _ => return error.InterpretError,
             }
         }
@@ -154,6 +200,12 @@ pub const Vm = struct {
         const byte = self.state.ip[0];
         self.state.ip += 1;
         return byte;
+    }
+
+    fn readU16(self: *Self) u16 {
+        const left: u16 = self.readU8();
+        const right = self.readU8();
+        return (left << 8) | right;
     }
 
     fn push(self: *Self, value: Value) void {

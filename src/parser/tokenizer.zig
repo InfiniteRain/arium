@@ -23,6 +23,13 @@ pub const Token = struct {
         plus_plus,
 
         bang,
+        bang_equal,
+        equal,
+        equal_equal,
+        // greater,
+        // greater_equal,
+        // less,
+        // less_equal,
 
         identifier,
         int,
@@ -86,11 +93,12 @@ pub const Tokenizer = struct {
         return switch (char) {
             '(' => self.makeToken(.left_paren),
             ')' => self.makeToken(.right_paren),
-            '-' => self.makeToken(.minus),
+            '-' => if (self.matchDigit()) self.number() else self.makeToken(.minus),
             '+' => if (self.match('+')) self.makeToken(.plus_plus) else self.makeToken(.plus),
             '/' => if (self.match('/')) self.comment() else self.makeToken(.slash),
             '*' => self.makeToken(.star),
-            '!' => self.makeToken(.bang),
+            '!' => if (self.match('=')) self.makeToken(.bang_equal) else self.makeToken(.bang),
+            '=' => if (self.match('=')) self.makeToken(.equal_equal) else self.makeToken(.equal),
             '"' => self.string(),
             else => {
                 if (Self.isAlpha(char)) {
@@ -130,6 +138,21 @@ pub const Tokenizer = struct {
         }
 
         if (self.source[self.current] != expected) {
+            return false;
+        }
+
+        self.current += 1;
+        return true;
+    }
+
+    fn matchDigit(self: *Self) bool {
+        if (self.isAtEnd()) {
+            return false;
+        }
+
+        const current = self.source[self.current];
+
+        if (current < '0' or current > '9') {
             return false;
         }
 

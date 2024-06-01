@@ -51,7 +51,25 @@ pub const Parser = struct {
     }
 
     fn parseExpr(self: *Self) ParserError!*ParsedExpr {
-        return try self.parseTerm();
+        return try self.parseEquality();
+    }
+
+    fn parseEquality(self: *Self) ParserError!*ParsedExpr {
+        const OperatorKind = ParsedExpr.Binary.OperatorKind;
+        var expr = try self.parseTerm();
+
+        while (self.match(.bang_equal) or self.match(.equal_equal)) {
+            const operator_token = self.previous();
+            const operator_kind: OperatorKind = if (operator_token.kind == .bang_equal)
+                .not_equal
+            else
+                .equal;
+            const right = try self.parseTerm();
+
+            expr = try ParsedExpr.Binary.create(self.allocator, expr, operator_token, operator_kind, right);
+        }
+
+        return expr;
     }
 
     fn parseTerm(self: *Self) ParserError!*ParsedExpr {

@@ -2,6 +2,7 @@ const std = @import("std");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 
 const Allocator = std.mem.Allocator;
+const meta = std.meta;
 const Position = tokenizer_mod.Position;
 
 pub const SemaExpr = struct {
@@ -23,7 +24,7 @@ pub const SemaExpr = struct {
                         .int => .int,
                         .float => .float,
                         .bool => .bool,
-                        .string => .string,
+                        .string => .{ .object = .string },
                     },
                     .position = position,
                 };
@@ -42,7 +43,17 @@ pub const SemaExpr = struct {
                 multiply_float,
                 divide_int,
                 divide_float,
+
                 concat,
+
+                equal_int,
+                equal_float,
+                equal_bool,
+                equal_obj,
+                not_equal_int,
+                not_equal_float,
+                not_equal_bool,
+                not_equal_obj,
             };
 
             kind: Binary.Kind,
@@ -132,11 +143,16 @@ pub const SemaExpr = struct {
         invalid: Invalid,
     };
 
-    pub const EvalType = enum {
+    pub const EvalType = union(enum) {
+        const Tag = meta.Tag(EvalType);
+        pub const ObjectKind = enum {
+            string,
+        };
+
         int,
         float,
         bool,
-        string,
+        object: ObjectKind,
         invalid,
 
         pub fn stringify(self: EvalType) []const u8 {
@@ -144,9 +160,15 @@ pub const SemaExpr = struct {
                 .int => "Int",
                 .float => "Float",
                 .bool => "Bool",
-                .string => "String",
+                .object => switch (self.object) {
+                    .string => "String",
+                },
                 .invalid => "Invalid",
             };
+        }
+
+        pub fn tag(self: EvalType) Tag {
+            return self;
         }
     };
 

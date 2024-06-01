@@ -7,6 +7,7 @@ const io_handler_mod = @import("../io_handler.zig");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ascii = std.ascii;
+const math = std.math;
 const expect = std.testing.expect;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Value = value_mod.Value;
@@ -16,10 +17,24 @@ const IoHandler = io_handler_mod.IoHandler;
 const ChunkError = error{
     OutOfMemory,
     TooManyConstants,
+    JumpTooBig,
 };
 
 pub const OpCode = enum(u8) {
     constant,
+    constant_bool_false,
+    constant_bool_true,
+    constant_int_n1,
+    constant_int_0,
+    constant_int_1,
+    constant_int_2,
+    constant_int_3,
+    constant_int_4,
+    constant_int_5,
+    constant_float_0,
+    constant_float_1,
+    constant_float_2,
+
     negate_bool,
     negate_int,
     negate_float,
@@ -31,7 +46,15 @@ pub const OpCode = enum(u8) {
     multiply_float,
     divide_int,
     divide_float,
+
     concat,
+
+    if_not_equal_int,
+    if_not_equal_float,
+    if_not_equal_bool,
+    if_not_equal_obj,
+    jump,
+
     return_,
     pop,
     _,
@@ -60,19 +83,19 @@ pub const Chunk = struct {
         self.constants.deinit();
     }
 
-    pub fn writeByte(self: *Self, byte: anytype, position: ?Position) ChunkError!void {
-        const ByteType = @TypeOf(byte);
+    pub fn writeU8(self: *Self, data: anytype, position: ?Position) ChunkError!void {
+        const ByteType = @TypeOf(data);
 
         switch (ByteType) {
             @TypeOf(.enum_literal), OpCode => {
-                if (ByteType == @TypeOf(.enum_literal) and !@hasField(OpCode, @tagName(byte))) {
+                if (ByteType == @TypeOf(.enum_literal) and !@hasField(OpCode, @tagName(data))) {
                     @compileError("expected valid OpCode");
                 }
 
-                try self.code.append(@intFromEnum(@as(OpCode, byte)));
+                try self.code.append(@intFromEnum(@as(OpCode, data)));
             },
             comptime_int, u8 => {
-                try self.code.append(byte);
+                try self.code.append(data);
             },
             else => {
                 @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType));
@@ -80,6 +103,35 @@ pub const Chunk = struct {
         }
 
         try self.positions.append(position);
+    }
+
+    pub fn writeU16(self: *Self, data: u16, position: ?Position) ChunkError!void {
+        try self.writeU8(@as(u8, @intCast((data >> 8) & 0xFF)), position);
+        try self.writeU8(@as(u8, @intCast(data & 0xFF)), position);
+    }
+
+    pub fn writeJump(
+        self: *Self,
+        op_code: OpCode,
+        position: ?Position,
+    ) ChunkError!usize {
+        try self.writeU8(op_code, position);
+        try self.writeU16(0, position);
+
+        return self.code.items.len - 2;
+    }
+
+    pub fn patchJump(self: *Self, offset: usize) ChunkError!void {
+        const jump = self.code.items.len - offset - 2;
+
+        if (offset > math.maxInt(u16)) {
+            return error.JumpTooBig;
+        }
+
+        const jump_converted: u16 = @intCast(jump);
+
+        self.code.items[offset] = @intCast((jump_converted >> 8) & 0xFF);
+        self.code.items[offset + 1] = @intCast(jump_converted & 0xFF);
     }
 
     pub fn writeConstant(self: *Self, value: Value, position: ?Position) ChunkError!void {
@@ -90,8 +142,8 @@ pub const Chunk = struct {
         const index = self.constants.items.len;
 
         try self.constants.append(value);
-        try self.writeByte(.constant, position);
-        try self.writeByte(@as(u8, @intCast(index)), position);
+        try self.writeU8(.constant, position);
+        try self.writeU8(@as(u8, @intCast(index)), position);
     }
 
     pub fn print(self: *Self, io: *IoHandler) void {
@@ -111,6 +163,19 @@ pub const Chunk = struct {
 
             index += switch (op_code) {
                 .constant => self.printConstantInstruction(io, index),
+
+                .constant_bool_false,
+                .constant_bool_true,
+                .constant_int_n1,
+                .constant_int_0,
+                .constant_int_1,
+                .constant_int_2,
+                .constant_int_3,
+                .constant_int_4,
+                .constant_int_5,
+                .constant_float_0,
+                .constant_float_1,
+                .constant_float_2,
                 .negate_bool,
                 .negate_int,
                 .negate_float,
@@ -126,13 +191,21 @@ pub const Chunk = struct {
                 .return_,
                 .pop,
                 => self.printInstruction(io, index),
+
+                .if_not_equal_int,
+                .if_not_equal_float,
+                .if_not_equal_bool,
+                .if_not_equal_obj,
+                .jump,
+                => self.printJumpInstruction(io, index),
+
                 _ => @panic("unknown instruction"),
             };
         }
     }
 
     fn printInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
-        const byte = self.code.items[offset];
+        const byte = self.readU8(offset);
         const op_code = @as(OpCode, @enumFromInt(byte));
 
         Self.printOpCode(op_code, io);
@@ -142,9 +215,9 @@ pub const Chunk = struct {
     }
 
     fn printConstantInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
-        const byte = self.code.items[offset];
-        const op_code = @as(OpCode, @enumFromInt(byte));
-        const index = self.code.items[offset + 1];
+        const byte = self.readU8(offset);
+        const op_code: OpCode = @enumFromInt(byte);
+        const index = self.readU8(offset + 1);
 
         Self.printOpCode(op_code, io);
         io.outf(" {: <4} '", .{index});
@@ -154,13 +227,24 @@ pub const Chunk = struct {
         return 2;
     }
 
+    fn printJumpInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
+        const byte = self.readU8(offset);
+        const op_code: OpCode = @enumFromInt(byte);
+        const jump_offset = self.readU16(offset + 1);
+
+        Self.printOpCode(op_code, io);
+        io.outf(" to {}\n", .{offset + jump_offset + 3});
+
+        return 3;
+    }
+
     fn printOpCode(op_code: OpCode, io: *IoHandler) void {
         const tag_name = switch (op_code) {
             .return_ => "return",
             else => @tagName(op_code),
         };
 
-        var fill: u8 = 16;
+        var fill: u8 = 24;
 
         for (tag_name) |char| {
             io.outf("{c}", .{ascii.toUpper(char)});
@@ -174,6 +258,16 @@ pub const Chunk = struct {
             io.out(" ");
         }
     }
+
+    fn readU8(self: *const Self, offset: usize) u8 {
+        return self.code.items[offset];
+    }
+
+    fn readU16(self: *const Self, offset: usize) u16 {
+        const left: u16 = self.code.items[offset];
+        const right = self.code.items[offset + 1];
+        return (left << 8) | right;
+    }
 };
 
 test "writeByte works for all supported types" {
@@ -183,10 +277,10 @@ test "writeByte works for all supported types" {
     defer chunk.deinit();
 
     // WHEN
-    try chunk.writeByte(0, .{ .line = 1, .column = 1 });
-    try chunk.writeByte(@as(u8, 1), .{ .line = 2, .column = 2 });
-    try chunk.writeByte(.return_, .{ .line = 3, .column = 3 });
-    try chunk.writeByte(.pop, .{ .line = 4, .column = 4 });
+    try chunk.writeU8(0, .{ .line = 1, .column = 1 });
+    try chunk.writeU8(@as(u8, 1), .{ .line = 2, .column = 2 });
+    try chunk.writeU8(.return_, .{ .line = 3, .column = 3 });
+    try chunk.writeU8(.pop, .{ .line = 4, .column = 4 });
 
     // THEN
     try expect(chunk.code.items[0] == 0);
