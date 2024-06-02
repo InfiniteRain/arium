@@ -44,6 +44,22 @@ pub const Vm = struct {
 
     fn run(self: *Self) VmError!void {
         while (true) {
+            self.io.out("               ");
+
+            var slot: [*]Value = @ptrCast(&self.memory.vm_state.?.stack.items[0]);
+
+            while (@intFromPtr(slot) < @intFromPtr(self.memory.vm_state.?.stack.top)) {
+                self.io.out("[");
+                slot[0].print(self.io);
+                self.io.out("] ");
+                slot += 1;
+            }
+
+            self.io.out("\n");
+
+            const instruction_offset = @intFromPtr(self.state.ip) - @intFromPtr(&self.state.chunk.code.items[0]);
+            _ = self.state.chunk.printInstruction(self.io, instruction_offset);
+
             const op_code = self.readOpCode();
 
             switch (op_code) {

@@ -154,75 +154,79 @@ pub const Chunk = struct {
         var index: usize = 0;
 
         while (index < self.code.items.len) {
-            io.outf("{:0>4} ", .{index});
-
-            if (self.positions.items[index]) |position| {
-                io.outf("{: >4}:{: <4} ", .{ position.line, position.column });
-            } else {
-                io.out("          ");
-            }
-
-            const byte = self.code.items[index];
-            const op_code = @as(OpCode, @enumFromInt(byte));
-
-            index += switch (op_code) {
-                .constant => self.printConstantInstruction(io, index),
-
-                .constant_bool_false,
-                .constant_bool_true,
-                .constant_int_n1,
-                .constant_int_0,
-                .constant_int_1,
-                .constant_int_2,
-                .constant_int_3,
-                .constant_int_4,
-                .constant_int_5,
-                .constant_float_0,
-                .constant_float_1,
-                .constant_float_2,
-                .negate_bool,
-                .negate_int,
-                .negate_float,
-                .add_int,
-                .add_float,
-                .subtract_int,
-                .subtract_float,
-                .multiply_int,
-                .multiply_float,
-                .divide_int,
-                .divide_float,
-                .concat,
-                .return_,
-                .pop,
-                => self.printInstruction(io, index),
-
-                .if_not_equal_int,
-                .if_not_equal_float,
-                .if_not_equal_bool,
-                .if_not_equal_obj,
-                .if_greater_int,
-                .if_greater_equal_int,
-                .if_greater_float,
-                .if_greater_equal_float,
-                .jump,
-                => self.printJumpInstruction(io, index),
-
-                _ => @panic("unknown instruction"),
-            };
+            index += self.printInstruction(io, index);
         }
     }
 
-    fn printInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
-        const byte = self.readU8(offset);
+    pub fn printInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
+        io.outf("{:0>4} ", .{offset});
+
+        if (self.positions.items[offset]) |position| {
+            io.outf("{: >4}:{: <4} ", .{ position.line, position.column });
+        } else {
+            io.out("          ");
+        }
+
+        const byte = self.code.items[offset];
         const op_code = @as(OpCode, @enumFromInt(byte));
 
-        Self.printOpCode(op_code, io);
+        return switch (op_code) {
+            .constant => self.printConstantInstructionName(io, offset),
+
+            .constant_bool_false,
+            .constant_bool_true,
+            .constant_int_n1,
+            .constant_int_0,
+            .constant_int_1,
+            .constant_int_2,
+            .constant_int_3,
+            .constant_int_4,
+            .constant_int_5,
+            .constant_float_0,
+            .constant_float_1,
+            .constant_float_2,
+            .negate_bool,
+            .negate_int,
+            .negate_float,
+            .add_int,
+            .add_float,
+            .subtract_int,
+            .subtract_float,
+            .multiply_int,
+            .multiply_float,
+            .divide_int,
+            .divide_float,
+            .concat,
+            .return_,
+            .pop,
+            => self.printInstructionName(io, offset),
+
+            .if_not_equal_int,
+            .if_not_equal_float,
+            .if_not_equal_bool,
+            .if_not_equal_obj,
+            .if_greater_int,
+            .if_greater_equal_int,
+            .if_greater_float,
+            .if_greater_equal_float,
+            .jump,
+            => self.printJumpInstructionName(io, offset),
+
+            _ => @panic("unknown instruction"),
+        };
+    }
+
+    fn printInstructionName(self: *const Self, io: *IoHandler, offset: usize) usize {
+        const byte = self.readU8(offset);
+        const op_code: OpCode = @enumFromInt(byte);
+
+        printOpCode(op_code, io);
         io.out("\n");
 
         return 1;
     }
 
-    fn printConstantInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
+    fn printConstantInstructionName(self: *const Self, io: *IoHandler, offset: usize) usize {
         const byte = self.readU8(offset);
         const op_code: OpCode = @enumFromInt(byte);
         const index = self.readU8(offset + 1);
@@ -235,7 +239,7 @@ pub const Chunk = struct {
         return 2;
     }
 
-    fn printJumpInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
+    fn printJumpInstructionName(self: *const Self, io: *IoHandler, offset: usize) usize {
         const byte = self.readU8(offset);
         const op_code: OpCode = @enumFromInt(byte);
         const jump_offset = self.readU16(offset + 1);
