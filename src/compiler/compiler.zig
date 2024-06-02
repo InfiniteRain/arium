@@ -178,91 +178,38 @@ pub const Compiler = struct {
         try self.compileExpr(expr.left);
         try self.compileExpr(expr.right);
 
-        var if_op_code: OpCode = undefined;
-        var is_negated: bool = undefined;
+        const cmp_op_code: OpCode, const if_op_code: OpCode = switch (expr.kind) {
+            .equal_int => .{ .compare_int, .if_not_equal },
+            .equal_float => .{ .compare_float, .if_not_equal },
+            .equal_bool => .{ .compare_bool, .if_not_equal },
+            .equal_obj => .{ .compare_obj, .if_not_equal },
 
-        switch (expr.kind) {
-            .equal_int => {
-                is_negated = false;
-                if_op_code = .if_not_equal_int;
-            },
-            .equal_float => {
-                is_negated = false;
-                if_op_code = .if_not_equal_float;
-            },
-            .equal_bool => {
-                is_negated = false;
-                if_op_code = .if_not_equal_bool;
-            },
-            .equal_obj => {
-                is_negated = false;
-                if_op_code = .if_not_equal_obj;
-            },
-            .not_equal_int => {
-                is_negated = true;
-                if_op_code = .if_not_equal_int;
-            },
-            .not_equal_float => {
-                is_negated = true;
-                if_op_code = .if_not_equal_float;
-            },
-            .not_equal_bool => {
-                is_negated = true;
-                if_op_code = .if_not_equal_bool;
-            },
-            .not_equal_obj => {
-                is_negated = true;
-                if_op_code = .if_not_equal_obj;
-            },
-            .greater_int => {
-                is_negated = true;
-                if_op_code = .if_greater_int;
-            },
-            .greater_float => {
-                is_negated = true;
-                if_op_code = .if_greater_float;
-            },
-            .greater_equal_int => {
-                is_negated = true;
-                if_op_code = .if_greater_equal_int;
-            },
-            .greater_equal_float => {
-                is_negated = true;
-                if_op_code = .if_greater_equal_float;
-            },
-            .less_int => {
-                is_negated = false;
-                if_op_code = .if_greater_equal_int;
-            },
-            .less_float => {
-                is_negated = false;
-                if_op_code = .if_greater_equal_float;
-            },
-            .less_equal_int => {
-                is_negated = false;
-                if_op_code = .if_greater_int;
-            },
-            .less_equal_float => {
-                is_negated = false;
-                if_op_code = .if_greater_float;
-            },
+            .not_equal_int => .{ .compare_int, .if_equal },
+            .not_equal_float => .{ .compare_float, .if_equal },
+            .not_equal_bool => .{ .compare_bool, .if_equal },
+            .not_equal_obj => .{ .compare_obj, .if_equal },
+
+            .greater_int => .{ .compare_int, .if_less_equal },
+            .greater_float => .{ .compare_float, .if_less_equal },
+
+            .greater_equal_int => .{ .compare_int, .if_less },
+            .greater_equal_float => .{ .compare_float, .if_less },
+
+            .less_int => .{ .compare_int, .if_greater_equal },
+            .less_float => .{ .compare_float, .if_greater_equal },
+
+            .less_equal_int => .{ .compare_int, .if_greater },
+            .less_equal_float => .{ .compare_float, .if_greater },
+
             else => unreachable,
-        }
+        };
 
+        try self.chunk.writeU8(cmp_op_code, position);
         const if_op_code_offset = try self.chunk.writeJump(if_op_code, position);
-
-        try self.chunk.writeU8(
-            if (is_negated) OpCode.constant_bool_false else OpCode.constant_bool_true,
-            position,
-        );
-
+        try self.chunk.writeU8(.constant_bool_true, position);
         const jump_offset = try self.chunk.writeJump(.jump, position);
-
         try self.chunk.patchJump(if_op_code_offset);
-        try self.chunk.writeU8(
-            if (is_negated) OpCode.constant_bool_true else OpCode.constant_bool_false,
-            position,
-        );
+        try self.chunk.writeU8(OpCode.constant_bool_false, position);
         try self.chunk.patchJump(jump_offset);
     }
 };

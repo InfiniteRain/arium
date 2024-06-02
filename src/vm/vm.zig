@@ -134,75 +134,82 @@ pub const Vm = struct {
 
                 .concat => try self.concat(),
 
-                .if_not_equal_int => {
-                    const offset = self.readU16();
+                .compare_int => {
                     const b = self.pop().int;
                     const a = self.pop().int;
 
-                    if (a != b) {
-                        self.state.ip += offset;
-                    }
+                    self.push(.{ .int = a - b });
                 },
-                .if_not_equal_float => {
-                    const offset = self.readU16();
-                    const b = self.pop().float;
-                    const a = self.pop().float;
-
-                    if (a != b) {
-                        self.state.ip += offset;
-                    }
-                },
-                .if_not_equal_bool => {
-                    const offset = self.readU16();
-                    const b = self.pop().bool;
-                    const a = self.pop().bool;
-
-                    if (a != b) {
-                        self.state.ip += offset;
-                    }
-                },
-                .if_not_equal_obj => {
-                    const offset = self.readU16();
-                    const b = self.pop().obj;
-                    const a = self.pop().obj;
-
-                    if (a != b) {
-                        self.state.ip += offset;
-                    }
-                },
-                .if_greater_int => {
-                    const offset = self.readU16();
-                    const b = self.pop().int;
-                    const a = self.pop().int;
-
-                    if (a > b) {
-                        self.state.ip += offset;
-                    }
-                },
-                .if_greater_float => {
-                    const offset = self.readU16();
+                .compare_float => {
                     const b = self.pop().float;
                     const a = self.pop().float;
 
                     if (a > b) {
-                        self.state.ip += offset;
+                        self.push(.{ .int = 1 });
+                    } else if (a < b) {
+                        self.push(.{ .int = -1 });
+                    } else {
+                        self.push(.{ .int = 0 });
                     }
                 },
-                .if_greater_equal_int => {
+                .compare_bool => {
+                    const b: i64 = @intFromBool(self.pop().bool);
+                    const a: i64 = @intFromBool(self.pop().bool);
+
+                    self.push(.{ .int = a - b });
+                },
+                .compare_obj => {
+                    const b: i64 = @intCast(@intFromPtr(self.pop().obj));
+                    const a: i64 = @intCast(@intFromPtr(self.pop().obj));
+
+                    self.push(.{ .int = a - b });
+                },
+
+                .if_equal => {
                     const offset = self.readU16();
-                    const b = self.pop().int;
                     const a = self.pop().int;
 
-                    if (a >= b) {
+                    if (a == 0) {
                         self.state.ip += offset;
                     }
                 },
-                .if_greater_equal_float => {
+                .if_not_equal => {
                     const offset = self.readU16();
-                    const b = self.pop().float;
-                    const a = self.pop().float;
+                    const a = self.pop().int;
 
-                    if (a >= b) {
+                    if (a != 0) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_greater => {
+                    const offset = self.readU16();
+                    const a = self.pop().int;
+
+                    if (a > 0) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_greater_equal => {
+                    const offset = self.readU16();
+                    const a = self.pop().int;
+
+                    if (a >= 0) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_less => {
+                    const offset = self.readU16();
+                    const a = self.pop().int;
+
+                    if (a < 0) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_less_equal => {
+                    const offset = self.readU16();
+                    const a = self.pop().int;
+
+                    if (a <= 0) {
                         self.state.ip += offset;
                     }
                 },
