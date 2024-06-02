@@ -100,20 +100,17 @@ pub const Compiler = struct {
                 }
             },
             .binary => |binary| {
-                try self.compileExpr(binary.left);
-                try self.compileExpr(binary.right);
-
                 switch (binary.kind) {
-                    .add_int => try self.chunk.writeU8(.add_int, expr.position),
-                    .add_float => try self.chunk.writeU8(.add_float, expr.position),
-                    .subtract_int => try self.chunk.writeU8(.subtract_int, expr.position),
-                    .subtract_float => try self.chunk.writeU8(.subtract_float, expr.position),
-                    .multiply_int => try self.chunk.writeU8(.multiply_int, expr.position),
-                    .multiply_float => try self.chunk.writeU8(.multiply_float, expr.position),
-                    .divide_int => try self.chunk.writeU8(.divide_int, expr.position),
-                    .divide_float => try self.chunk.writeU8(.divide_float, expr.position),
-
-                    .concat => try self.chunk.writeU8(.concat, expr.position),
+                    .add_int,
+                    .add_float,
+                    .subtract_int,
+                    .subtract_float,
+                    .multiply_int,
+                    .multiply_float,
+                    .divide_int,
+                    .divide_float,
+                    .concat,
+                    => try self.arithmetic(&binary, expr.position),
 
                     .equal_int,
                     .equal_float,
@@ -131,7 +128,7 @@ pub const Compiler = struct {
                     .less_float,
                     .less_equal_int,
                     .less_equal_float,
-                    => try self.equal(binary.kind, expr.position),
+                    => try self.equal(&binary, expr.position),
                 }
             },
             .unary => |unary| {
@@ -149,11 +146,42 @@ pub const Compiler = struct {
         }
     }
 
-    fn equal(self: *Self, kind: SemaExpr.Kind.Binary.Kind, position: ?Position) CompilerError!void {
+    fn arithmetic(
+        self: *Self,
+        expr: *const SemaExpr.Kind.Binary,
+        position: Position,
+    ) CompilerError!void {
+        try self.compileExpr(expr.left);
+        try self.compileExpr(expr.right);
+
+        const op_code: OpCode = switch (expr.kind) {
+            .add_int => .add_int,
+            .add_float => .add_float,
+            .subtract_int => .subtract_int,
+            .subtract_float => .subtract_float,
+            .multiply_int => .multiply_int,
+            .multiply_float => .multiply_float,
+            .divide_int => .divide_int,
+            .divide_float => .divide_float,
+            .concat => .concat,
+            else => unreachable,
+        };
+
+        try self.chunk.writeU8(op_code, position);
+    }
+
+    fn equal(
+        self: *Self,
+        expr: *const SemaExpr.Kind.Binary,
+        position: Position,
+    ) CompilerError!void {
+        try self.compileExpr(expr.left);
+        try self.compileExpr(expr.right);
+
         var if_op_code: OpCode = undefined;
         var is_negated: bool = undefined;
 
-        switch (kind) {
+        switch (expr.kind) {
             .equal_int => {
                 is_negated = false;
                 if_op_code = .if_not_equal_int;
