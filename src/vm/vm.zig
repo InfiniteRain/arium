@@ -213,6 +213,22 @@ pub const Vm = struct {
                         self.state.ip += offset;
                     }
                 },
+                .if_true => {
+                    const offset = self.readU16();
+                    const a = self.pop().bool;
+
+                    if (a) {
+                        self.state.ip += offset;
+                    }
+                },
+                .if_false => {
+                    const offset = self.readU16();
+                    const a = self.pop().bool;
+
+                    if (!a) {
+                        self.state.ip += offset;
+                    }
+                },
                 .jump => {
                     const offset = self.readU16();
                     self.state.ip += offset;

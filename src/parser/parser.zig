@@ -51,7 +51,45 @@ pub const Parser = struct {
     }
 
     fn parseExpr(self: *Self) ParserError!*ParsedExpr {
-        return try self.parseEquality();
+        return try self.parseOr();
+    }
+
+    fn parseOr(self: *Self) ParserError!*ParsedExpr {
+        var expr = try self.parseAnd();
+
+        while (self.match(.or_)) {
+            const operator_token = self.previous();
+            const right = try self.parseAnd();
+
+            expr = try ParsedExpr.Binary.create(
+                self.allocator,
+                expr,
+                operator_token,
+                .or_,
+                right,
+            );
+        }
+
+        return expr;
+    }
+
+    fn parseAnd(self: *Self) ParserError!*ParsedExpr {
+        var expr = try self.parseEquality();
+
+        while (self.match(.and_)) {
+            const operator_token = self.previous();
+            const right = try self.parseEquality();
+
+            expr = try ParsedExpr.Binary.create(
+                self.allocator,
+                expr,
+                operator_token,
+                .and_,
+                right,
+            );
+        }
+
+        return expr;
     }
 
     fn parseEquality(self: *Self) ParserError!*ParsedExpr {

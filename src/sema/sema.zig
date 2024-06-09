@@ -161,7 +161,7 @@ pub const Sema = struct {
                         };
                     },
                     .greater, .greater_equal, .less, .less_equal => {
-                        if (left.eval_type != .int and right.eval_type != .float) {
+                        if (left.eval_type != .int and left.eval_type != .float) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
                                 "Can't perform comparison operation on {s}.",
@@ -199,6 +199,30 @@ pub const Sema = struct {
                             },
                             else => unreachable,
                         };
+                    },
+                    .or_, .and_ => {
+                        if (left.eval_type != .bool) {
+                            return try self.semaErrorWithInvalidExpr(
+                                binary.operator_token.position,
+                                "Can't perform logical and operation on {s}.",
+                                .{left.eval_type.stringify()},
+                                left,
+                                right,
+                            );
+                        }
+
+                        if (left.eval_type.tag() != right.eval_type.tag()) {
+                            return try self.semaErrorWithInvalidExpr(
+                                binary.operator_token.position,
+                                "Operand is expected to be of type {s}, got {s}.",
+                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                left,
+                                right,
+                            );
+                        }
+
+                        eval_type = .bool;
+                        binary_kind = if (binary.operator_kind == .and_) .and_ else .or_;
                     },
                 }
 

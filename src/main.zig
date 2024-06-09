@@ -30,8 +30,25 @@ pub fn main() !void {
     var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
     defer io.deinit();
 
+    // todo: extract into tests
     const source =
-        \\0 < 10 == true
+        // \\ 10 > 30 == true or 40 > 30 == true
+        // \\10 > 30 and (20 < 30 or 30 < 50)
+        // \\ 1 == 1 and (1 == 1 and (1 == 1 and 1 == 1)) or 2 == 2 and 2 == 2
+        // \\ 1 == 1 and 1 == 1 and 1 == 1 and 1 == 1 or 2 == 2 and 2 == 2
+        // \\ (5 < 4) == false and (true or (false and (true and true)))
+        // \\ 10 > 5 == true or 20 > 6 == true or 40 > 30 == true == true
+        // \\ 10 > 5 == (1 == 1 and 1 == 1) or 20 > 6 == true or 40 > 30 == true == true
+        // \\ 10 > 5 and 20 > 5 or 30 > 5 and 40 > 50
+        // \\ 10 > 5 == true or 20 > 10
+
+        // \\ 10 > 5 and (20 > 5 or (30 > 5 and 40 > 5))
+        // \\ 10 > 5 and (20 > 5 and (30 > 5 and 40 > 5))
+        // \\ 10 > 50 != true and 30 > 40 == false and 20 == 20 or 40 == 30
+        // \\ (10 > 5 and 30 > 5) == 10 > 5
+        // \\ 10 > 5 or 20 > 5 or 30 > 6
+        // \\ 10 > 5 and 20 > 5 or 20 > 3 and 30 > 3
+        \\ (10 > 5 and (4 > 3 or (40 > 3 and 3 > 2))) == (1 == 1 and 1 == 1)
     ;
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(allocator);
@@ -73,6 +90,10 @@ pub fn main() !void {
         else => return err,
     };
     defer sema_expr.destroy(allocator);
+
+    // io.out("\n== SEMA ==\n");
+    // sema_expr.print(&io);
+    // io.out("\n");
 
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();

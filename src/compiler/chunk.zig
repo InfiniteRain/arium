@@ -59,6 +59,8 @@ pub const OpCode = enum(u8) {
     if_greater_equal,
     if_less,
     if_less_equal,
+    if_true,
+    if_false,
     jump,
 
     return_,
@@ -90,25 +92,12 @@ pub const Chunk = struct {
     }
 
     pub fn writeU8(self: *Self, data: anytype, position: ?Position) ChunkError!void {
-        const ByteType = @TypeOf(data);
-
-        switch (ByteType) {
-            @TypeOf(.enum_literal), OpCode => {
-                if (ByteType == @TypeOf(.enum_literal) and !@hasField(OpCode, @tagName(data))) {
-                    @compileError("expected valid OpCode");
-                }
-
-                try self.code.append(@intFromEnum(@as(OpCode, data)));
-            },
-            comptime_int, u8 => {
-                try self.code.append(data);
-            },
-            else => {
-                @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType));
-            },
-        }
-
+        try self.code.append(resolveU8(data));
         try self.positions.append(position);
+    }
+
+    pub fn updateU8(self: *Self, data: anytype, index: usize) ChunkError!void {
+        self.code.items[index] = resolveU8(data);
     }
 
     pub fn writeU16(self: *Self, data: u16, position: ?Position) ChunkError!void {
@@ -213,6 +202,8 @@ pub const Chunk = struct {
             .if_greater_equal,
             .if_less,
             .if_less_equal,
+            .if_true,
+            .if_false,
             .jump,
             => self.printJumpInstructionName(io, offset),
 
@@ -283,6 +274,26 @@ pub const Chunk = struct {
         const left: u16 = self.code.items[offset];
         const right = self.code.items[offset + 1];
         return (left << 8) | right;
+    }
+
+    fn resolveU8(data: anytype) u8 {
+        const ByteType = @TypeOf(data);
+
+        switch (ByteType) {
+            @TypeOf(.enum_literal), OpCode => {
+                if (ByteType == @TypeOf(.enum_literal) and !@hasField(OpCode, @tagName(data))) {
+                    @compileError("expected valid OpCode");
+                }
+
+                return @intFromEnum(@as(OpCode, data));
+            },
+            comptime_int, u8 => {
+                return data;
+            },
+            else => {
+                @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType));
+            },
+        }
     }
 };
 

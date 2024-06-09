@@ -38,6 +38,8 @@ pub const Token = struct {
 
         true_,
         false_,
+        and_,
+        or_,
 
         comment,
         eof,
@@ -268,8 +270,10 @@ pub const Tokenizer = struct {
         const lexeme = self.source[self.start..self.current];
 
         return switch (lexeme[0]) {
-            't' => self.checkKeyword("true", .true_),
+            'a' => self.checkKeyword("and", .and_),
+            'o' => self.checkKeyword("or", .or_),
             'f' => self.checkKeyword("false", .false_),
+            't' => self.checkKeyword("true", .true_),
             else => .identifier,
         };
     }
