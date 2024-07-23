@@ -50,7 +50,9 @@ pub fn main() !void {
         // \\ 10 > 5 and 20 > 5 or 20 > 3 and 30 > 3
         \\ (10 > 5 and (4 > 3 or (40 > 3 and 3 > 2))) == (1 == 1 and 1 == 1)
     ;
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
     var parser = Parser.init(allocator);
     defer parser.deinit();
 

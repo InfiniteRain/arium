@@ -1,9 +1,14 @@
 const std = @import("std");
-const io_handler = @import("../io_handler.zig");
+const io_handler_mod = @import("../io_handler.zig");
+const trie_mod = @import("trie.zig");
 
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const expect = std.testing.expect;
-const IoHandler = io_handler.IoHandler;
+const IoHandler = io_handler_mod.IoHandler;
+const Trie = trie_mod.Trie;
+
+pub const TokenizerError = error{OutOfMemory};
 
 pub const Position = struct {
     line: u64,
@@ -69,9 +74,23 @@ pub const Tokenizer = struct {
     line: u64 = 1,
     column: u64 = 0,
     column_start: u64 = 0,
+    keyword_trie: Trie(Token.Kind),
 
-    pub fn init(source: []const u8) Self {
-        return .{ .source = source };
+    pub fn init(allocator: Allocator, source: []const u8) TokenizerError!Self {
+        var keyword_trie = try Trie(Token.Kind).init(allocator);
+        try keyword_trie.insert("and", .and_);
+        try keyword_trie.insert("or", .or_);
+        try keyword_trie.insert("false", .false_);
+        try keyword_trie.insert("true", .true_);
+
+        return .{
+            .source = source,
+            .keyword_trie = keyword_trie,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.keyword_trie.deinit();
     }
 
     pub fn scanToken(self: *Self) Token {
@@ -265,25 +284,9 @@ pub const Tokenizer = struct {
     }
 
     fn identifierKind(self: *Self) Token.Kind {
-        // todo: this could probably be comptime generated
-
         const lexeme = self.source[self.start..self.current];
 
-        return switch (lexeme[0]) {
-            'a' => self.checkKeyword("and", .and_),
-            'o' => self.checkKeyword("or", .or_),
-            'f' => self.checkKeyword("false", .false_),
-            't' => self.checkKeyword("true", .true_),
-            else => .identifier,
-        };
-    }
-
-    fn checkKeyword(self: *Self, lexeme: []const u8, kind: Token.Kind) Token.Kind {
-        if (mem.eql(u8, self.source[self.start..self.current], lexeme)) {
-            return kind;
-        }
-
-        return .identifier;
+        return self.keyword_trie.search(lexeme) catch return .identifier;
     }
 
     fn makeToken(self: *const Self, kind: Token.Kind) Token {
@@ -323,7 +326,8 @@ pub const Tokenizer = struct {
 test "tokenizer results with eof on an empty string" {
     // GIVEN
     const source = "";
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(std.testing.allocator, source);
+    defer tokenizer.deinit();
 
     // WHEN
     const token = tokenizer.scanToken();
@@ -338,7 +342,8 @@ test "tokenizer results with eof on an empty string" {
 test "tokenizer correctly handles a string with only a newline" {
     // GIVEN
     const source = "\n";
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(std.testing.allocator, source);
+    defer tokenizer.deinit();
 
     // WHEN
     const token = tokenizer.scanToken();
@@ -353,7 +358,8 @@ test "tokenizer correctly handles a string with only a newline" {
 test "tokenizer parses numbers correctly" {
     // GIVEN
     const source = "1 12345";
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(std.testing.allocator, source);
+    defer tokenizer.deinit();
 
     // WHEN
     const token1 = tokenizer.scanToken();
@@ -380,7 +386,8 @@ test "tokenizer parses numbers correctly" {
 test "tokenizer keeps track of lines correctly" {
     // GIVEN
     const source = "1\n123\n1256";
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(std.testing.allocator, source);
+    defer tokenizer.deinit();
 
     // WHEN
     const token1 = tokenizer.scanToken();
@@ -413,7 +420,8 @@ test "tokenizer keeps track of lines correctly" {
 test "tokenizer parses single character tokens correctly" {
     // GIVEN
     const source = "()-+/*";
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(std.testing.allocator, source);
+    defer tokenizer.deinit();
 
     // WHEN - THEN
     for (source, 1..) |char, line| {
@@ -437,7 +445,8 @@ test "tokenizer parses single character tokens correctly" {
 test "tokenizer parses comments before eof correctly" {
     // GIVEN
     const source = "123 // some comment here";
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(std.testing.allocator, source);
+    defer tokenizer.deinit();
 
     // WHEN
     const token1 = tokenizer.scanToken();
@@ -464,7 +473,8 @@ test "tokenizer parses comments before eof correctly" {
 test "tokenizer parses comment before newline correctly" {
     // GIVEN
     const source = "1//c\n2";
-    var tokenizer = Tokenizer.init(source);
+    var tokenizer = try Tokenizer.init(std.testing.allocator, source);
+    defer tokenizer.deinit();
 
     // WHEN
     const token1 = tokenizer.scanToken();

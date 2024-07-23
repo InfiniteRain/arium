@@ -333,7 +333,10 @@ test "should free all memory on successful analysis" {
     const allocator = std.testing.allocator;
 
     const source = "(2 + 2) * -2";
-    var tokenizer = Tokenizer.init(source);
+
+    var tokenizer = try Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
     var parser = Parser.init(allocator);
 
     const parsed_expr = try parser.parse(&tokenizer);
@@ -352,7 +355,10 @@ test "should free all memory on unsuccessful analysis" {
     const allocator = std.testing.allocator;
 
     const source = "(2 + 2) * -false";
-    var tokenizer = Tokenizer.init(source);
+
+    var tokenizer = try Tokenizer.init(allocator, source);
+    defer tokenizer.deinit();
+
     var parser = Parser.init(allocator);
 
     const parsed_expr = try parser.parse(&tokenizer);
