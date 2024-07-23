@@ -27,7 +27,6 @@ pub const Token = struct {
         star,
         plus_plus,
 
-        bang,
         bang_equal,
         equal,
         equal_equal,
@@ -43,6 +42,7 @@ pub const Token = struct {
 
         true_,
         false_,
+        not,
         and_,
         or_,
 
@@ -82,6 +82,7 @@ pub const Tokenizer = struct {
         try keyword_trie.insert("or", .or_);
         try keyword_trie.insert("false", .false_);
         try keyword_trie.insert("true", .true_);
+        try keyword_trie.insert("not", .not);
 
         return .{
             .source = source,
@@ -111,7 +112,7 @@ pub const Tokenizer = struct {
             '+' => self.makeToken(if (self.match('+')) .plus_plus else .plus),
             '/' => if (self.match('/')) self.comment() else self.makeToken(.slash),
             '*' => self.makeToken(.star),
-            '!' => self.makeToken(if (self.match('=')) .bang_equal else .bang),
+            '!' => self.makeToken(if (self.match('=')) .bang_equal else return self.makeInvalidToken("Invalid character.")),
             '=' => self.makeToken(if (self.match('=')) .equal_equal else .equal),
             '<' => self.makeToken(if (self.match('=')) .less_equal else .less),
             '>' => self.makeToken(if (self.match('=')) .greater_equal else .greater),

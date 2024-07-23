@@ -217,7 +217,7 @@ pub const Parser = struct {
     }
 
     fn parseUnary(self: *Self) ParserError!*ParsedExpr {
-        if (self.match(.minus) or self.match(.bang)) {
+        if (self.match(.minus) or self.match(.not)) {
             const OperatorKind = ParsedExpr.Unary.OperatorKind;
             const operator_token = self.previous();
             const operator_kind: OperatorKind = if (operator_token.kind == .minus)
