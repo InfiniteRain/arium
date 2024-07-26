@@ -1,6 +1,7 @@
 const std = @import("std");
 const tokenizer_mod = @import("tokenizer.zig");
 const parsed_expr_mod = @import("parsed_expr.zig");
+const parsed_stmt_mod = @import("parsed_stmt.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -9,7 +10,9 @@ const expectError = std.testing.expectError;
 const allocPrint = std.fmt.allocPrint;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
+const Position = tokenizer_mod.Position;
 const ParsedExpr = parsed_expr_mod.ParsedExpr;
+const ParsedStmt = parsed_stmt_mod.ParsedStmt;
 
 pub const ParserError = error{
     OutOfMemory,
@@ -41,13 +44,38 @@ pub const Parser = struct {
         self.deinitErrs();
     }
 
-    pub fn parse(self: *Self, tokenizer: *Tokenizer) ParserError!*ParsedExpr {
+    pub fn parse(self: *Self, tokenizer: *Tokenizer) ParserError!*ParsedStmt {
         self.deinitErrs();
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanToken();
         self.errs = ArrayList(ParserErrorInfo).init(self.allocator);
 
-        return try self.parseExpr();
+        var stmts = ArrayList(*ParsedStmt).init(self.allocator);
+
+        while (!self.isAtEnd()) {
+            const stmt = try self.parseStmt();
+            try stmts.append(stmt);
+        }
+
+        return try ParsedStmt.Kind.Block.create(self.allocator, stmts, .{
+            .line = 1,
+            .column = 1,
+        });
+    }
+
+    fn parseStmt(self: *Self) ParserError!*ParsedStmt {
+        if (self.match(.print)) {
+            return try self.printStatement(self.previous_token.position);
+        }
+
+        try self.parserError(self.peek(), "Expected statement.", .{});
+
+        return error.ParseFailure;
+    }
+
+    fn printStatement(self: *Self, position: Position) ParserError!*ParsedStmt {
+        const expr = try self.parseExpr();
+        return try ParsedStmt.Kind.Print.create(self.allocator, expr, position);
     }
 
     fn parseExpr(self: *Self) ParserError!*ParsedExpr {
@@ -315,6 +343,10 @@ pub const Parser = struct {
         self.previous_token = self.current_token;
         self.current_token = self.tokenizer.scanToken();
 
+        if (self.current_token.kind == .comment) {
+            _ = self.advance();
+        }
+
         return self.previous_token;
     }
 
@@ -345,7 +377,7 @@ test "should free all memory on successful parse" {
     // GIVEN
     const allocator = std.testing.allocator;
 
-    const source = "(2 + 2) * -2";
+    const source = "print (2 + 2) * -2";
     var tokenizer = try Tokenizer.init(allocator, source);
     defer tokenizer.deinit();
 
@@ -361,7 +393,7 @@ test "should free all memory on unsuccessful parse" {
     // GIVEN
     const allocator = std.testing.allocator;
 
-    const source = "(2 + 2 * (-2 + 2)";
+    const source = "print (2 + 2 * (-2 + 2)";
     var tokenizer = try Tokenizer.init(allocator, source);
     defer tokenizer.deinit();
 

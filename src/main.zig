@@ -48,7 +48,8 @@ pub fn main() !void {
         // \\ (10 > 5 and 30 > 5) == 10 > 5
         // \\ 10 > 5 or 20 > 5 or 30 > 6
         // \\ 10 > 5 and 20 > 5 or 20 > 3 and 30 > 3
-        \\ (10 > 5 and (4 > 3 or (40 > 3 and 3 > 2))) == (1 == 1 and 1 == 1)
+        // \\ (10 > 5 and (4 > 3 or (40 > 3 and 3 > 2))) == (1 == 1 and 1 == 1)
+        \\ print "Hello, world!" print "Bye, world!" 
     ;
     var tokenizer = try Tokenizer.init(allocator, source);
     defer tokenizer.deinit();
@@ -56,7 +57,7 @@ pub fn main() !void {
     var parser = Parser.init(allocator);
     defer parser.deinit();
 
-    const parsed_expr = parser.parse(&tokenizer) catch |err| switch (err) {
+    const parsed_stmt = parser.parse(&tokenizer) catch |err| switch (err) {
         error.ParseFailure => {
             for (parser.errs.items) |parser_err| {
                 io.outf("Error at {}:{}: {s}\n", .{
@@ -69,16 +70,16 @@ pub fn main() !void {
         },
         else => return err,
     };
-    defer parsed_expr.destroy(allocator);
+    defer parsed_stmt.destroy(allocator);
 
-    io.out("\n== TREE ==\n");
-    parsed_expr.print(&io);
-    io.out("\n");
-
+    // io.out("\n== TREE ==\n");
+    // parsed_expr.print(&io);
+    // io.out("\n");
+    //
     var sema = Sema.init(allocator);
     defer sema.deinit();
 
-    var sema_expr = sema.analyze(parsed_expr) catch |err| switch (err) {
+    var sema_stmt = sema.analyze(parsed_stmt) catch |err| switch (err) {
         error.SemaFailure => {
             for (sema.errs.items) |sema_err| {
                 io.outf("Error at {}:{}: {s}\n", .{
@@ -91,16 +92,12 @@ pub fn main() !void {
         },
         else => return err,
     };
-    defer sema_expr.destroy(allocator);
-
-    // io.out("\n== SEMA ==\n");
-    // sema_expr.print(&io);
-    // io.out("\n");
+    defer sema_stmt.destroy(allocator);
 
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();
 
-    try Compiler.compile(&memory, sema_expr);
+    try Compiler.compile(&memory, sema_stmt);
 
     io.out("== CHUNK ==\n");
     memory.vm_state.?.chunk.print(&io);

@@ -2,6 +2,7 @@ const std = @import("std");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const chunk_mod = @import("chunk.zig");
 const sema_expr_mod = @import("../sema/sema_expr.zig");
+const sema_stmt_mod = @import("../sema/sema_stmt.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const obj_mod = @import("../state/obj.zig");
@@ -17,6 +18,7 @@ const VmState = managed_memory_mod.VmState;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const SemaExpr = sema_expr_mod.SemaExpr;
+const SemaStmt = sema_stmt_mod.SemaStmt;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
 const Obj = obj_mod.Obj;
@@ -62,7 +64,7 @@ pub const Compiler = struct {
     //       * get rid of the ugly nestedLogicalExpr function, i can check
     //         whether an expr is a branch to a logical expr by checking previous_logical
 
-    pub fn compile(memory: *ManagedMemory, expr: *const SemaExpr) CompilerError!void {
+    pub fn compile(memory: *ManagedMemory, stmt: *const SemaStmt) CompilerError!void {
         const allocator = memory.allocator();
 
         var vm_state: VmState = undefined;
@@ -79,13 +81,30 @@ pub const Compiler = struct {
             .then_branch_offsets = BranchOffsets.init(0) catch unreachable,
         };
 
-        try compiler.compileExpr(expr, .{});
+        try compiler.compileStmt(stmt);
         try compiler.chunk.writeU8(.return_, null);
 
         vm_state.chunk = compiler.chunk;
         vm_state.ip = @ptrCast(&compiler.chunk.code.items[0]);
 
         memory.vm_state = vm_state;
+    }
+
+    fn compileStmt(
+        self: *Self,
+        stmt: *const SemaStmt,
+    ) CompilerError!void {
+        switch (stmt.kind) {
+            .block => |block| {
+                for (block.stmts.items) |child_stmt| {
+                    try self.compileStmt(child_stmt);
+                }
+            },
+            .print => |print| {
+                try self.compileExpr(print.expr, .{});
+                try self.chunk.writeU8(.print, stmt.position);
+            },
+        }
     }
 
     fn compileExpr(

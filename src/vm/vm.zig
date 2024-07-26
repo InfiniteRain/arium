@@ -234,10 +234,12 @@ pub const Vm = struct {
                     self.state.ip += offset;
                 },
 
-                .return_ => {
+                .print => {
                     const value = self.pop();
                     value.print(self.io);
                     self.io.out("\n");
+                },
+                .return_ => {
                     return;
                 },
                 .pop => _ = self.pop(),

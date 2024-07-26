@@ -1,6 +1,8 @@
 const std = @import("std");
 const parsed_expr_mod = @import("../parser/parsed_expr.zig");
+const parsed_stmt_mod = @import("../parser/parsed_stmt.zig");
 const sema_expr_mod = @import("sema_expr.zig");
+const sema_stmt_mod = @import("sema_stmt.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const parser_mod = @import("../parser/parser.zig");
 
@@ -10,7 +12,9 @@ const meta = std.meta;
 const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
 const ParsedExpr = parsed_expr_mod.ParsedExpr;
+const ParsedStmt = parsed_stmt_mod.ParsedStmt;
 const SemaExpr = sema_expr_mod.SemaExpr;
+const SemaStmt = sema_stmt_mod.SemaStmt;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Token = tokenizer_mod.Token;
 const Position = tokenizer_mod.Position;
@@ -43,18 +47,37 @@ pub const Sema = struct {
         self.deinitErrs();
     }
 
-    pub fn analyze(self: *Self, expr: *ParsedExpr) SemaError!*SemaExpr {
+    pub fn analyze(self: *Self, block: *ParsedStmt) SemaError!*SemaStmt {
         self.deinitErrs();
         self.errs = ArrayList(SemaErrorInfo).init(self.allocator);
 
-        const sema_expr = try self.analyzeExpr(expr);
+        const sema_block = try self.analyzeStmt(block);
 
         if (self.errs.items.len > 0) {
-            sema_expr.destroy(self.allocator);
+            sema_block.destroy(self.allocator);
             return error.SemaFailure;
         }
 
-        return sema_expr;
+        return sema_block;
+    }
+
+    fn analyzeStmt(self: *Self, stmt: *ParsedStmt) SemaError!*SemaStmt {
+        switch (stmt.kind) {
+            .block => |block| {
+                var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
+
+                for (block.stmts.items) |parsed_stmt| {
+                    const sema_stmt = try self.analyzeStmt(parsed_stmt);
+                    try sema_stmts.append(sema_stmt);
+                }
+
+                return try SemaStmt.Kind.Block.create(self.allocator, sema_stmts, stmt.position);
+            },
+            .print => |print| {
+                const expr = try self.analyzeExpr(print.expr);
+                return try SemaStmt.Kind.Print.create(self.allocator, expr, stmt.position);
+            },
+        }
     }
 
     fn analyzeExpr(
@@ -332,7 +355,7 @@ test "should free all memory on successful analysis" {
     // GIVEN
     const allocator = std.testing.allocator;
 
-    const source = "(2 + 2) * -2";
+    const source = "print (2 + 2) * -2";
 
     var tokenizer = try Tokenizer.init(allocator, source);
     defer tokenizer.deinit();
@@ -354,12 +377,13 @@ test "should free all memory on unsuccessful analysis" {
     // GIVEN
     const allocator = std.testing.allocator;
 
-    const source = "(2 + 2) * -false";
+    const source = "print (2 + 2) * -false";
 
     var tokenizer = try Tokenizer.init(allocator, source);
     defer tokenizer.deinit();
 
     var parser = Parser.init(allocator);
+    defer parser.deinit();
 
     const parsed_expr = try parser.parse(&tokenizer);
     defer parsed_expr.destroy(allocator);
