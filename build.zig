@@ -63,6 +63,15 @@ pub fn build(b: *std.Build) void {
 
     // DEPENDENCIES
 
-    const clap = b.dependency("clap", .{});
-    exe.root_module.addImport("clap", clap.module("clap"));
+    const dep_strings = [_][]const u8{"clap"};
+
+    for (dep_strings) |dep_string| {
+        const dep = b.dependency(dep_string, .{});
+
+        exe.root_module.addImport(dep_string, dep.module(dep_string));
+        exe_check.root_module.addImport(dep_string, dep.module(dep_string));
+        lib.root_module.addImport(dep_string, dep.module(dep_string));
+        lib_unit_tests.root_module.addImport(dep_string, dep.module(dep_string));
+        exe_unit_tests.root_module.addImport(dep_string, dep.module(dep_string));
+    }
 }

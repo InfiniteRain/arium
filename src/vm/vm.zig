@@ -24,12 +24,17 @@ const VmError = error{
 pub const Vm = struct {
     const Self = @This();
 
+    pub const Config = struct {
+        trace_execution: bool = false,
+    };
+
+    config: Config,
     memory: *ManagedMemory,
     io: *IoHandler,
     allocator: Allocator,
     state: *VmState,
 
-    pub fn interpret(memory: *ManagedMemory, io: *IoHandler) VmError!void {
+    pub fn interpret(memory: *ManagedMemory, io: *IoHandler, config: Config) VmError!void {
         const allocator = memory.allocator();
 
         var vm = Vm{
@@ -37,6 +42,7 @@ pub const Vm = struct {
             .io = io,
             .allocator = allocator,
             .state = &memory.vm_state.?,
+            .config = config,
         };
 
         try vm.run();
@@ -44,21 +50,23 @@ pub const Vm = struct {
 
     fn run(self: *Self) VmError!void {
         while (true) {
-            self.io.out("               ");
+            if (self.config.trace_execution) {
+                self.io.out("               ");
 
-            var slot: [*]Value = @ptrCast(&self.memory.vm_state.?.stack.items[0]);
+                var slot: [*]Value = @ptrCast(&self.memory.vm_state.?.stack.items[0]);
 
-            while (@intFromPtr(slot) < @intFromPtr(self.memory.vm_state.?.stack.top)) {
-                self.io.out("[");
-                slot[0].print(self.io);
-                self.io.out("] ");
-                slot += 1;
+                while (@intFromPtr(slot) < @intFromPtr(self.memory.vm_state.?.stack.top)) {
+                    self.io.out("[");
+                    slot[0].print(self.io);
+                    self.io.out("] ");
+                    slot += 1;
+                }
+
+                self.io.out("\n");
+
+                const instruction_offset = @intFromPtr(self.state.ip) - @intFromPtr(&self.state.chunk.code.items[0]);
+                _ = self.state.chunk.printInstruction(self.io, instruction_offset);
             }
-
-            self.io.out("\n");
-
-            const instruction_offset = @intFromPtr(self.state.ip) - @intFromPtr(&self.state.chunk.code.items[0]);
-            _ = self.state.chunk.printInstruction(self.io, instruction_offset);
 
             const op_code = self.readOpCode();
 

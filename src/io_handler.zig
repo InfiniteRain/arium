@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Writer = std.fs.File.Writer;
-const Reader = std.fs.File.Reader;
+const AnyWriter = std.io.AnyWriter;
+const AnyReader = std.io.AnyReader;
 const FixedBufferStream = std.io.FixedBufferStream;
 const fixedBufferStream = std.io.fixedBufferStream;
 const Allocator = std.mem.Allocator;
@@ -13,17 +13,17 @@ pub const IoHandler = struct {
     allocator: Allocator,
     write_buffer: []u8,
     write_buffer_stream: FixedBufferStream([]u8),
-    stdin: *Reader,
-    stdout: *Writer,
-    stderr: *Writer,
+    stdin: *const AnyReader,
+    stdout: *const AnyWriter,
+    stderr: *const AnyWriter,
 
     // todo: support buffered writers
 
     pub fn init(
         allocator: Allocator,
-        stdin: *Reader,
-        stdout: *Writer,
-        stderr: *Writer,
+        stdin: *const AnyReader,
+        stdout: *const AnyWriter,
+        stderr: *const AnyWriter,
     ) !Self {
         const write_buffer = try allocator.alloc(u8, buffer_length);
         const write_buffer_stream = fixedBufferStream(write_buffer);
