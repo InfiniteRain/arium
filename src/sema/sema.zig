@@ -73,6 +73,21 @@ pub const Sema = struct {
 
                 return try SemaStmt.Kind.Block.create(self.allocator, sema_stmts, stmt.position);
             },
+            .assert => |assert| {
+                const expr = try self.analyzeExpr(assert.expr);
+
+                if (expr.eval_type != .bool) {
+                    return try self.semaErrorWithInvalidStmt(
+                        stmt.position,
+                        "Expected a Bool for assertion.",
+                        .{},
+                        .{expr},
+                        .{},
+                    );
+                }
+
+                return try SemaStmt.Kind.Assert.create(self.allocator, expr, stmt.position);
+            },
             .print => |print| {
                 const expr = try self.analyzeExpr(print.expr);
                 return try SemaStmt.Kind.Print.create(self.allocator, expr, stmt.position);
@@ -105,7 +120,7 @@ pub const Sema = struct {
                 var eval_type = left.eval_type;
 
                 if (left.kind == .invalid or right.kind == .invalid) {
-                    return self.createInvalidExpr(left, right);
+                    return self.createInvalidExpr(.{ left, right });
                 }
 
                 switch (binary.operator_kind) {
@@ -115,8 +130,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform arithmetic operation on {s}.",
                                 .{left.eval_type.stringify()},
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -125,8 +139,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Operand is expected to be of type {s}, got {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -150,8 +163,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform a concatenation on types {s} and {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -163,8 +175,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform equality operation between types {s} and {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -189,8 +200,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform comparison operation on {s}.",
                                 .{left.eval_type.stringify()},
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -199,8 +209,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Operand is expected to be of type {s}, got {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -229,8 +238,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Can't perform logical and operation on {s}.",
                                 .{left.eval_type.stringify()},
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -239,8 +247,7 @@ pub const Sema = struct {
                                 binary.operator_token.position,
                                 "Operand is expected to be of type {s}, got {s}.",
                                 .{ left.eval_type.stringify(), right.eval_type.stringify() },
-                                left,
-                                right,
+                                .{ left, right },
                             );
                         }
 
@@ -265,7 +272,7 @@ pub const Sema = struct {
                 const right = try self.analyzeExpr(unary.right);
 
                 if (right.kind == .invalid) {
-                    return self.createInvalidExpr(right, null);
+                    return self.createInvalidExpr(.{right});
                 }
 
                 const eval_type = right.eval_type;
@@ -276,8 +283,7 @@ pub const Sema = struct {
                             unary.operator_token.position,
                             "Can't perform logical negation on {s}.",
                             .{eval_type.stringify()},
-                            right,
-                            null,
+                            .{right},
                         ),
                     }
                 else switch (right.eval_type) {
@@ -287,8 +293,7 @@ pub const Sema = struct {
                         unary.operator_token.position,
                         "Can't perform arithmetic negation on {s}.",
                         .{eval_type.stringify()},
-                        right,
-                        null,
+                        .{right},
                     ),
                 };
                 const position = unary.operator_token.position;
@@ -306,10 +311,9 @@ pub const Sema = struct {
 
     fn createInvalidExpr(
         self: *const Self,
-        left_opt: ?*SemaExpr,
-        right_opt: ?*SemaExpr,
+        child_exprs: anytype,
     ) SemaError!*SemaExpr {
-        return try SemaExpr.Kind.Invalid.create(self.allocator, left_opt, right_opt);
+        return try SemaExpr.Kind.Invalid.create(self.allocator, child_exprs);
     }
 
     fn isString(eval_type: SemaExpr.EvalType) bool {
@@ -321,11 +325,26 @@ pub const Sema = struct {
         position: Position,
         comptime fmt: []const u8,
         args: anytype,
-        left_opt: ?*SemaExpr,
-        right_opt: ?*SemaExpr,
+        child_exprs: anytype,
     ) SemaError!*SemaExpr {
         try self.semaError(position, fmt, args);
-        return try self.createInvalidExpr(left_opt, right_opt);
+        return try self.createInvalidExpr(child_exprs);
+    }
+
+    fn semaErrorWithInvalidStmt(
+        self: *Self,
+        position: Position,
+        comptime fmt: []const u8,
+        args: anytype,
+        child_exprs: anytype,
+        child_stmts: anytype,
+    ) SemaError!*SemaStmt {
+        try self.semaError(position, fmt, args);
+        return try SemaStmt.Kind.Invalid.create(
+            self.allocator,
+            child_exprs,
+            child_stmts,
+        );
     }
 
     fn semaError(

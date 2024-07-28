@@ -34,6 +34,29 @@ pub const ParsedStmt = struct {
             }
         };
 
+        pub const Assert = struct {
+            expr: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                expr: *ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .assert = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
         pub const Print = struct {
             expr: *ParsedExpr,
 
@@ -59,6 +82,7 @@ pub const ParsedStmt = struct {
 
         print: Print,
         block: Block,
+        assert: Assert,
     };
 
     kind: Kind,
@@ -66,7 +90,6 @@ pub const ParsedStmt = struct {
 
     pub fn destroy(self: *Self, allocator: Allocator) void {
         switch (self.kind) {
-            .print => |print| print.expr.destroy(allocator),
             .block => |*block| {
                 for (block.stmts.items) |stmt| {
                     stmt.destroy(allocator);
@@ -74,6 +97,8 @@ pub const ParsedStmt = struct {
 
                 block.stmts.clearAndFree();
             },
+            .assert => |assert| assert.expr.destroy(allocator),
+            .print => |print| print.expr.destroy(allocator),
         }
 
         allocator.destroy(self);

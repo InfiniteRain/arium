@@ -3,6 +3,7 @@ const tokenizer_mod = @import("../parser/tokenizer.zig");
 const io_handler_mod = @import("../io_handler.zig");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const meta = std.meta;
 const Position = tokenizer_mod.Position;
 const IoHandler = io_handler_mod.IoHandler;
@@ -168,17 +169,20 @@ pub const SemaExpr = struct {
         };
 
         pub const Invalid = struct {
-            left_opt: ?*Self,
-            right_opt: ?*Self,
+            child_exprs: ArrayList(*Self),
 
-            pub fn create(allocator: Allocator, left_opt: ?*Self, right_opt: ?*Self) !*Self {
+            pub fn create(allocator: Allocator, child_exprs_struct: anytype) !*Self {
                 const expr = try allocator.create(Self);
+                var child_exprs = ArrayList(*Self).init(allocator);
+
+                inline for (child_exprs_struct) |child_expr| {
+                    try child_exprs.append(child_expr);
+                }
 
                 expr.* = .{
                     .kind = .{
                         .invalid = .{
-                            .left_opt = left_opt,
-                            .right_opt = right_opt,
+                            .child_exprs = child_exprs,
                         },
                     },
                     .eval_type = .invalid,
@@ -200,6 +204,7 @@ pub const SemaExpr = struct {
 
     pub const EvalType = union(enum) {
         const Tag = meta.Tag(EvalType);
+
         pub const ObjKind = enum {
             string,
         };
@@ -241,14 +246,12 @@ pub const SemaExpr = struct {
             .unary => |unary| {
                 unary.right.destroy(allocator);
             },
-            .invalid => |invalid| {
-                if (invalid.left_opt) |left| {
-                    left.destroy(allocator);
+            .invalid => |*invalid| {
+                for (invalid.child_exprs.items) |child_expr| {
+                    child_expr.destroy(allocator);
                 }
 
-                if (invalid.right_opt) |right| {
-                    right.destroy(allocator);
-                }
+                invalid.child_exprs.clearAndFree();
             },
         }
         allocator.destroy(self);

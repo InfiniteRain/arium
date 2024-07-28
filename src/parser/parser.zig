@@ -64,13 +64,25 @@ pub const Parser = struct {
     }
 
     fn parseStmt(self: *Self) ParserError!*ParsedStmt {
+        if (self.match(.assert)) {
+            return try self.assertStatement(self.previous().position);
+        }
+
         if (self.match(.print)) {
-            return try self.printStatement(self.previous_token.position);
+            return try self.printStatement(self.previous().position);
         }
 
         try self.parserError(self.peek(), "Expected statement.", .{});
 
         return error.ParseFailure;
+    }
+
+    fn assertStatement(self: *Self, position: Position) ParserError!*ParsedStmt {
+        _ = try self.consume(.left_paren, "Expected '(' before expression.");
+        const expr = try self.parseExpr();
+        _ = try self.consume(.right_paren, "Expected ')' after expression.");
+
+        return try ParsedStmt.Kind.Assert.create(self.allocator, expr, position);
     }
 
     fn printStatement(self: *Self, position: Position) ParserError!*ParsedStmt {

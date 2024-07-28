@@ -121,9 +121,16 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
         io.out("\n== EXECUTION ==\n");
     }
 
-    try Vm.interpret(&memory, io, .{
+    Vm.interpret(&memory, io, .{
         .trace_execution = args.@"dtrace-execution" > 0,
-    });
+    }) catch |err| switch (err) {
+        error.Panic => io.outf("Panic at {}:{}: {s}\n", .{
+            memory.vm_state.?.panic_info_opt.?.position.line,
+            memory.vm_state.?.panic_info_opt.?.position.column,
+            memory.vm_state.?.panic_info_opt.?.message,
+        }),
+        else => return err,
+    };
 }
 
 fn readFileAlloc(allocator: Allocator, file_path: []const u8, io: *IoHandler) ![]u8 {

@@ -63,6 +63,7 @@ pub const OpCode = enum(u8) {
     if_false,
     jump,
 
+    assert,
     print,
     return_,
     pop,
@@ -193,6 +194,7 @@ pub const Chunk = struct {
             .compare_float,
             .compare_bool,
             .compare_obj,
+            .assert,
             .print,
             .return_,
             .pop,

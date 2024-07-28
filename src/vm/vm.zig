@@ -5,6 +5,7 @@ const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const io_handler = @import("../io_handler.zig");
 const obj_mod = @import("../state/obj.zig");
+const tokenizer_mod = @import("../parser/tokenizer.zig");
 
 const Allocator = std.mem.Allocator;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
@@ -15,10 +16,12 @@ const OpCode = chunk_mod.OpCode;
 const Stack = stack_mod.Stack;
 const IoHandler = io_handler.IoHandler;
 const Obj = obj_mod.Obj;
+const Position = tokenizer_mod.Position;
 
 const VmError = error{
     OutOfMemory,
     InterpretError,
+    Panic,
 };
 
 pub const Vm = struct {
@@ -50,6 +53,8 @@ pub const Vm = struct {
 
     fn run(self: *Self) VmError!void {
         while (true) {
+            const ip_offset = self.getOffset();
+
             if (self.config.trace_execution) {
                 self.io.out("               ");
 
@@ -64,8 +69,7 @@ pub const Vm = struct {
 
                 self.io.out("\n");
 
-                const instruction_offset = @intFromPtr(self.state.ip) - @intFromPtr(&self.state.chunk.code.items[0]);
-                _ = self.state.chunk.printInstruction(self.io, instruction_offset);
+                _ = self.chunk().printInstruction(self.io, ip_offset);
             }
 
             const op_code = self.readOpCode();
@@ -242,6 +246,19 @@ pub const Vm = struct {
                     self.state.ip += offset;
                 },
 
+                .assert => {
+                    const a = self.pop().bool;
+
+                    if (!a) {
+                        try self.state.setPanicInfo(
+                            self.memory.backing_allocator,
+                            "Assertion failed",
+                            .{},
+                            self.getPosition(ip_offset),
+                        );
+                        return error.Panic;
+                    }
+                },
                 .print => {
                     const value = self.pop();
                     value.print(self.io);
@@ -307,5 +324,13 @@ pub const Vm = struct {
 
     fn chunk(self: *Self) Chunk {
         return self.state.chunk;
+    }
+
+    fn getOffset(self: *Self) usize {
+        return @intFromPtr(self.memory.vm_state.?.ip) - @intFromPtr(&self.chunk().code.items[0]);
+    }
+
+    fn getPosition(self: *Self, offset: usize) Position {
+        return self.chunk().positions.items[offset].?;
     }
 };

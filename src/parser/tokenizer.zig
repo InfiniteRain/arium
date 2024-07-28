@@ -40,12 +40,14 @@ pub const Token = struct {
         float,
         string,
 
-        print,
         true_,
         false_,
         not,
         and_,
         or_,
+
+        assert,
+        print,
 
         comment,
         eof,
@@ -85,6 +87,7 @@ pub const Tokenizer = struct {
         try keyword_trie.insert("true", .true_);
         try keyword_trie.insert("not", .not);
         try keyword_trie.insert("print", .print);
+        try keyword_trie.insert("assert", .assert);
 
         return .{
             .source = source,

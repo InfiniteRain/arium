@@ -72,6 +72,7 @@ pub const Compiler = struct {
         vm_state.objs = null;
         vm_state.strings = try HashTable.init(allocator);
         vm_state.stack = try Stack.init(allocator);
+        vm_state.panic_info_opt = null;
 
         var compiler = Self{
             .vm_state = &vm_state,
@@ -100,10 +101,15 @@ pub const Compiler = struct {
                     try self.compileStmt(child_stmt);
                 }
             },
+            .assert => |assert_stmt| {
+                try self.compileExpr(assert_stmt.expr, .{});
+                try self.chunk.writeU8(.assert, stmt.position);
+            },
             .print => |print| {
                 try self.compileExpr(print.expr, .{});
                 try self.chunk.writeU8(.print, stmt.position);
             },
+            .invalid => @panic("invalid statement"),
         }
     }
 
