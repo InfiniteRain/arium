@@ -42,6 +42,7 @@ pub const TestUtil = struct {
             .stack = try Stack.init(allocator),
             .objs = null,
             .strings = try HashTable.init(allocator),
+            .panic_info_opt = null,
         };
 
         const table = try backing_allocator.create(HashTable);

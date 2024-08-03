@@ -390,8 +390,7 @@ test "should free all memory on successful parse" {
     const allocator = std.testing.allocator;
 
     const source = "print (2 + 2) * -2";
-    var tokenizer = try Tokenizer.init(allocator, source);
-    defer tokenizer.deinit();
+    var tokenizer = try Tokenizer.init(source);
 
     // WHEN - THEN
     var parser = Parser.init(allocator);
@@ -406,8 +405,7 @@ test "should free all memory on unsuccessful parse" {
     const allocator = std.testing.allocator;
 
     const source = "print (2 + 2 * (-2 + 2)";
-    var tokenizer = try Tokenizer.init(allocator, source);
-    defer tokenizer.deinit();
+    var tokenizer = try Tokenizer.init(source);
 
     // WHEN - THEN
     var parser = Parser.init(allocator);
