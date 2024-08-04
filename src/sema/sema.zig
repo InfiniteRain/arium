@@ -376,7 +376,7 @@ test "should free all memory on successful analysis" {
 
     const source = "print (2 + 2) * -2";
 
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(allocator);
 
@@ -397,7 +397,7 @@ test "should free all memory on unsuccessful analysis" {
 
     const source = "print (2 + 2) * -false";
 
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(allocator);
     defer parser.deinit();

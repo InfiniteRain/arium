@@ -47,7 +47,7 @@ pub const Parser = struct {
     pub fn parse(self: *Self, tokenizer: *Tokenizer) ParserError!*ParsedStmt {
         self.deinitErrs();
         self.tokenizer = tokenizer;
-        self.current_token = tokenizer.scanToken();
+        self.current_token = tokenizer.scanNonCommentToken();
         self.errs = ArrayList(ParserErrorInfo).init(self.allocator);
 
         var stmts = ArrayList(*ParsedStmt).init(self.allocator);
@@ -353,7 +353,7 @@ pub const Parser = struct {
         assert(self.current_token.kind != .eof);
 
         self.previous_token = self.current_token;
-        self.current_token = self.tokenizer.scanToken();
+        self.current_token = self.tokenizer.scanNonCommentToken();
 
         if (self.current_token.kind == .comment) {
             _ = self.advance();
@@ -390,7 +390,7 @@ test "should free all memory on successful parse" {
     const allocator = std.testing.allocator;
 
     const source = "print (2 + 2) * -2";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN - THEN
     var parser = Parser.init(allocator);
@@ -405,7 +405,7 @@ test "should free all memory on unsuccessful parse" {
     const allocator = std.testing.allocator;
 
     const source = "print (2 + 2 * (-2 + 2)";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN - THEN
     var parser = Parser.init(allocator);

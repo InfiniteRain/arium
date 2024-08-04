@@ -71,7 +71,7 @@ pub fn runCli() !void {
 fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: anytype) !void {
     const source = try readFileAlloc(allocator, file_path, io);
 
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(allocator);
     defer parser.deinit();

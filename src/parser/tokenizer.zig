@@ -88,10 +88,20 @@ pub const Tokenizer = struct {
     column: u64 = 0,
     column_start: u64 = 0,
 
-    pub fn init(source: []const u8) TokenizerError!Self {
+    pub fn init(source: []const u8) Self {
         return .{
             .source = source,
         };
+    }
+
+    pub fn scanNonCommentToken(self: *Self) Token {
+        var next_token = self.scanToken();
+
+        while (next_token.kind == .comment) {
+            next_token = self.scanToken();
+        }
+
+        return next_token;
     }
 
     pub fn scanToken(self: *Self) Token {
@@ -327,7 +337,7 @@ pub const Tokenizer = struct {
 test "tokenizer results with eof on an empty string" {
     // GIVEN
     const source = "";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN
     const token = tokenizer.scanToken();
@@ -342,7 +352,7 @@ test "tokenizer results with eof on an empty string" {
 test "tokenizer correctly handles a string with only a newline" {
     // GIVEN
     const source = "\n";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN
     const token = tokenizer.scanToken();
@@ -357,7 +367,7 @@ test "tokenizer correctly handles a string with only a newline" {
 test "tokenizer parses numbers correctly" {
     // GIVEN
     const source = "1 12345";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN
     const token1 = tokenizer.scanToken();
@@ -384,7 +394,7 @@ test "tokenizer parses numbers correctly" {
 test "tokenizer keeps track of lines correctly" {
     // GIVEN
     const source = "1\n123\n1256";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN
     const token1 = tokenizer.scanToken();
@@ -417,7 +427,7 @@ test "tokenizer keeps track of lines correctly" {
 test "tokenizer parses single character tokens correctly" {
     // GIVEN
     const source = "()-+/*";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN - THEN
     for (source, 1..) |char, line| {
@@ -441,7 +451,7 @@ test "tokenizer parses single character tokens correctly" {
 test "tokenizer parses comments before eof correctly" {
     // GIVEN
     const source = "123 // some comment here";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN
     const token1 = tokenizer.scanToken();
@@ -468,7 +478,7 @@ test "tokenizer parses comments before eof correctly" {
 test "tokenizer parses comment before newline correctly" {
     // GIVEN
     const source = "1//c\n2";
-    var tokenizer = try Tokenizer.init(source);
+    var tokenizer = Tokenizer.init(source);
 
     // WHEN
     const token1 = tokenizer.scanToken();
@@ -496,4 +506,18 @@ test "tokenizer parses comment before newline correctly" {
     try expect(token4.lexeme.len == 0);
     try expect(token4.position.line == 2);
     try expect(token4.position.column == 2);
+}
+
+test "scanNonCommentToken scans while ignoring comment tokens" {
+    // GIVEN
+    const source = "// comment\n//comment 2\nprint";
+    var tokenizer = Tokenizer.init(source);
+
+    // WHEN
+    const token1 = tokenizer.scanNonCommentToken();
+    const token2 = tokenizer.scanNonCommentToken();
+
+    // THEN
+    try expect(token1.kind == .print);
+    try expect(token2.kind == .eof);
 }
