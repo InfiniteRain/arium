@@ -74,11 +74,12 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
     var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(allocator);
-    defer parser.deinit();
+    var parser_diags = Parser.Diagnostics.init(allocator);
+    defer parser_diags.deinit();
 
-    const parsed_stmt = parser.parse(&tokenizer) catch |err| switch (err) {
+    const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
         error.ParseFailure => {
-            for (parser.errs.items) |parser_err| {
+            for (parser_diags.getEntries()) |parser_err| {
                 io.outf("Error at {}:{}: {s}\n", .{
                     parser_err.token.position.line,
                     parser_err.token.position.column,

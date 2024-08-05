@@ -27,28 +27,59 @@ pub const ParserErrorInfo = struct {
 pub const Parser = struct {
     const Self = @This();
 
+    pub const Diagnostics = struct {
+        pub const DiagnosticEntry = struct {
+            token: Token,
+            message: []u8,
+        };
+
+        allocator: Allocator,
+        entries: ArrayList(DiagnosticEntry),
+
+        pub fn init(allocator: Allocator) Diagnostics {
+            return .{
+                .allocator = allocator,
+                .entries = ArrayList(DiagnosticEntry).init(allocator),
+            };
+        }
+
+        pub fn deinit(self: *Diagnostics) void {
+            for (self.entries.items) |err| {
+                self.allocator.free(err.message);
+            }
+
+            self.entries.clearAndFree();
+        }
+
+        pub fn getEntries(self: *Diagnostics) []DiagnosticEntry {
+            return self.entries.items;
+        }
+
+        fn addDiagnostic(self: *Diagnostics, entry: DiagnosticEntry) !void {
+            try self.entries.append(entry);
+        }
+    };
+
     allocator: Allocator,
     tokenizer: *Tokenizer = undefined,
     previous_token: Token = undefined,
     current_token: Token = undefined,
-    errs: ArrayList(ParserErrorInfo),
+    diagnostics: ?*Diagnostics = null,
 
     pub fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
-            .errs = ArrayList(ParserErrorInfo).init(allocator),
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        self.deinitErrs();
-    }
-
-    pub fn parse(self: *Self, tokenizer: *Tokenizer) ParserError!*ParsedStmt {
-        self.deinitErrs();
+    pub fn parse(
+        self: *Self,
+        tokenizer: *Tokenizer,
+        diagnostics: ?*Diagnostics,
+    ) ParserError!*ParsedStmt {
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanNonCommentToken();
-        self.errs = ArrayList(ParserErrorInfo).init(self.allocator);
+        self.diagnostics = diagnostics;
 
         var stmts = ArrayList(*ParsedStmt).init(self.allocator);
 
@@ -368,20 +399,14 @@ pub const Parser = struct {
         comptime fmt: []const u8,
         args: anytype,
     ) ParserError!void {
-        const message = try allocPrint(self.allocator, fmt, args);
+        if (self.diagnostics) |diagnostics| {
+            const message = try allocPrint(self.allocator, fmt, args);
 
-        try self.errs.append(.{
-            .token = token,
-            .message = message,
-        });
-    }
-
-    fn deinitErrs(self: *Self) void {
-        for (self.errs.items) |parserErr| {
-            self.allocator.free(parserErr.message);
+            try diagnostics.entries.append(.{
+                .token = token,
+                .message = message,
+            });
         }
-
-        self.errs.deinit();
     }
 };
 
@@ -394,9 +419,8 @@ test "should free all memory on successful parse" {
 
     // WHEN - THEN
     var parser = Parser.init(allocator);
-    defer parser.deinit();
 
-    const expr = try parser.parse(&tokenizer);
+    const expr = try parser.parse(&tokenizer, null);
     defer expr.destroy(allocator);
 }
 
@@ -409,8 +433,7 @@ test "should free all memory on unsuccessful parse" {
 
     // WHEN - THEN
     var parser = Parser.init(allocator);
-    defer parser.deinit();
 
-    const result = parser.parse(&tokenizer);
+    const result = parser.parse(&tokenizer, null);
     try expectError(ParserError.ParseFailure, result);
 }

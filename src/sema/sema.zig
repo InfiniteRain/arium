@@ -380,7 +380,7 @@ test "should free all memory on successful analysis" {
 
     var parser = Parser.init(allocator);
 
-    const parsed_expr = try parser.parse(&tokenizer);
+    const parsed_expr = try parser.parse(&tokenizer, null);
     defer parsed_expr.destroy(allocator);
 
     // WHEN - THEN
@@ -400,9 +400,8 @@ test "should free all memory on unsuccessful analysis" {
     var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(allocator);
-    defer parser.deinit();
 
-    const parsed_expr = try parser.parse(&tokenizer);
+    const parsed_expr = try parser.parse(&tokenizer, null);
     defer parsed_expr.destroy(allocator);
 
     // WHEN - THEN
