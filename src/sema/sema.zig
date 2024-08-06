@@ -1,4 +1,5 @@
 const std = @import("std");
+const shared = @import("shared");
 const parsed_expr_mod = @import("../parser/parsed_expr.zig");
 const parsed_stmt_mod = @import("../parser/parsed_stmt.zig");
 const sema_expr_mod = @import("sema_expr.zig");
@@ -11,6 +12,7 @@ const ArrayList = std.ArrayList;
 const meta = std.meta;
 const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
+const SharedDiagnostics = shared.Diagnostics;
 const ParsedExpr = parsed_expr_mod.ParsedExpr;
 const ParsedStmt = parsed_stmt_mod.ParsedStmt;
 const SemaExpr = sema_expr_mod.SemaExpr;
@@ -28,38 +30,12 @@ pub const SemaError = error{
 pub const Sema = struct {
     const Self = @This();
 
-    pub const Diagnostics = struct {
-        pub const Entry = struct {
-            message: []u8,
-            position: Position,
-        };
-
-        allocator: Allocator,
-        entries: ArrayList(Entry),
-
-        pub fn init(allocator: Allocator) Diagnostics {
-            return .{
-                .allocator = allocator,
-                .entries = ArrayList(Entry).init(allocator),
-            };
-        }
-
-        pub fn deinit(self: *Diagnostics) void {
-            for (self.entries.items) |entry| {
-                self.allocator.free(entry.message);
-            }
-
-            self.entries.clearAndFree();
-        }
-
-        pub fn getEntries(self: *Diagnostics) []Entry {
-            return self.entries.items;
-        }
-
-        fn add(self: *Diagnostics, entry: Entry) !void {
-            try self.entries.append(entry);
-        }
+    pub const DiagnosticEntry = struct {
+        message: []u8,
+        position: Position,
     };
+
+    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
 
     allocator: Allocator,
     diagnostics: ?*Diagnostics = null,
