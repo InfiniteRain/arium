@@ -79,11 +79,11 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
 
     const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
         error.ParseFailure => {
-            for (parser_diags.getEntries()) |parser_err| {
+            for (parser_diags.getEntries()) |diag| {
                 io.outf("Error at {}:{}: {s}\n", .{
-                    parser_err.token.position.line,
-                    parser_err.token.position.column,
-                    parser_err.message,
+                    diag.token.position.line,
+                    diag.token.position.column,
+                    diag.message,
                 });
             }
             std.posix.exit(65);
@@ -93,15 +93,16 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
     defer parsed_stmt.destroy(allocator);
 
     var sema = Sema.init(allocator);
-    defer sema.deinit();
+    var sema_diags = Sema.Diagnostics.init(allocator);
+    defer sema_diags.deinit();
 
-    var sema_stmt = sema.analyze(parsed_stmt) catch |err| switch (err) {
+    var sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
-            for (sema.errs.items) |sema_err| {
+            for (sema_diags.getEntries()) |diag| {
                 io.outf("Error at {}:{}: {s}\n", .{
-                    sema_err.position.line,
-                    sema_err.position.column,
-                    sema_err.message,
+                    diag.position.line,
+                    diag.position.column,
+                    diag.message,
                 });
             }
             std.posix.exit(65);

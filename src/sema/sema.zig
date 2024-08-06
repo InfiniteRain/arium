@@ -25,35 +25,59 @@ pub const SemaError = error{
     SemaFailure,
 };
 
-pub const SemaErrorInfo = struct {
-    message: []u8,
-    position: Position,
-};
-
 pub const Sema = struct {
     const Self = @This();
 
+    pub const Diagnostics = struct {
+        pub const Entry = struct {
+            message: []u8,
+            position: Position,
+        };
+
+        allocator: Allocator,
+        entries: ArrayList(Entry),
+
+        pub fn init(allocator: Allocator) Diagnostics {
+            return .{
+                .allocator = allocator,
+                .entries = ArrayList(Entry).init(allocator),
+            };
+        }
+
+        pub fn deinit(self: *Diagnostics) void {
+            for (self.entries.items) |entry| {
+                self.allocator.free(entry.message);
+            }
+
+            self.entries.clearAndFree();
+        }
+
+        pub fn getEntries(self: *Diagnostics) []Entry {
+            return self.entries.items;
+        }
+
+        fn add(self: *Diagnostics, entry: Entry) !void {
+            try self.entries.append(entry);
+        }
+    };
+
     allocator: Allocator,
-    errs: ArrayList(SemaErrorInfo),
+    diagnostics: ?*Diagnostics = null,
+    had_error: bool = false,
 
     pub fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
-            .errs = ArrayList(SemaErrorInfo).init(allocator),
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        self.deinitErrs();
-    }
-
-    pub fn analyze(self: *Self, block: *ParsedStmt) SemaError!*SemaStmt {
-        self.deinitErrs();
-        self.errs = ArrayList(SemaErrorInfo).init(self.allocator);
+    pub fn analyze(self: *Self, block: *ParsedStmt, diagnostics: ?*Diagnostics) SemaError!*SemaStmt {
+        self.diagnostics = diagnostics;
+        self.had_error = false;
 
         const sema_block = try self.analyzeStmt(block);
 
-        if (self.errs.items.len > 0) {
+        if (self.had_error) {
             sema_block.destroy(self.allocator);
             return error.SemaFailure;
         }
@@ -353,20 +377,16 @@ pub const Sema = struct {
         comptime fmt: []const u8,
         args: anytype,
     ) SemaError!void {
-        const message = try allocPrint(self.allocator, fmt, args);
+        self.had_error = true;
 
-        try self.errs.append(.{
-            .message = message,
-            .position = position,
-        });
-    }
+        if (self.diagnostics) |diagnostics| {
+            const message = try allocPrint(self.allocator, fmt, args);
 
-    fn deinitErrs(self: *Self) void {
-        for (self.errs.items) |semaErr| {
-            self.allocator.free(semaErr.message);
+            try diagnostics.add(.{
+                .message = message,
+                .position = position,
+            });
         }
-
-        self.errs.deinit();
     }
 };
 
@@ -385,9 +405,8 @@ test "should free all memory on successful analysis" {
 
     // WHEN - THEN
     var sema = Sema.init(allocator);
-    defer sema.deinit();
 
-    const sema_expr = try sema.analyze(parsed_expr);
+    const sema_expr = try sema.analyze(parsed_expr, null);
     defer sema_expr.destroy(allocator);
 }
 
@@ -406,8 +425,7 @@ test "should free all memory on unsuccessful analysis" {
 
     // WHEN - THEN
     var sema = Sema.init(allocator);
-    defer sema.deinit();
 
-    const result = sema.analyze(parsed_expr);
+    const result = sema.analyze(parsed_expr, null);
     try expectError(SemaError.SemaFailure, result);
 }

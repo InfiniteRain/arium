@@ -59,6 +59,7 @@ pub const Token = struct {
         assert,
         print,
 
+        semicolon,
         comment,
         eof,
         invalid,

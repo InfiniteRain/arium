@@ -19,27 +19,22 @@ pub const ParserError = error{
     ParseFailure,
 };
 
-pub const ParserErrorInfo = struct {
-    token: Token,
-    message: []u8,
-};
-
 pub const Parser = struct {
     const Self = @This();
 
     pub const Diagnostics = struct {
-        pub const DiagnosticEntry = struct {
+        pub const Entry = struct {
             token: Token,
             message: []u8,
         };
 
         allocator: Allocator,
-        entries: ArrayList(DiagnosticEntry),
+        entries: ArrayList(Entry),
 
         pub fn init(allocator: Allocator) Diagnostics {
             return .{
                 .allocator = allocator,
-                .entries = ArrayList(DiagnosticEntry).init(allocator),
+                .entries = ArrayList(Entry).init(allocator),
             };
         }
 
@@ -51,11 +46,11 @@ pub const Parser = struct {
             self.entries.clearAndFree();
         }
 
-        pub fn getEntries(self: *Diagnostics) []DiagnosticEntry {
+        pub fn getEntries(self: *Diagnostics) []Entry {
             return self.entries.items;
         }
 
-        fn addDiagnostic(self: *Diagnostics, entry: DiagnosticEntry) !void {
+        fn add(self: *Diagnostics, entry: Entry) !void {
             try self.entries.append(entry);
         }
     };
@@ -82,10 +77,32 @@ pub const Parser = struct {
         self.diagnostics = diagnostics;
 
         var stmts = ArrayList(*ParsedStmt).init(self.allocator);
+        var had_error = false;
 
         while (!self.isAtEnd()) {
-            const stmt = try self.parseStmt();
-            try stmts.append(stmt);
+            if (self.parseStmt()) |stmt| {
+                if (had_error) {
+                    stmt.destroy(self.allocator);
+                } else {
+                    try stmts.append(stmt);
+                }
+            } else |err| switch (err) {
+                error.ParseFailure => {
+                    had_error = true;
+
+                    for (stmts.items) |stmt| {
+                        stmt.destroy(self.allocator);
+                    }
+
+                    stmts.clearAndFree();
+                    self.synchronize();
+                },
+                else => return err,
+            }
+        }
+
+        if (had_error) {
+            return error.ParseFailure;
         }
 
         return try ParsedStmt.Kind.Block.create(self.allocator, stmts, .{
@@ -110,7 +127,10 @@ pub const Parser = struct {
 
     fn assertStatement(self: *Self, position: Position) ParserError!*ParsedStmt {
         _ = try self.consume(.left_paren, "Expected '(' before expression.");
+
         const expr = try self.parseExpr();
+        errdefer expr.destroy(self.allocator);
+
         _ = try self.consume(.right_paren, "Expected ')' after expression.");
 
         return try ParsedStmt.Kind.Assert.create(self.allocator, expr, position);
@@ -118,6 +138,8 @@ pub const Parser = struct {
 
     fn printStatement(self: *Self, position: Position) ParserError!*ParsedStmt {
         const expr = try self.parseExpr();
+        errdefer expr.destroy(self.allocator);
+
         return try ParsedStmt.Kind.Print.create(self.allocator, expr, position);
     }
 
@@ -127,10 +149,12 @@ pub const Parser = struct {
 
     fn parseOr(self: *Self) ParserError!*ParsedExpr {
         var expr = try self.parseAnd();
+        errdefer expr.destroy(self.allocator);
 
         while (self.match(.or_)) {
             const operator_token = self.previous();
             const right = try self.parseAnd();
+            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
                 self.allocator,
@@ -146,10 +170,12 @@ pub const Parser = struct {
 
     fn parseAnd(self: *Self) ParserError!*ParsedExpr {
         var expr = try self.parseEquality();
+        errdefer expr.destroy(self.allocator);
 
         while (self.match(.and_)) {
             const operator_token = self.previous();
             const right = try self.parseEquality();
+            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
                 self.allocator,
@@ -166,6 +192,7 @@ pub const Parser = struct {
     fn parseEquality(self: *Self) ParserError!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseComparison();
+        errdefer expr.destroy(self.allocator);
 
         while (self.match(.bang_equal) or self.match(.equal_equal)) {
             const operator_token = self.previous();
@@ -174,6 +201,7 @@ pub const Parser = struct {
             else
                 .equal;
             const right = try self.parseComparison();
+            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
                 self.allocator,
@@ -190,6 +218,7 @@ pub const Parser = struct {
     fn parseComparison(self: *Self) ParserError!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseTerm();
+        errdefer expr.destroy(self.allocator);
 
         while (self.match(.greater) or
             self.match(.greater_equal) or
@@ -205,6 +234,7 @@ pub const Parser = struct {
                 else => unreachable,
             };
             const right = try self.parseTerm();
+            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
                 self.allocator,
@@ -221,6 +251,7 @@ pub const Parser = struct {
     fn parseTerm(self: *Self) ParserError!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseFactor();
+        errdefer expr.destroy(self.allocator);
 
         while (self.match(.minus) or self.match(.plus)) {
             const operator_token = self.previous();
@@ -229,6 +260,7 @@ pub const Parser = struct {
             else
                 .add;
             const right = try self.parseFactor();
+            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
                 self.allocator,
@@ -245,6 +277,7 @@ pub const Parser = struct {
     fn parseFactor(self: *Self) ParserError!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseConcat();
+        errdefer expr.destroy(self.allocator);
 
         while (self.match(.slash) or self.match(.star)) {
             const operator_token = self.previous();
@@ -253,6 +286,7 @@ pub const Parser = struct {
             else
                 .multiply;
             const right = try self.parseConcat();
+            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
                 self.allocator,
@@ -269,11 +303,13 @@ pub const Parser = struct {
     fn parseConcat(self: *Self) ParserError!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseUnary();
+        errdefer expr.destroy(self.allocator);
 
         while (self.match(.plus_plus)) {
             const operator_token = self.previous();
             const operator_kind: OperatorKind = .concat;
             const right = try self.parseUnary();
+            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
                 self.allocator,
@@ -296,6 +332,7 @@ pub const Parser = struct {
             else
                 .negate_bool;
             const right = try self.parseUnary();
+            errdefer right.destroy(self.allocator);
 
             return try ParsedExpr.Unary.create(
                 self.allocator,
@@ -393,6 +430,22 @@ pub const Parser = struct {
         return self.previous_token;
     }
 
+    fn synchronize(self: *Self) void {
+        while (self.current_token.kind != .eof) {
+            if (self.previous_token.kind == .semicolon) {
+                return;
+            }
+
+            switch (self.current_token.kind) {
+                .print,
+                .assert,
+                => return,
+
+                else => _ = self.advance(),
+            }
+        }
+    }
+
     fn parserError(
         self: *Self,
         token: Token,
@@ -402,7 +455,7 @@ pub const Parser = struct {
         if (self.diagnostics) |diagnostics| {
             const message = try allocPrint(self.allocator, fmt, args);
 
-            try diagnostics.entries.append(.{
+            try diagnostics.add(.{
                 .token = token,
                 .message = message,
             });
@@ -428,7 +481,7 @@ test "should free all memory on unsuccessful parse" {
     // GIVEN
     const allocator = std.testing.allocator;
 
-    const source = "print (2 + 2 * (-2 + 2)";
+    const source = "print (2 + 2) print -2 + 2)";
     var tokenizer = Tokenizer.init(source);
 
     // WHEN - THEN
