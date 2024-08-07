@@ -25,13 +25,6 @@ const Obj = obj_mod.Obj;
 const HashTable = hash_table_mod.HashTable;
 const Position = tokenizer_mod.Position;
 
-const CompilerError = error{
-    OutOfMemory,
-    TooManyConstants,
-    TooManyBranchJumps,
-    JumpTooBig,
-};
-
 const LogicalOperation = enum {
     or_,
     and_,
@@ -46,6 +39,13 @@ const BranchOffsets = BoundedArray(usize, 128);
 
 pub const Compiler = struct {
     const Self = @This();
+
+    pub const Error = error{
+        OutOfMemory,
+        TooManyConstants,
+        TooManyBranchJumps,
+        JumpTooBig,
+    };
 
     vm_state: *VmState,
     allocator: Allocator,
@@ -64,7 +64,7 @@ pub const Compiler = struct {
     //       * get rid of the ugly nestedLogicalExpr function, i can check
     //         whether an expr is a branch to a logical expr by checking previous_logical
 
-    pub fn compile(memory: *ManagedMemory, stmt: *const SemaStmt) CompilerError!void {
+    pub fn compile(memory: *ManagedMemory, stmt: *const SemaStmt) Error!void {
         const allocator = memory.allocator();
 
         var vm_state: VmState = undefined;
@@ -94,7 +94,7 @@ pub const Compiler = struct {
     fn compileStmt(
         self: *Self,
         stmt: *const SemaStmt,
-    ) CompilerError!void {
+    ) Error!void {
         switch (stmt.kind) {
             .block => |block| {
                 for (block.stmts.items) |child_stmt| {
@@ -117,7 +117,7 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr,
         ctx: ExprContext,
-    ) CompilerError!void {
+    ) Error!void {
         var is_branching = false;
 
         switch (expr.kind) {
@@ -240,7 +240,7 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr,
         ctx: ExprContext,
-    ) CompilerError!void {
+    ) Error!void {
         const is_logical = expr.kind == .binary and expr.kind.binary.isLogical();
 
         const old_else_branch_offsets = self.else_branch_offsets;
@@ -273,7 +273,7 @@ pub const Compiler = struct {
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
         ctx: ExprContext,
-    ) CompilerError!void {
+    ) Error!void {
         try self.compilePotentiallyNestedLogicalExpr(expr.left, .{});
         try self.compilePotentiallyNestedLogicalExpr(expr.right, .{});
 
@@ -303,7 +303,7 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
-    ) CompilerError!void {
+    ) Error!void {
         const old_previous_logical = self.previous_logical;
         self.previous_logical = self.current_logical;
         self.current_logical =
@@ -364,7 +364,7 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
-    ) CompilerError!void {
+    ) Error!void {
         try self.compileExpr(expr.left, .{});
         try self.compileExpr(expr.right, .{});
 
@@ -390,7 +390,7 @@ pub const Compiler = struct {
         if_op_code: OpCode,
         position: Position,
         ctx: ExprContext,
-    ) CompilerError!struct { usize, bool } {
+    ) Error!struct { usize, bool } {
         const invert = self.current_logical == .or_ and ctx.is_child_to_logical;
         const final_if_op_code = if (invert)
             invertComparisonOpCode(if_op_code)
@@ -447,13 +447,13 @@ pub const Compiler = struct {
         return .{ cmp_op_code, if_op_code };
     }
 
-    fn patchJumps(self: *Self, jumps: *BranchOffsets) CompilerError!void {
+    fn patchJumps(self: *Self, jumps: *BranchOffsets) Error!void {
         while (jumps.popOrNull()) |jump| {
             try self.chunk.patchJump(jump);
         }
     }
 
-    fn invertLastBranchJump(self: *Self) CompilerError!void {
+    fn invertLastBranchJump(self: *Self) Error!void {
         const last_jump = self.last_jump.?;
         const if_op_code: OpCode = @enumFromInt(self.chunk.code.items[last_jump.index]);
 

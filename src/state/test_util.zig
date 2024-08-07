@@ -13,21 +13,21 @@ const Stack = stack_mod.Stack;
 const Obj = obj_mod.Obj;
 const HashTable = hash_table_mod.HashTable;
 
-const TestSuiteError = error{
-    OutOfMemory,
-    TooManyConstants,
-    JumpTooBig,
-};
-
 pub const TestUtil = struct {
     const Self = @This();
+
+    pub const Error = error{
+        OutOfMemory,
+        TooManyConstants,
+        JumpTooBig,
+    };
 
     backing_allocator: Allocator,
     memory: *ManagedMemory,
     vm_state: *VmState,
     table: *HashTable,
 
-    pub fn init(backing_allocator: Allocator) TestSuiteError!Self {
+    pub fn init(backing_allocator: Allocator) Error!Self {
         var memory = try backing_allocator.create(ManagedMemory);
         memory.* = ManagedMemory.init(backing_allocator);
 
@@ -63,7 +63,7 @@ pub const TestUtil = struct {
         self.backing_allocator.destroy(self.memory);
     }
 
-    pub fn createString(self: *Self, buf: []const u8) TestSuiteError!*Obj.String {
+    pub fn createString(self: *Self, buf: []const u8) Error!*Obj.String {
         return try Obj.String.createFromCopied(
             self.memory.allocator(),
             self.vm_state,

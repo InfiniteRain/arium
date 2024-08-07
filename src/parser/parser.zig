@@ -16,13 +16,13 @@ const Position = tokenizer_mod.Position;
 const ParsedExpr = parsed_expr_mod.ParsedExpr;
 const ParsedStmt = parsed_stmt_mod.ParsedStmt;
 
-pub const ParserError = error{
-    OutOfMemory,
-    ParseFailure,
-};
-
 pub const Parser = struct {
     const Self = @This();
+
+    pub const Error = error{
+        OutOfMemory,
+        ParseFailure,
+    };
 
     pub const DiagnosticEntry = struct {
         message: []u8,
@@ -47,7 +47,7 @@ pub const Parser = struct {
         self: *Self,
         tokenizer: *Tokenizer,
         diagnostics: ?*Diagnostics,
-    ) ParserError!*ParsedStmt {
+    ) Error!*ParsedStmt {
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanNonCommentToken();
         self.diagnostics = diagnostics;
@@ -87,7 +87,7 @@ pub const Parser = struct {
         });
     }
 
-    fn parseStmt(self: *Self) ParserError!*ParsedStmt {
+    fn parseStmt(self: *Self) Error!*ParsedStmt {
         if (self.match(.assert)) {
             return try self.assertStatement(self.previous().position);
         }
@@ -101,7 +101,7 @@ pub const Parser = struct {
         return error.ParseFailure;
     }
 
-    fn assertStatement(self: *Self, position: Position) ParserError!*ParsedStmt {
+    fn assertStatement(self: *Self, position: Position) Error!*ParsedStmt {
         _ = try self.consume(.left_paren, "Expected '(' before expression.");
 
         const expr = try self.parseExpr();
@@ -112,18 +112,18 @@ pub const Parser = struct {
         return try ParsedStmt.Kind.Assert.create(self.allocator, expr, position);
     }
 
-    fn printStatement(self: *Self, position: Position) ParserError!*ParsedStmt {
+    fn printStatement(self: *Self, position: Position) Error!*ParsedStmt {
         const expr = try self.parseExpr();
         errdefer expr.destroy(self.allocator);
 
         return try ParsedStmt.Kind.Print.create(self.allocator, expr, position);
     }
 
-    fn parseExpr(self: *Self) ParserError!*ParsedExpr {
+    fn parseExpr(self: *Self) Error!*ParsedExpr {
         return try self.parseOr();
     }
 
-    fn parseOr(self: *Self) ParserError!*ParsedExpr {
+    fn parseOr(self: *Self) Error!*ParsedExpr {
         var expr = try self.parseAnd();
         errdefer expr.destroy(self.allocator);
 
@@ -144,7 +144,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseAnd(self: *Self) ParserError!*ParsedExpr {
+    fn parseAnd(self: *Self) Error!*ParsedExpr {
         var expr = try self.parseEquality();
         errdefer expr.destroy(self.allocator);
 
@@ -165,7 +165,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseEquality(self: *Self) ParserError!*ParsedExpr {
+    fn parseEquality(self: *Self) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseComparison();
         errdefer expr.destroy(self.allocator);
@@ -191,7 +191,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseComparison(self: *Self) ParserError!*ParsedExpr {
+    fn parseComparison(self: *Self) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseTerm();
         errdefer expr.destroy(self.allocator);
@@ -224,7 +224,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseTerm(self: *Self) ParserError!*ParsedExpr {
+    fn parseTerm(self: *Self) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseFactor();
         errdefer expr.destroy(self.allocator);
@@ -250,7 +250,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseFactor(self: *Self) ParserError!*ParsedExpr {
+    fn parseFactor(self: *Self) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseConcat();
         errdefer expr.destroy(self.allocator);
@@ -276,7 +276,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseConcat(self: *Self) ParserError!*ParsedExpr {
+    fn parseConcat(self: *Self) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
         var expr = try self.parseUnary();
         errdefer expr.destroy(self.allocator);
@@ -299,7 +299,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseUnary(self: *Self) ParserError!*ParsedExpr {
+    fn parseUnary(self: *Self) Error!*ParsedExpr {
         if (self.match(.minus) or self.match(.not)) {
             const OperatorKind = ParsedExpr.Unary.OperatorKind;
             const operator_token = self.previous();
@@ -321,7 +321,7 @@ pub const Parser = struct {
         return try self.parsePrimary();
     }
 
-    fn parsePrimary(self: *Self) ParserError!*ParsedExpr {
+    fn parsePrimary(self: *Self) Error!*ParsedExpr {
         if (self.match(.true_) or self.match(.false_)) {
             return try ParsedExpr.Literal.create(self.allocator, self.previous(), .bool);
         }
@@ -364,7 +364,7 @@ pub const Parser = struct {
         self: *Self,
         kind: Token.Kind,
         comptime error_message: []const u8,
-    ) ParserError!Token {
+    ) Error!Token {
         if (self.check(kind)) {
             return self.advance();
         }
@@ -427,7 +427,7 @@ pub const Parser = struct {
         token: Token,
         comptime fmt: []const u8,
         args: anytype,
-    ) ParserError!void {
+    ) Error!void {
         if (self.diagnostics) |diagnostics| {
             const message = try allocPrint(self.allocator, fmt, args);
 
@@ -464,5 +464,5 @@ test "should free all memory on unsuccessful parse" {
     var parser = Parser.init(allocator);
 
     const result = parser.parse(&tokenizer, null);
-    try expectError(ParserError.ParseFailure, result);
+    try expectError(Parser.Error.ParseFailure, result);
 }

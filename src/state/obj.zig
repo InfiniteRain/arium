@@ -4,12 +4,12 @@ const managed_memory_mod = @import("managed_memory.zig");
 const Allocator = std.mem.Allocator;
 const VmState = managed_memory_mod.VmState;
 
-const ObjError = error{
-    OutOfMemory,
-};
-
 pub const Obj = struct {
     const Self = @This();
+
+    pub const Error = error{
+        OutOfMemory,
+    };
 
     const Kind = enum {
         string,
@@ -25,7 +25,7 @@ pub const Obj = struct {
             vm_state: *VmState,
             owned_buf: []u8,
             content_hash: u32,
-        ) ObjError!*String {
+        ) Error!*String {
             const string_obj = (try Self.create(String, allocator, vm_state)).as(String);
             string_obj.chars = owned_buf;
             string_obj.hash = content_hash;
@@ -41,7 +41,7 @@ pub const Obj = struct {
             allocator: Allocator,
             vm_state: *VmState,
             owned_buf: []u8,
-        ) ObjError!*String {
+        ) Error!*String {
             const content_hash = hash(owned_buf);
             const interned_opt = vm_state.strings.findString(owned_buf, content_hash);
 
@@ -57,7 +57,7 @@ pub const Obj = struct {
             allocator: Allocator,
             vm_state: *VmState,
             buf: []const u8,
-        ) ObjError!*String {
+        ) Error!*String {
             const content_hash = hash(buf);
             const interned_opt = vm_state.strings.findString(buf, content_hash);
 
@@ -108,7 +108,7 @@ pub const Obj = struct {
         KindType: type,
         allocator: Allocator,
         vm_state: *VmState,
-    ) ObjError!*Self {
+    ) Error!*Self {
         const unknown_obj = try allocator.create(KindType);
 
         unknown_obj.obj = .{

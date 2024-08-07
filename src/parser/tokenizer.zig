@@ -18,8 +18,6 @@ const token_trie = generateTrie(.{
     .{ "assert", .assert },
 });
 
-pub const TokenizerError = error{OutOfMemory};
-
 pub const Position = struct {
     line: u64,
     column: u64,

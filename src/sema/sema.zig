@@ -22,13 +22,13 @@ const Token = tokenizer_mod.Token;
 const Position = tokenizer_mod.Position;
 const Parser = parser_mod.Parser;
 
-pub const SemaError = error{
-    OutOfMemory,
-    SemaFailure,
-};
-
 pub const Sema = struct {
     const Self = @This();
+
+    pub const Error = error{
+        OutOfMemory,
+        SemaFailure,
+    };
 
     pub const DiagnosticEntry = struct {
         message: []u8,
@@ -47,7 +47,7 @@ pub const Sema = struct {
         };
     }
 
-    pub fn analyze(self: *Self, block: *ParsedStmt, diagnostics: ?*Diagnostics) SemaError!*SemaStmt {
+    pub fn analyze(self: *Self, block: *ParsedStmt, diagnostics: ?*Diagnostics) Error!*SemaStmt {
         self.diagnostics = diagnostics;
         self.had_error = false;
 
@@ -61,7 +61,7 @@ pub const Sema = struct {
         return sema_block;
     }
 
-    fn analyzeStmt(self: *Self, stmt: *ParsedStmt) SemaError!*SemaStmt {
+    fn analyzeStmt(self: *Self, stmt: *ParsedStmt) Error!*SemaStmt {
         switch (stmt.kind) {
             .block => |block| {
                 var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
@@ -98,7 +98,7 @@ pub const Sema = struct {
     fn analyzeExpr(
         self: *Self,
         expr: *ParsedExpr,
-    ) SemaError!*SemaExpr {
+    ) Error!*SemaExpr {
         switch (expr.*) {
             .literal => |literal| {
                 var lexeme = literal.token.lexeme;
@@ -312,7 +312,7 @@ pub const Sema = struct {
     fn createInvalidExpr(
         self: *const Self,
         child_exprs: anytype,
-    ) SemaError!*SemaExpr {
+    ) Error!*SemaExpr {
         return try SemaExpr.Kind.Invalid.create(self.allocator, child_exprs);
     }
 
@@ -326,7 +326,7 @@ pub const Sema = struct {
         comptime fmt: []const u8,
         args: anytype,
         child_exprs: anytype,
-    ) SemaError!*SemaExpr {
+    ) Error!*SemaExpr {
         try self.semaError(position, fmt, args);
         return try self.createInvalidExpr(child_exprs);
     }
@@ -338,7 +338,7 @@ pub const Sema = struct {
         args: anytype,
         child_exprs: anytype,
         child_stmts: anytype,
-    ) SemaError!*SemaStmt {
+    ) Error!*SemaStmt {
         try self.semaError(position, fmt, args);
         return try SemaStmt.Kind.Invalid.create(
             self.allocator,
@@ -352,7 +352,7 @@ pub const Sema = struct {
         position: Position,
         comptime fmt: []const u8,
         args: anytype,
-    ) SemaError!void {
+    ) Error!void {
         self.had_error = true;
 
         if (self.diagnostics) |diagnostics| {
@@ -403,5 +403,5 @@ test "should free all memory on unsuccessful analysis" {
     var sema = Sema.init(allocator);
 
     const result = sema.analyze(parsed_expr, null);
-    try expectError(SemaError.SemaFailure, result);
+    try expectError(Sema.Error.SemaFailure, result);
 }

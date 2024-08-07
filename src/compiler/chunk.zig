@@ -14,12 +14,6 @@ const Value = value_mod.Value;
 const Position = tokenizer_mod.Position;
 const IoHandler = io_handler_mod.IoHandler;
 
-const ChunkError = error{
-    OutOfMemory,
-    TooManyConstants,
-    JumpTooBig,
-};
-
 pub const OpCode = enum(u8) {
     constant,
     constant_bool_false,
@@ -73,12 +67,18 @@ pub const OpCode = enum(u8) {
 pub const Chunk = struct {
     const Self = @This();
 
+    pub const Error = error{
+        OutOfMemory,
+        TooManyConstants,
+        JumpTooBig,
+    };
+
     allocator: Allocator,
     code: ArrayList(u8),
     positions: ArrayList(?Position), // todo: replace with RLE
     constants: ArrayList(Value),
 
-    pub fn init(allocator: Allocator) ChunkError!Self {
+    pub fn init(allocator: Allocator) Error!Self {
         return .{
             .allocator = allocator,
             .code = ArrayList(u8).init(allocator),
@@ -93,16 +93,16 @@ pub const Chunk = struct {
         self.constants.deinit();
     }
 
-    pub fn writeU8(self: *Self, data: anytype, position: ?Position) ChunkError!void {
+    pub fn writeU8(self: *Self, data: anytype, position: ?Position) Error!void {
         try self.code.append(resolveU8(data));
         try self.positions.append(position);
     }
 
-    pub fn updateU8(self: *Self, data: anytype, index: usize) ChunkError!void {
+    pub fn updateU8(self: *Self, data: anytype, index: usize) Error!void {
         self.code.items[index] = resolveU8(data);
     }
 
-    pub fn writeU16(self: *Self, data: u16, position: ?Position) ChunkError!void {
+    pub fn writeU16(self: *Self, data: u16, position: ?Position) Error!void {
         try self.writeU8(@as(u8, @intCast((data >> 8) & 0xFF)), position);
         try self.writeU8(@as(u8, @intCast(data & 0xFF)), position);
     }
@@ -111,14 +111,14 @@ pub const Chunk = struct {
         self: *Self,
         op_code: OpCode,
         position: ?Position,
-    ) ChunkError!usize {
+    ) Error!usize {
         try self.writeU8(op_code, position);
         try self.writeU16(0, position);
 
         return self.code.items.len - 2;
     }
 
-    pub fn patchJump(self: *Self, offset: usize) ChunkError!void {
+    pub fn patchJump(self: *Self, offset: usize) Error!void {
         const jump = self.code.items.len - offset - 2;
 
         if (offset > math.maxInt(u16)) {
@@ -131,7 +131,7 @@ pub const Chunk = struct {
         self.code.items[offset + 1] = @intCast(jump_converted & 0xFF);
     }
 
-    pub fn writeConstant(self: *Self, value: Value, position: ?Position) ChunkError!void {
+    pub fn writeConstant(self: *Self, value: Value, position: ?Position) Error!void {
         if (self.constants.items.len == 256) {
             return error.TooManyConstants;
         }

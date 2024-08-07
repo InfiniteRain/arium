@@ -18,14 +18,14 @@ const IoHandler = io_handler.IoHandler;
 const Obj = obj_mod.Obj;
 const Position = tokenizer_mod.Position;
 
-const VmError = error{
-    OutOfMemory,
-    InterpretError,
-    Panic,
-};
-
 pub const Vm = struct {
     const Self = @This();
+
+    pub const Error = error{
+        OutOfMemory,
+        InterpretError,
+        Panic,
+    };
 
     pub const Config = struct {
         trace_execution: bool = false,
@@ -37,7 +37,7 @@ pub const Vm = struct {
     allocator: Allocator,
     state: *VmState,
 
-    pub fn interpret(memory: *ManagedMemory, io: *IoHandler, config: Config) VmError!void {
+    pub fn interpret(memory: *ManagedMemory, io: *IoHandler, config: Config) Error!void {
         const allocator = memory.allocator();
 
         var vm = Vm{
@@ -51,7 +51,7 @@ pub const Vm = struct {
         try vm.run();
     }
 
-    fn run(self: *Self) VmError!void {
+    fn run(self: *Self) Error!void {
         while (true) {
             const ip_offset = self.getOffset();
 
@@ -273,7 +273,7 @@ pub const Vm = struct {
         }
     }
 
-    fn concat(self: *Self) VmError!void {
+    fn concat(self: *Self) Error!void {
         const b = self.peek(0).obj.as(Obj.String);
         const a = self.peek(1).obj.as(Obj.String);
 

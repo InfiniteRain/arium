@@ -12,10 +12,6 @@ const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const TestUtil = test_util_mod.TestUtil;
 
-const HashTableError = error{
-    OutOfMemory,
-};
-
 pub const Entry = struct {
     key: ?*Obj.String,
     value: Value,
@@ -25,11 +21,15 @@ pub const HashTable = struct {
     const Self = @This();
     const max_load = 0.75;
 
+    pub const Error = error{
+        OutOfMemory,
+    };
+
     allocator: Allocator,
     count: usize = 0,
     entries: []Entry,
 
-    pub fn init(allocator: Allocator) HashTableError!Self {
+    pub fn init(allocator: Allocator) Error!Self {
         return .{
             .allocator = allocator,
             .entries = try allocator.alloc(Entry, 0),
@@ -40,7 +40,7 @@ pub const HashTable = struct {
         self.allocator.free(self.entries);
     }
 
-    pub fn set(self: *Self, key: *Obj.String, value: Value) HashTableError!bool {
+    pub fn set(self: *Self, key: *Obj.String, value: Value) Error!bool {
         const flen: f64 = @floatFromInt(self.entries.len);
         const threshold: usize = @intFromFloat(flen * max_load);
 
@@ -115,7 +115,7 @@ pub const HashTable = struct {
         }
     }
 
-    fn growCapacity(self: *Self) HashTableError!void {
+    fn growCapacity(self: *Self) Error!void {
         const capacity = if (self.entries.len <= 0) 8 else self.entries.len * 2;
         const new_entries = try self.allocator.alloc(Entry, capacity);
 
