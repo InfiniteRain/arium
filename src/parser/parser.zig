@@ -100,7 +100,11 @@ pub const Parser = struct {
             return try self.printStatement(self.previous().position);
         }
 
-        try self.parserError(self.peek(), "Expected statement.", .{});
+        if (self.match(.invalid)) {
+            try self.parserError(self.previous(), "{s}", .{self.previous().lexeme});
+        } else {
+            try self.parserError(self.peek(), "Expected statement.", .{});
+        }
 
         return error.ParseFailure;
     }
@@ -350,7 +354,11 @@ pub const Parser = struct {
             return expr;
         }
 
-        try self.parserError(self.peek(), "Expected expression.", .{});
+        if (self.match(.invalid)) {
+            try self.parserError(self.previous(), "{s}", .{self.previous().lexeme});
+        } else {
+            try self.parserError(self.peek(), "Expected expression.", .{});
+        }
 
         return error.ParseFailure;
     }
@@ -374,7 +382,6 @@ pub const Parser = struct {
         }
 
         try self.parserError(self.peek(), error_message, .{});
-
         return error.ParseFailure;
     }
 
@@ -403,10 +410,6 @@ pub const Parser = struct {
         self.previous_token = self.current_token;
         self.current_token = self.tokenizer.scanNonCommentToken();
 
-        if (self.current_token.kind == .comment) {
-            _ = self.advance();
-        }
-
         return self.previous_token;
     }
 
@@ -433,7 +436,12 @@ pub const Parser = struct {
         args: anytype,
     ) Error!void {
         if (self.diagnostics) |diagnostics| {
-            const message = try allocPrint(self.allocator, fmt, args);
+            // allocating with diagnostic's allocator, for an edge case found
+            // in lang-tests, where new allocator is created for each test
+            // to detect memory leaks; this makes line it so that diagnostics
+            // could be created with the base allocator instead of an allocator
+            // local to the test.
+            const message = try allocPrint(diagnostics.allocator, fmt, args);
 
             try diagnostics.add(.{
                 .token = token,

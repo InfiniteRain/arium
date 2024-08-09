@@ -277,15 +277,11 @@ pub const Tokenizer = struct {
     }
 
     fn string(self: *Self) Token {
-        while (self.peek() != '"' and !self.isAtEnd()) {
-            if (self.peek() == '\n') {
-                self.line += 1;
-            }
-
+        while (self.peek() != '"' and self.peek() != '\n' and !self.isAtEnd()) {
             _ = self.advance();
         }
 
-        if (self.isAtEnd()) {
+        if (self.peek() == '\n' or self.isAtEnd()) {
             return self.makeInvalidToken("Unterminated string.");
         }
 
