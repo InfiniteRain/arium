@@ -1,4 +1,5 @@
 const std = @import("std");
+const shared = @import("shared");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const value_mod = @import("../state/value.zig");
 const chunk_mod = @import("../compiler/chunk.zig");
@@ -8,6 +9,8 @@ const obj_mod = @import("../state/obj.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 
 const Allocator = std.mem.Allocator;
+const allocPrint = std.fmt.allocPrint;
+const SharedDiagnostics = shared.Diagnostics;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const Value = value_mod.Value;
@@ -16,6 +19,7 @@ const OpCode = chunk_mod.OpCode;
 const Stack = stack_mod.Stack;
 const IoHandler = io_handler.IoHandler;
 const Obj = obj_mod.Obj;
+const Token = tokenizer_mod.Token;
 const Position = tokenizer_mod.Position;
 
 pub const Vm = struct {
@@ -23,9 +27,19 @@ pub const Vm = struct {
 
     pub const Error = error{
         OutOfMemory,
-        InterpretError,
         Panic,
     };
+
+    pub const DiagnosticEntry = struct {
+        message: []const u8,
+        position: Position,
+
+        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+            allocator.free(self.message);
+        }
+    };
+
+    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
 
     pub const Config = struct {
         trace_execution: bool = false,
@@ -36,8 +50,14 @@ pub const Vm = struct {
     io: *IoHandler,
     allocator: Allocator,
     state: *VmState,
+    diagnostics: ?*Diagnostics,
 
-    pub fn interpret(memory: *ManagedMemory, io: *IoHandler, config: Config) Error!void {
+    pub fn interpret(
+        memory: *ManagedMemory,
+        io: *IoHandler,
+        diagnostics: ?*Diagnostics,
+        config: Config,
+    ) Error!void {
         const allocator = memory.allocator();
 
         var vm = Vm{
@@ -46,6 +66,7 @@ pub const Vm = struct {
             .allocator = allocator,
             .state = &memory.vm_state.?,
             .config = config,
+            .diagnostics = diagnostics,
         };
 
         try vm.run();
@@ -250,11 +271,10 @@ pub const Vm = struct {
                     const a = self.pop().bool;
 
                     if (!a) {
-                        try self.state.setPanicInfo(
-                            self.memory.backing_allocator,
-                            "Assertion failed",
-                            .{},
+                        try self.panic(
                             self.getPosition(ip_offset),
+                            "Assertion failed.",
+                            .{},
                         );
                         return error.Panic;
                     }
@@ -268,7 +288,7 @@ pub const Vm = struct {
                     return;
                 },
                 .pop => _ = self.pop(),
-                _ => return error.InterpretError,
+                _ => @panic("invalid op code"),
             }
         }
     }
@@ -332,5 +352,26 @@ pub const Vm = struct {
 
     fn getPosition(self: *Self, offset: usize) Position {
         return self.chunk().positions.items[offset].?;
+    }
+
+    fn panic(
+        self: *Self,
+        position: Position,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) Error!void {
+        if (self.diagnostics) |diagnostics| {
+            // allocating with diagnostic's allocator, for an edge case found
+            // in lang-tests, where new allocator is created for each test
+            // to detect memory leaks; this makes line it so that diagnostics
+            // could be created with the base allocator instead of an allocator
+            // local to the test.
+            const message = try allocPrint(diagnostics.allocator, fmt, args);
+
+            try diagnostics.add(.{
+                .position = position,
+                .message = message,
+            });
+        }
     }
 };

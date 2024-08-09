@@ -18,8 +18,8 @@ pub fn Diagnostics(T: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            for (self.entries.items) |entry| {
-                self.allocator.free(entry.message);
+            for (self.entries.items) |*entry| {
+                T.deinit(entry, self.allocator);
             }
 
             self.entries.clearAndFree();

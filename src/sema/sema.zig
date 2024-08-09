@@ -33,6 +33,10 @@ pub const Sema = struct {
     pub const DiagnosticEntry = struct {
         message: []u8,
         position: Position,
+
+        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+            allocator.free(self.message);
+        }
     };
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
@@ -356,7 +360,12 @@ pub const Sema = struct {
         self.had_error = true;
 
         if (self.diagnostics) |diagnostics| {
-            const message = try allocPrint(self.allocator, fmt, args);
+            // allocating with diagnostic's allocator, for an edge case found
+            // in lang-tests, where new allocator is created for each test
+            // to detect memory leaks; this makes line it so that diagnostics
+            // could be created with the base allocator instead of an allocator
+            // local to the test.
+            const message = try allocPrint(diagnostics.allocator, fmt, args);
 
             try diagnostics.add(.{
                 .message = message,

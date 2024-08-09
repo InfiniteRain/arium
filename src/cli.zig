@@ -122,14 +122,21 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
         io.out("\n== EXECUTION ==\n");
     }
 
-    Vm.interpret(&memory, io, .{
+    var vm_diagnostics = Vm.Diagnostics.init(allocator);
+    defer vm_diagnostics.deinit();
+
+    Vm.interpret(&memory, io, &vm_diagnostics, .{
         .trace_execution = args.@"dtrace-execution" > 0,
     }) catch |err| switch (err) {
-        error.Panic => io.outf("Panic at {}:{}: {s}\n", .{
-            memory.vm_state.?.panic_info_opt.?.position.line,
-            memory.vm_state.?.panic_info_opt.?.position.column,
-            memory.vm_state.?.panic_info_opt.?.message,
-        }),
+        error.Panic => {
+            const diags = vm_diagnostics.getEntries();
+
+            io.outf("Panic at {}:{}: {s}\n", .{
+                diags[0].position.line,
+                diags[0].position.column,
+                diags[0].message,
+            });
+        },
         else => return err,
     };
 }

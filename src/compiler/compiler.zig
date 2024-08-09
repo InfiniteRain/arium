@@ -72,7 +72,6 @@ pub const Compiler = struct {
         vm_state.objs = null;
         vm_state.strings = try HashTable.init(allocator);
         vm_state.stack = try Stack.init(allocator);
-        vm_state.panic_info_opt = null;
 
         var compiler = Self{
             .vm_state = &vm_state,

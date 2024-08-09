@@ -27,6 +27,10 @@ pub const Parser = struct {
     pub const DiagnosticEntry = struct {
         message: []u8,
         token: Token,
+
+        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+            allocator.free(self.message);
+        }
     };
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);

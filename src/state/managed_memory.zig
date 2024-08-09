@@ -1,4 +1,5 @@
 const std = @import("std");
+const shared = @import("shared");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
@@ -9,17 +10,13 @@ const tokenizer_mod = @import("../parser/tokenizer.zig");
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
 const expect = std.testing.expect;
+const SharedDiagnostics = shared.Diagnostics;
 const Chunk = chunk_mod.Chunk;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
 const Obj = obj_mod.Obj;
 const HashTable = hash_table_mod.HashTable;
 const Position = tokenizer_mod.Position;
-
-pub const PanicInfo = struct {
-    message: []const u8,
-    position: Position,
-};
 
 pub const VmState = struct {
     const Self = @This();
@@ -29,26 +26,6 @@ pub const VmState = struct {
     stack: Stack,
     objs: ?*Obj,
     strings: HashTable,
-    panic_info_opt: ?PanicInfo,
-
-    pub fn setPanicInfo(
-        self: *Self,
-        allocator: Allocator,
-        comptime fmt: []const u8,
-        args: anytype,
-        position: Position,
-    ) !void {
-        if (self.panic_info_opt) |panic_info| {
-            allocator.free(panic_info.message);
-        }
-
-        const message = try allocPrint(allocator, fmt, args);
-
-        self.panic_info_opt = .{
-            .message = message,
-            .position = position,
-        };
-    }
 };
 
 pub const ManagedMemory = struct {
