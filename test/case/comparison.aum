@@ -1,0 +1,21 @@
+/// run
+//
+
+assert(1 == 1)
+assert(1 > 0)
+assert(0 < 1)
+assert(1 >= 0)
+assert(0 >= 0)
+assert(1 <= 1)
+assert(0 <= 1)
+print("0")
+print("1")
+print("2")
+print("3")
+print("4")
+
+/// out 0
+/// out 1
+/// out 2
+/// out 3
+/// out 4

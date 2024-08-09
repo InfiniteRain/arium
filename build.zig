@@ -87,6 +87,18 @@ pub fn build(b: *std.Build) void {
     const lsp_check_step = b.step("check", "Check if Arium compiles");
     lsp_check_step.dependOn(&lsp_check.step);
 
+    // LANGUAGE TESTS
+
+    const lang_tests = b.addExecutable(.{
+        .name = "arium-lang-tests",
+        .root_source_file = b.path("test/lang_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const lang_tests_cmd = b.addRunArtifact(lang_tests);
+    const run_lang_tests_step = b.step("lang-test", "Run language tests");
+    run_lang_tests_step.dependOn(&lang_tests_cmd.step);
 
     // FIRST PARTY DEPENDENCIES
 
@@ -97,6 +109,7 @@ pub fn build(b: *std.Build) void {
     lib_unit_tests.root_module.addImport("shared", &shared_lib.root_module);
     exe_unit_tests.root_module.addImport("shared", &shared_lib.root_module);
     lsp_check.root_module.addImport("shared", &shared_lib.root_module);
+    lang_tests.root_module.addImport("shared", &shared_lib.root_module);
 
     // THIRD PARTY DEPENDENCIES
 
@@ -111,5 +124,6 @@ pub fn build(b: *std.Build) void {
         lib.root_module.addImport(dep_string, dep.module(dep_string));
         lib_unit_tests.root_module.addImport(dep_string, dep.module(dep_string));
         exe_unit_tests.root_module.addImport(dep_string, dep.module(dep_string));
+        lang_tests.root_module.addImport(dep_string, dep.module(dep_string));
     }
 }
