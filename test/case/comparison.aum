@@ -1,21 +1,21 @@
 /// run
-//
 
-assert(1 == 1)
-assert(1 > 0)
-assert(0 < 1)
-assert(1 >= 0)
-assert(0 >= 0)
-assert(1 <= 1)
-assert(0 <= 1)
-print("0")
-print("1")
-print("2")
-print("3")
-print("4")
+print(1 != 0) /// out true
+print(1 != 1) /// out false
 
-/// out 0
-/// out 1
-/// out 2
-/// out 3
-/// out 4
+print(1 == 1) /// out true
+print(1 == 0) /// out false
+
+print(1 > 0) /// out true
+print(1 > 1) /// out false
+
+print(0 < 1) /// out true
+print(0 < 0) /// out false
+
+print(1 >= 0) /// out true
+print(1 >= 1) /// out true
+print(1 >= 2) /// out false
+
+print(0 <= 1) /// out true
+print(1 <= 1) /// out true
+print(2 <= 1) /// out false
