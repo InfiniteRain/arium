@@ -309,10 +309,14 @@ pub const Compiler = struct {
             if (expr.kind == .or_) .or_ else if (expr.kind == .and_) .and_ else unreachable;
 
         var old_else_branch_offsets: ?BranchOffsets = null;
+        var old_then_branch_offsets: ?BranchOffsets = null;
 
         if (expr.kind == .or_) {
             old_else_branch_offsets = self.else_branch_offsets;
             self.else_branch_offsets = BranchOffsets.init(0) catch unreachable;
+        } else {
+            old_then_branch_offsets = self.then_branch_offsets;
+            self.then_branch_offsets = BranchOffsets.init(0) catch unreachable;
         }
 
         try self.compileExpr(expr.left, .{
@@ -329,6 +333,16 @@ pub const Compiler = struct {
 
             if (old_else_branch_offsets) |old_offsets| {
                 self.else_branch_offsets = old_offsets;
+            }
+        } else {
+            if (self.last_jump != null and self.last_jump.?.is_inverted) {
+                try self.invertLastBranchJump();
+            }
+
+            try self.patchJumps(&self.then_branch_offsets);
+
+            if (old_then_branch_offsets) |old_offsets| {
+                self.then_branch_offsets = old_offsets;
             }
         }
 
