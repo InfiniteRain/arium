@@ -1,4 +1,5 @@
 const std = @import("std");
+const shared = @import("shared");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const chunk_mod = @import("chunk.zig");
 const sema_expr_mod = @import("../sema/sema_expr.zig");
@@ -13,6 +14,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const BoundedArray = std.BoundedArray;
 const assert = std.debug.assert;
+const spread = shared.spread;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const Chunk = chunk_mod.Chunk;
@@ -31,8 +33,17 @@ const LogicalOperation = enum {
 };
 
 const ExprContext = struct {
+    const JumpInfo = struct {
+        index: usize,
+        is_inverted: bool,
+    };
+
     is_child_to_logical: bool = false,
-    is_logical_rhs: bool = false,
+    current_logical: ?LogicalOperation = null,
+    previous_logical: ?LogicalOperation = null,
+    last_jump: *?JumpInfo,
+    else_branch_offsets: *BranchOffsets,
+    then_branch_offsets: *BranchOffsets,
 };
 
 const BranchOffsets = BoundedArray(usize, 128);
@@ -50,19 +61,6 @@ pub const Compiler = struct {
     vm_state: *VmState,
     allocator: Allocator,
     chunk: Chunk,
-    else_branch_offsets: BranchOffsets,
-    then_branch_offsets: BranchOffsets,
-    current_logical: ?LogicalOperation = null,
-    previous_logical: ?LogicalOperation = null,
-    last_jump: ?struct { index: usize, is_inverted: bool } = null,
-
-    // todo: refactor codegen for logical jumps:
-    //       * get rid of compiler state, pass around context
-    //       * BranchOffsets could be declared on the stack and their pointers
-    //         passed around in a context. the lifetime is in OR's and root
-    //         logical expr
-    //       * get rid of the ugly nestedLogicalExpr function, i can check
-    //         whether an expr is a branch to a logical expr by checking previous_logical
 
     pub fn compile(memory: *ManagedMemory, stmt: *const SemaStmt) Error!void {
         const allocator = memory.allocator();
@@ -77,8 +75,6 @@ pub const Compiler = struct {
             .vm_state = &vm_state,
             .allocator = allocator,
             .chunk = try Chunk.init(allocator),
-            .else_branch_offsets = BranchOffsets.init(0) catch unreachable,
-            .then_branch_offsets = BranchOffsets.init(0) catch unreachable,
         };
 
         try compiler.compileStmt(stmt);
@@ -101,11 +97,11 @@ pub const Compiler = struct {
                 }
             },
             .assert => |assert_stmt| {
-                try self.compileExpr(assert_stmt.expr, .{});
+                try self.compileExpr(assert_stmt.expr, null);
                 try self.chunk.writeU8(.assert, stmt.position);
             },
             .print => |print| {
-                try self.compileExpr(print.expr, .{});
+                try self.compileExpr(print.expr, null);
                 try self.chunk.writeU8(.print, stmt.position);
             },
             .invalid => @panic("invalid statement"),
@@ -115,9 +111,22 @@ pub const Compiler = struct {
     fn compileExpr(
         self: *Self,
         expr: *const SemaExpr,
-        ctx: ExprContext,
+        ctx_opt: ?ExprContext,
     ) Error!void {
         var is_branching = false;
+        var last_jump: ?ExprContext.JumpInfo = null;
+        var else_branch_offsets: BranchOffsets = undefined;
+        var then_branch_offsets: BranchOffsets = undefined;
+        const ctx = if (ctx_opt) |passed_ctx| passed_ctx else blk: {
+            else_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            then_branch_offsets = BranchOffsets.init(0) catch unreachable;
+
+            break :blk ExprContext{
+                .last_jump = &last_jump,
+                .else_branch_offsets = &else_branch_offsets,
+                .then_branch_offsets = &then_branch_offsets,
+            };
+        };
 
         switch (expr.kind) {
             .literal => |literal| {
@@ -170,7 +179,7 @@ pub const Compiler = struct {
                     .divide_int,
                     .divide_float,
                     .concat,
-                    => try self.arithmetic(&binary, expr.position),
+                    => try self.arithmetic(&binary, expr.position, ctx),
 
                     .equal_int,
                     .equal_float,
@@ -197,12 +206,12 @@ pub const Compiler = struct {
                     .and_,
                     => {
                         is_branching = true;
-                        try self.logical(&binary, expr.position);
+                        try self.logical(&binary, expr.position, ctx);
                     },
                 }
             },
             .unary => |unary| {
-                try self.compileExpr(unary.right, .{});
+                try self.compileExpr(unary.right, null);
                 try self.chunk.writeU8(
                     switch (unary.kind) {
                         .negate_bool => OpCode.negate_bool,
@@ -228,42 +237,12 @@ pub const Compiler = struct {
             );
 
             if (is_inverted) {
-                self.then_branch_offsets.append(offset) catch return error.TooManyBranchJumps;
+                ctx.then_branch_offsets.append(offset) catch
+                    return error.TooManyBranchJumps;
             } else {
-                self.else_branch_offsets.append(offset) catch return error.TooManyBranchJumps;
+                ctx.else_branch_offsets.append(offset) catch
+                    return error.TooManyBranchJumps;
             }
-        }
-    }
-
-    fn compilePotentiallyNestedLogicalExpr(
-        self: *Self,
-        expr: *const SemaExpr,
-        ctx: ExprContext,
-    ) Error!void {
-        const is_logical = expr.kind == .binary and expr.kind.binary.isLogical();
-
-        const old_else_branch_offsets = self.else_branch_offsets;
-        const old_then_branch_offsets = self.then_branch_offsets;
-        const old_current_logical = self.current_logical;
-        const old_previous_logical = self.previous_logical;
-        const old_last_jump = self.last_jump;
-
-        if (is_logical) {
-            self.else_branch_offsets = BranchOffsets.init(0) catch unreachable;
-            self.then_branch_offsets = BranchOffsets.init(0) catch unreachable;
-            self.current_logical = null;
-            self.previous_logical = null;
-            self.last_jump = null;
-        }
-
-        try self.compileExpr(expr, ctx);
-
-        if (is_logical) {
-            self.else_branch_offsets = old_else_branch_offsets;
-            self.then_branch_offsets = old_then_branch_offsets;
-            self.current_logical = old_current_logical;
-            self.previous_logical = old_previous_logical;
-            self.last_jump = old_last_jump;
         }
     }
 
@@ -273,8 +252,8 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprContext,
     ) Error!void {
-        try self.compilePotentiallyNestedLogicalExpr(expr.left, .{});
-        try self.compilePotentiallyNestedLogicalExpr(expr.right, .{});
+        try self.compileExpr(expr.left, null);
+        try self.compileExpr(expr.right, null);
 
         const cmp_op_code, const if_op_code = getComparisonOpCodes(expr);
         const offset, const is_inverted = try self.branchOff(
@@ -284,7 +263,7 @@ pub const Compiler = struct {
             ctx,
         );
 
-        if (!ctx.is_child_to_logical or self.current_logical == null) {
+        if (!ctx.is_child_to_logical or ctx.current_logical == null) {
             try self.chunk.writeU8(.constant_bool_true, position);
             const then_offset = try self.chunk.writeJump(.jump, position);
             try self.chunk.patchJump(offset);
@@ -292,9 +271,11 @@ pub const Compiler = struct {
             try self.chunk.writeU8(.constant_bool_false, position);
             try self.chunk.patchJump(then_offset);
         } else if (is_inverted) {
-            self.then_branch_offsets.append(offset) catch return error.TooManyBranchJumps;
+            ctx.then_branch_offsets.append(offset) catch
+                return error.TooManyBranchJumps;
         } else {
-            self.else_branch_offsets.append(offset) catch return error.TooManyBranchJumps;
+            ctx.else_branch_offsets.append(offset) catch
+                return error.TooManyBranchJumps;
         }
     }
 
@@ -302,84 +283,91 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
+        ctx: ExprContext,
     ) Error!void {
-        const old_previous_logical = self.previous_logical;
-        self.previous_logical = self.current_logical;
-        self.current_logical =
+        const previous_logical = ctx.current_logical;
+        const current_logical: LogicalOperation =
             if (expr.kind == .or_) .or_ else if (expr.kind == .and_) .and_ else unreachable;
 
-        var old_else_branch_offsets: ?BranchOffsets = null;
-        var old_then_branch_offsets: ?BranchOffsets = null;
+        var new_else_branch_offsets: BranchOffsets = undefined;
+        var new_then_branch_offsets: BranchOffsets = undefined;
+        var else_branch_offsets = ctx.else_branch_offsets;
+        var then_branch_offsets = ctx.then_branch_offsets;
 
         if (expr.kind == .or_) {
-            old_else_branch_offsets = self.else_branch_offsets;
-            self.else_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            new_else_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            else_branch_offsets = &new_else_branch_offsets;
         } else {
-            old_then_branch_offsets = self.then_branch_offsets;
-            self.then_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            new_then_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            then_branch_offsets = &new_then_branch_offsets;
         }
 
-        try self.compileExpr(expr.left, .{
+        const left_ctx = spread(ctx, .{
             .is_child_to_logical = true,
-            .is_logical_rhs = false,
+            .previous_logical = previous_logical,
+            .current_logical = current_logical,
+            .else_branch_offsets = else_branch_offsets,
+            .then_branch_offsets = then_branch_offsets,
         });
+
+        try self.compileExpr(expr.left, left_ctx);
 
         if (expr.kind == .or_) {
-            if (self.last_jump != null and !self.last_jump.?.is_inverted) {
-                try self.invertLastBranchJump();
+            if (ctx.last_jump.* != null and !ctx.last_jump.*.?.is_inverted) {
+                try self.invertLastBranchJump(left_ctx);
             }
 
-            try self.patchJumps(&self.else_branch_offsets);
-
-            if (old_else_branch_offsets) |old_offsets| {
-                self.else_branch_offsets = old_offsets;
-            }
+            try self.patchJumps(else_branch_offsets);
         } else {
-            if (self.last_jump != null and self.last_jump.?.is_inverted) {
-                try self.invertLastBranchJump();
+            if (ctx.last_jump.* != null and ctx.last_jump.*.?.is_inverted) {
+                try self.invertLastBranchJump(left_ctx);
             }
 
-            try self.patchJumps(&self.then_branch_offsets);
-
-            if (old_then_branch_offsets) |old_offsets| {
-                self.then_branch_offsets = old_offsets;
-            }
+            try self.patchJumps(then_branch_offsets);
         }
 
-        try self.compileExpr(expr.right, .{
-            .is_child_to_logical = true,
-            .is_logical_rhs = true,
+        const right_ctx = spread(left_ctx, .{
+            .else_branch_offsets = ctx.else_branch_offsets,
+            .then_branch_offsets = ctx.then_branch_offsets,
         });
 
-        if (self.current_logical != null and self.previous_logical == null) {
+        try self.compileExpr(expr.right, right_ctx);
+
+        if (previous_logical == null) {
             // if the deepest branch condition was inverted, invert it back
             // as it is the end of the logical expression
-            if (self.last_jump != null and self.last_jump.?.is_inverted) {
-                try self.invertLastBranchJump();
+            if (ctx.last_jump.* != null and ctx.last_jump.*.?.is_inverted) {
+                try self.invertLastBranchJump(ctx);
             }
 
-            try self.patchJumps(&self.then_branch_offsets);
+            try self.patchJumps(ctx.then_branch_offsets);
 
             try self.chunk.writeU8(.constant_bool_true, position);
             const then_offset = try self.chunk.writeJump(.jump, position);
 
-            try self.patchJumps(&self.else_branch_offsets);
+            try self.patchJumps(ctx.else_branch_offsets);
 
             try self.chunk.writeU8(.constant_bool_false, position);
             try self.chunk.patchJump(then_offset);
         }
-
-        self.current_logical = self.previous_logical;
-        self.previous_logical = old_previous_logical;
     }
 
     fn arithmetic(
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
+        ctx: ExprContext,
     ) Error!void {
-        try self.compileExpr(expr.left, .{});
-        try self.compileExpr(expr.right, .{});
+        const new_ctx = spread(ctx, .{
+            .is_child_to_logical = false,
+            .current_logical = ctx.current_logical,
+            .previous_logical = ctx.previous_logical,
+            .else_branch_offsets = ctx.else_branch_offsets,
+            .then_branch_offsets = ctx.then_branch_offsets,
+        });
+
+        try self.compileExpr(expr.left, new_ctx);
+        try self.compileExpr(expr.right, new_ctx);
 
         const op_code: OpCode = switch (expr.kind) {
             .add_int => .add_int,
@@ -404,14 +392,14 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprContext,
     ) Error!struct { usize, bool } {
-        const invert = self.current_logical == .or_ and ctx.is_child_to_logical;
+        const invert = ctx.current_logical == .or_ and ctx.is_child_to_logical;
         const final_if_op_code = if (invert)
             invertComparisonOpCode(if_op_code)
         else
             if_op_code;
         try self.chunk.writeU8(cmp_op_code, position);
         const offset = try self.chunk.writeJump(final_if_op_code, position);
-        self.last_jump = .{ .index = offset - 1, .is_inverted = invert };
+        ctx.last_jump.* = .{ .index = offset - 1, .is_inverted = invert };
 
         return .{ offset, invert };
     }
@@ -466,16 +454,21 @@ pub const Compiler = struct {
         }
     }
 
-    fn invertLastBranchJump(self: *Self) Error!void {
-        const last_jump = self.last_jump.?;
+    fn invertLastBranchJump(
+        self: *Self,
+        ctx: ExprContext,
+    ) Error!void {
+        const last_jump = ctx.last_jump.*.?;
         const if_op_code: OpCode = @enumFromInt(self.chunk.code.items[last_jump.index]);
 
         try self.chunk.updateU8(invertComparisonOpCode(if_op_code), last_jump.index);
 
         if (last_jump.is_inverted) {
-            self.else_branch_offsets.append(self.then_branch_offsets.pop()) catch return error.TooManyBranchJumps;
+            ctx.else_branch_offsets.append(ctx.then_branch_offsets.pop()) catch
+                return error.TooManyBranchJumps;
         } else {
-            self.then_branch_offsets.append(self.else_branch_offsets.pop()) catch return error.TooManyBranchJumps;
+            ctx.then_branch_offsets.append(ctx.else_branch_offsets.pop()) catch
+                return error.TooManyBranchJumps;
         }
     }
 };
