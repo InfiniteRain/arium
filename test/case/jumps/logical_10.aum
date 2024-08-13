@@ -1,0 +1,37 @@
+/// run
+
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 0) or 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) or 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0)) /// out true
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 0) and 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1)) /// out false
+print(1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1) and 1 > 0 == (1 > 0 and 1 > 1)) /// out false
