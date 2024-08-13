@@ -57,6 +57,7 @@ pub const Token = struct {
         assert,
         print,
 
+        new_line,
         semicolon,
         comment,
         eof,
@@ -94,13 +95,13 @@ pub const Tokenizer = struct {
     }
 
     pub fn scanNonCommentToken(self: *Self) Token {
-        var next_token = self.scanToken();
+        while (true) {
+            const next_token = self.scanToken();
 
-        while (next_token.kind == .comment) {
-            next_token = self.scanToken();
+            if (next_token.kind != .comment) {
+                return next_token;
+            }
         }
-
-        return next_token;
     }
 
     pub fn scanToken(self: *Self) Token {
@@ -126,6 +127,8 @@ pub const Tokenizer = struct {
             '<' => self.makeToken(if (self.match('=')) .less_equal else .less),
             '>' => self.makeToken(if (self.match('=')) .greater_equal else .greater),
             '"' => self.string(),
+            ';' => self.makeToken(.semicolon),
+            '\n' => self.makeToken(.new_line),
             else => {
                 if (Self.isAlpha(char)) {
                     return self.identifier();
@@ -205,7 +208,14 @@ pub const Tokenizer = struct {
     fn advance(self: *Self) u8 {
         const char = self.source[self.current];
         self.current += 1;
-        self.column += 1;
+
+        if (char == '\n') {
+            self.line += 1;
+            self.column = 0;
+        } else {
+            self.column += 1;
+        }
+
         return char;
     }
 
@@ -214,11 +224,6 @@ pub const Tokenizer = struct {
             switch (char) {
                 ' ', '\r', '\t' => {
                     _ = self.advance();
-                },
-                '\n' => {
-                    _ = self.advance();
-                    self.line += 1;
-                    self.column = 0;
                 },
                 else => break,
             }
@@ -353,10 +358,10 @@ test "tokenizer correctly handles a string with only a newline" {
     const token = tokenizer.scanToken();
 
     // THEN
-    try expect(token.kind == .eof);
-    try expect(token.lexeme.len == 0);
+    try expect(token.kind == .new_line);
+    try expect(token.lexeme.len == 1);
     try expect(token.position.line == 2);
-    try expect(token.position.column == 1);
+    try expect(token.position.column == 0);
 }
 
 test "tokenizer parses numbers correctly" {
@@ -393,8 +398,11 @@ test "tokenizer keeps track of lines correctly" {
 
     // WHEN
     const token1 = tokenizer.scanToken();
+    _ = tokenizer.scanToken();
     const token2 = tokenizer.scanToken();
+    _ = tokenizer.scanToken();
     const token3 = tokenizer.scanToken();
+    _ = tokenizer.scanToken();
     const token4 = tokenizer.scanToken();
 
     // THEN
@@ -478,6 +486,7 @@ test "tokenizer parses comment before newline correctly" {
     // WHEN
     const token1 = tokenizer.scanToken();
     const token2 = tokenizer.scanToken();
+    _ = tokenizer.scanToken();
     const token3 = tokenizer.scanToken();
     const token4 = tokenizer.scanToken();
 
@@ -511,8 +520,12 @@ test "scanNonCommentToken scans while ignoring comment tokens" {
     // WHEN
     const token1 = tokenizer.scanNonCommentToken();
     const token2 = tokenizer.scanNonCommentToken();
+    const token3 = tokenizer.scanNonCommentToken();
+    const token4 = tokenizer.scanNonCommentToken();
 
     // THEN
-    try expect(token1.kind == .print);
-    try expect(token2.kind == .eof);
+    try expect(token1.kind == .new_line);
+    try expect(token2.kind == .new_line);
+    try expect(token3.kind == .print);
+    try expect(token4.kind == .eof);
 }

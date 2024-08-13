@@ -1,0 +1,4 @@
+/// run
+
+print(1); /// out 1
+print(2); /// out 2

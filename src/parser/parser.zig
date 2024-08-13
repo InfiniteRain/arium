@@ -56,51 +56,55 @@ pub const Parser = struct {
         self.current_token = tokenizer.scanNonCommentToken();
         self.diagnostics = diagnostics;
 
+        return try self.parseBlock(.eof, .{ .line = 1, .column = 1 });
+    }
+
+    fn parseBlock(
+        self: *Self,
+        end_token_kind: Token.Kind,
+        position: Position,
+    ) Error!*ParsedStmt {
         var stmts = ArrayList(*ParsedStmt).init(self.allocator);
-        var had_error = false;
+        errdefer stmts.clearAndFree();
 
-        while (!self.isAtEnd()) {
-            if (self.parseStmt()) |stmt| {
-                if (had_error) {
-                    stmt.destroy(self.allocator);
-                } else {
-                    try stmts.append(stmt);
-                }
-            } else |err| switch (err) {
-                error.ParseFailure => {
-                    had_error = true;
+        var block = try ParsedStmt.Kind.Block.create(
+            self.allocator,
+            stmts,
+            position,
+        );
+        errdefer block.destroy(self.allocator);
 
-                    for (stmts.items) |stmt| {
-                        stmt.destroy(self.allocator);
-                    }
+        if (self.match(end_token_kind, true)) {
+            return block;
+        }
 
-                    stmts.clearAndFree();
-                    self.synchronize();
-                },
-                else => return err,
+        try block.kind.block.stmts.append(try self.parseStmt());
+
+        while (self.matchStatementTerminator()) {
+            if (self.match(end_token_kind, false)) {
+                return block;
             }
+
+            try block.kind.block.stmts.append(try self.parseStmt());
         }
 
-        if (had_error) {
-            return error.ParseFailure;
-        }
+        _ = try self.consume(end_token_kind, "Unexpected token (use ';' to separate statements on the same line).");
 
-        return try ParsedStmt.Kind.Block.create(self.allocator, stmts, .{
-            .line = 1,
-            .column = 1,
-        });
+        return block;
     }
 
     fn parseStmt(self: *Self) Error!*ParsedStmt {
-        if (self.match(.assert)) {
-            return try self.assertStatement(self.previous().position);
+        errdefer self.synchronize();
+
+        if (self.match(.assert, false)) {
+            return try self.parseAssertStmt(self.previous().position);
         }
 
-        if (self.match(.print)) {
-            return try self.printStatement(self.previous().position);
+        if (self.match(.print, false)) {
+            return try self.parsePrintStmt(self.previous().position);
         }
 
-        if (self.match(.invalid)) {
+        if (self.match(.invalid, false)) {
             try self.parserError(self.previous(), "{s}", .{self.previous().lexeme});
         } else {
             try self.parserError(self.peek(), "Expected statement.", .{});
@@ -109,10 +113,10 @@ pub const Parser = struct {
         return error.ParseFailure;
     }
 
-    fn assertStatement(self: *Self, position: Position) Error!*ParsedStmt {
+    fn parseAssertStmt(self: *Self, position: Position) Error!*ParsedStmt {
         _ = try self.consume(.left_paren, "Expected '(' before expression.");
 
-        const expr = try self.parseExpr();
+        const expr = try self.parseExpr(false);
         errdefer expr.destroy(self.allocator);
 
         _ = try self.consume(.right_paren, "Expected ')' after expression.");
@@ -120,24 +124,25 @@ pub const Parser = struct {
         return try ParsedStmt.Kind.Assert.create(self.allocator, expr, position);
     }
 
-    fn printStatement(self: *Self, position: Position) Error!*ParsedStmt {
-        const expr = try self.parseExpr();
+    fn parsePrintStmt(self: *Self, position: Position) Error!*ParsedStmt {
+        const expr = try self.parseExpr(false);
         errdefer expr.destroy(self.allocator);
-
         return try ParsedStmt.Kind.Print.create(self.allocator, expr, position);
     }
 
-    fn parseExpr(self: *Self) Error!*ParsedExpr {
-        return try self.parseOr();
+    fn parseExpr(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
+        return try self.parseOr(ignore_new_line);
     }
 
-    fn parseOr(self: *Self) Error!*ParsedExpr {
-        var expr = try self.parseAnd();
+    fn parseOr(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
+        var expr = try self.parseAnd(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.or_)) {
+        while (self.match(.or_, ignore_new_line)) {
+            self.skipNewLines();
+
             const operator_token = self.previous();
-            const right = try self.parseAnd();
+            const right = try self.parseAnd(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
@@ -152,13 +157,15 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseAnd(self: *Self) Error!*ParsedExpr {
-        var expr = try self.parseEquality();
+    fn parseAnd(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
+        var expr = try self.parseEquality(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.and_)) {
+        while (self.match(.and_, ignore_new_line)) {
+            self.skipNewLines();
+
             const operator_token = self.previous();
-            const right = try self.parseEquality();
+            const right = try self.parseEquality(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
@@ -173,18 +180,22 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseEquality(self: *Self) Error!*ParsedExpr {
+    fn parseEquality(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
-        var expr = try self.parseComparison();
+        var expr = try self.parseComparison(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.bang_equal) or self.match(.equal_equal)) {
+        while (self.match(.bang_equal, ignore_new_line) or
+            self.match(.equal_equal, ignore_new_line))
+        {
+            self.skipNewLines();
+
             const operator_token = self.previous();
             const operator_kind: OperatorKind = if (operator_token.kind == .bang_equal)
                 .not_equal
             else
                 .equal;
-            const right = try self.parseComparison();
+            const right = try self.parseComparison(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
@@ -199,16 +210,18 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseComparison(self: *Self) Error!*ParsedExpr {
+    fn parseComparison(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
-        var expr = try self.parseTerm();
+        var expr = try self.parseTerm(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.greater) or
-            self.match(.greater_equal) or
-            self.match(.less) or
-            self.match(.less_equal))
+        while (self.match(.greater, ignore_new_line) or
+            self.match(.greater_equal, ignore_new_line) or
+            self.match(.less, ignore_new_line) or
+            self.match(.less_equal, ignore_new_line))
         {
+            self.skipNewLines();
+
             const operator_token = self.previous();
             const operator_kind: OperatorKind = switch (operator_token.kind) {
                 .greater => .greater,
@@ -217,7 +230,7 @@ pub const Parser = struct {
                 .less_equal => .less_equal,
                 else => unreachable,
             };
-            const right = try self.parseTerm();
+            const right = try self.parseTerm(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
@@ -232,18 +245,22 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseTerm(self: *Self) Error!*ParsedExpr {
+    fn parseTerm(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
-        var expr = try self.parseFactor();
+        var expr = try self.parseFactor(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.minus) or self.match(.plus)) {
+        while (self.match(.minus, ignore_new_line) or
+            self.match(.plus, ignore_new_line))
+        {
+            self.skipNewLines();
+
             const operator_token = self.previous();
             const operator_kind: OperatorKind = if (operator_token.kind == .minus)
                 .subtract
             else
                 .add;
-            const right = try self.parseFactor();
+            const right = try self.parseFactor(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
@@ -258,18 +275,22 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseFactor(self: *Self) Error!*ParsedExpr {
+    fn parseFactor(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
-        var expr = try self.parseConcat();
+        var expr = try self.parseConcat(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.slash) or self.match(.star)) {
+        while (self.match(.slash, ignore_new_line) or
+            self.match(.star, ignore_new_line))
+        {
+            self.skipNewLines();
+
             const operator_token = self.previous();
             const operator_kind: OperatorKind = if (operator_token.kind == .slash)
                 .divide
             else
                 .multiply;
-            const right = try self.parseConcat();
+            const right = try self.parseConcat(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
@@ -284,15 +305,17 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseConcat(self: *Self) Error!*ParsedExpr {
+    fn parseConcat(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         const OperatorKind = ParsedExpr.Binary.OperatorKind;
-        var expr = try self.parseUnary();
+        var expr = try self.parseUnary(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.plus_plus)) {
+        while (self.match(.plus_plus, ignore_new_line)) {
+            self.skipNewLines();
+
             const operator_token = self.previous();
             const operator_kind: OperatorKind = .concat;
-            const right = try self.parseUnary();
+            const right = try self.parseUnary(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Binary.create(
@@ -307,15 +330,19 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseUnary(self: *Self) Error!*ParsedExpr {
-        if (self.match(.minus) or self.match(.not)) {
+    fn parseUnary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
+        if (self.match(.minus, ignore_new_line) or
+            self.match(.not, ignore_new_line))
+        {
+            self.skipNewLines();
+
             const OperatorKind = ParsedExpr.Unary.OperatorKind;
             const operator_token = self.previous();
             const operator_kind: OperatorKind = if (operator_token.kind == .minus)
                 .negate_num
             else
                 .negate_bool;
-            const right = try self.parseUnary();
+            const right = try self.parseUnary(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
             return try ParsedExpr.Unary.create(
@@ -326,35 +353,35 @@ pub const Parser = struct {
             );
         }
 
-        return try self.parsePrimary();
+        return try self.parsePrimary(ignore_new_line);
     }
 
-    fn parsePrimary(self: *Self) Error!*ParsedExpr {
-        if (self.match(.true_) or self.match(.false_)) {
+    fn parsePrimary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
+        if (self.match(.true_, ignore_new_line) or self.match(.false_, ignore_new_line)) {
             return try ParsedExpr.Literal.create(self.allocator, self.previous(), .bool);
         }
 
-        if (self.match(.int)) {
+        if (self.match(.int, ignore_new_line)) {
             return try ParsedExpr.Literal.create(self.allocator, self.previous(), .int);
         }
 
-        if (self.match(.float)) {
+        if (self.match(.float, ignore_new_line)) {
             return try ParsedExpr.Literal.create(self.allocator, self.previous(), .float);
         }
 
-        if (self.match(.string)) {
+        if (self.match(.string, ignore_new_line)) {
             return try ParsedExpr.Literal.create(self.allocator, self.previous(), .string);
         }
 
-        if (self.match(.left_paren)) {
-            const expr = try self.parseExpr();
+        if (self.match(.left_paren, ignore_new_line)) {
+            const expr = try self.parseExpr(true);
             errdefer expr.destroy(self.allocator);
 
             _ = try self.consume(.right_paren, "Expected ')' after expression.");
             return expr;
         }
 
-        if (self.match(.invalid)) {
+        if (self.match(.invalid, ignore_new_line)) {
             try self.parserError(self.previous(), "{s}", .{self.previous().lexeme});
         } else {
             try self.parserError(self.peek(), "Expected expression.", .{});
@@ -363,7 +390,11 @@ pub const Parser = struct {
         return error.ParseFailure;
     }
 
-    fn match(self: *Self, kind: Token.Kind) bool {
+    fn match(self: *Self, kind: Token.Kind, ignore_new_line: bool) bool {
+        if (ignore_new_line) {
+            self.skipNewLines();
+        }
+
         if (self.check(kind)) {
             _ = self.advance();
             return true;
@@ -385,27 +416,41 @@ pub const Parser = struct {
         return error.ParseFailure;
     }
 
-    fn check(self: *const Self, kind: Token.Kind) bool {
-        if (self.isAtEnd()) {
-            return false;
+    fn matchStatementTerminator(self: *Self) bool {
+        if (self.check(.new_line)) {
+            self.skipNewLines();
+            return true;
         }
+
+        if (self.check(.semicolon)) {
+            _ = self.advance();
+            self.skipNewLines();
+            return true;
+        }
+
+        return false;
+    }
+
+    fn check(self: *Self, kind: Token.Kind) bool {
         return self.peek().kind == kind;
     }
 
-    fn isAtEnd(self: *const Self) bool {
+    fn isAtEnd(self: *Self) bool {
         return self.peek().kind == .eof;
     }
 
-    fn peek(self: *const Self) Token {
+    fn peek(self: *Self) Token {
         return self.current_token;
     }
 
-    fn previous(self: *const Self) Token {
+    fn previous(self: *Self) Token {
         return self.previous_token;
     }
 
     fn advance(self: *Self) Token {
-        assert(self.current_token.kind != .eof);
+        if (self.current_token.kind == .eof) {
+            return self.current_token;
+        }
 
         self.previous_token = self.current_token;
         self.current_token = self.tokenizer.scanNonCommentToken();
@@ -413,13 +458,20 @@ pub const Parser = struct {
         return self.previous_token;
     }
 
+    fn skipNewLines(self: *Self) void {
+        while (self.check(.new_line)) {
+            _ = self.advance();
+        }
+    }
+
     fn synchronize(self: *Self) void {
-        while (self.current_token.kind != .eof) {
-            if (self.previous_token.kind == .semicolon) {
+        while (self.peek().kind != .eof) {
+            if (self.previous().kind == .semicolon) {
+                self.skipNewLines();
                 return;
             }
 
-            switch (self.current_token.kind) {
+            switch (self.peek().kind) {
                 .print,
                 .assert,
                 => return,
