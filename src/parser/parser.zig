@@ -438,7 +438,7 @@ pub const Parser = struct {
         if (self.diagnostics) |diagnostics| {
             // allocating with diagnostic's allocator, for an edge case found
             // in lang-tests, where new allocator is created for each test
-            // to detect memory leaks; this makes line it so that diagnostics
+            // to detect memory leaks; this line makes it so that diagnostics
             // could be created with the base allocator instead of an allocator
             // local to the test.
             const message = try allocPrint(diagnostics.allocator, fmt, args);
