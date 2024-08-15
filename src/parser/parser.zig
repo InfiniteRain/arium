@@ -25,11 +25,43 @@ pub const Parser = struct {
     };
 
     pub const DiagnosticEntry = struct {
-        message: []u8,
+        pub const Kind = union(enum) {
+            expected_end_token,
+            invalid_token: []const u8,
+            expected_statement,
+            expected_expression,
+            expected_left_paren_before_expr,
+            expected_right_paren_after_expr,
+        };
+
+        kind: Kind,
         token: Token,
 
         pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            allocator.free(self.message);
+            _ = self; // autofix
+            _ = allocator; // autofix
+        }
+
+        pub fn getMessage(self: *const DiagnosticEntry) []const u8 {
+            return switch (self.kind) {
+                .expected_end_token,
+                => "Unexpected token (use ';' to separate statements on the same line).",
+
+                .invalid_token,
+                => |message| message,
+
+                .expected_statement,
+                => "Expected statement.",
+
+                .expected_expression,
+                => "Expected expression.",
+
+                .expected_left_paren_before_expr,
+                => "Expected '(' before expression.",
+
+                .expected_right_paren_after_expr,
+                => "Expected ')' after expression.",
+            };
         }
     };
 
@@ -88,7 +120,7 @@ pub const Parser = struct {
             try block.kind.block.stmts.append(try self.parseStmt());
         }
 
-        _ = try self.consume(end_token_kind, "Unexpected token (use ';' to separate statements on the same line).");
+        _ = try self.consume(end_token_kind, .expected_end_token);
 
         return block;
     }
@@ -105,21 +137,23 @@ pub const Parser = struct {
         }
 
         if (self.match(.invalid, false)) {
-            try self.parserError(self.previous(), "{s}", .{self.previous().lexeme});
+            try self.parserError(self.previous(), .{
+                .invalid_token = self.previous().lexeme,
+            });
         } else {
-            try self.parserError(self.peek(), "Expected statement.", .{});
+            try self.parserError(self.peek(), .expected_statement);
         }
 
         return error.ParseFailure;
     }
 
     fn parseAssertStmt(self: *Self, position: Position) Error!*ParsedStmt {
-        _ = try self.consume(.left_paren, "Expected '(' before expression.");
+        _ = try self.consume(.left_paren, .expected_left_paren_before_expr);
 
         const expr = try self.parseExpr(false);
         errdefer expr.destroy(self.allocator);
 
-        _ = try self.consume(.right_paren, "Expected ')' after expression.");
+        _ = try self.consume(.right_paren, .expected_right_paren_after_expr);
 
         return try ParsedStmt.Kind.Assert.create(self.allocator, expr, position);
     }
@@ -377,14 +411,14 @@ pub const Parser = struct {
             const expr = try self.parseExpr(true);
             errdefer expr.destroy(self.allocator);
 
-            _ = try self.consume(.right_paren, "Expected ')' after expression.");
+            _ = try self.consume(.right_paren, .expected_right_paren_after_expr);
             return expr;
         }
 
         if (self.match(.invalid, ignore_new_line)) {
-            try self.parserError(self.previous(), "{s}", .{self.previous().lexeme});
+            try self.parserError(self.previous(), .{ .invalid_token = self.previous().lexeme });
         } else {
-            try self.parserError(self.peek(), "Expected expression.", .{});
+            try self.parserError(self.peek(), .expected_expression);
         }
 
         return error.ParseFailure;
@@ -405,14 +439,14 @@ pub const Parser = struct {
 
     fn consume(
         self: *Self,
-        kind: Token.Kind,
-        comptime error_message: []const u8,
+        token_kind: Token.Kind,
+        diagnostic_kind: DiagnosticEntry.Kind,
     ) Error!Token {
-        if (self.check(kind)) {
+        if (self.check(token_kind)) {
             return self.advance();
         }
 
-        try self.parserError(self.peek(), error_message, .{});
+        try self.parserError(self.peek(), diagnostic_kind);
         return error.ParseFailure;
     }
 
@@ -484,20 +518,17 @@ pub const Parser = struct {
     fn parserError(
         self: *Self,
         token: Token,
-        comptime fmt: []const u8,
-        args: anytype,
+        diagnostic_kind: DiagnosticEntry.Kind,
     ) Error!void {
         if (self.diagnostics) |diagnostics| {
-            // allocating with diagnostic's allocator, for an edge case found
-            // in lang-tests, where new allocator is created for each test
-            // to detect memory leaks; this line makes it so that diagnostics
-            // could be created with the base allocator instead of an allocator
-            // local to the test.
-            const message = try allocPrint(diagnostics.allocator, fmt, args);
-
+            // in case of ever needing to alloc something in here, make sure to
+            // use diagnostics.allocator instead of self.allocator. this is
+            // necessary for lang-tests where a new allocator is created for
+            // each quest to detect memory leaks. that allocator then gets
+            // deinited while diagnostics are owned by the tests.
             try diagnostics.add(.{
+                .kind = diagnostic_kind,
                 .token = token,
-                .message = message,
             });
         }
     }

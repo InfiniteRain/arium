@@ -4,7 +4,6 @@ const arium = @import("arium");
 const test_mod = @import("test.zig");
 const test_writer_mod = @import("test_writer.zig");
 
-const AnyWriter = std.io.AnyWriter;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
@@ -68,21 +67,21 @@ pub const TestRunner = struct {
             }
         }
 
-        fn print(self: *DiagnosticEntry, writer: *AnyWriter) !void {
+        fn print(self: *DiagnosticEntry, writer: *Writer) void {
             for (self.failure_info.items) |*info| {
                 switch (info.*) {
                     .parser => |*diags| {
                         for (diags.getEntries()) |diag| {
-                            try writer.print("Parser error [{}:{}]: {s}\n", .{
+                            writer.printf("Parser error [{}:{}]: {s}\n", .{
                                 diag.token.position.line,
                                 diag.token.position.column,
-                                diag.message,
+                                diag.getMessage(),
                             });
                         }
                     },
                     .sema => |*diags| {
                         for (diags.getEntries()) |diag| {
-                            try writer.print("Sema error [{}:{}]: {s}\n", .{
+                            writer.printf("Sema error [{}:{}]: {s}\n", .{
                                 diag.position.line,
                                 diag.position.column,
                                 diag.message,
@@ -90,25 +89,25 @@ pub const TestRunner = struct {
                         }
                     },
                     .compiler => |compiler_err| {
-                        try writer.print("Compiler error: {!}\n", .{compiler_err});
+                        writer.printf("Compiler error: {!}\n", .{compiler_err});
                     },
                     .vm => |*diags| {
                         const diag = diags.getEntries()[0];
 
-                        try writer.print("VM panic [{}:{}]: {s}\n", .{
+                        writer.printf("VM panic [{}:{}]: {s}\n", .{
                             diag.position.line,
                             diag.position.column,
                             diag.message,
                         });
                     },
                     .out_mismatch => |mismatch| {
-                        try writer.print("Unexpected stdout.\nExpected:\n{s}\nActual:\n{s}", .{
+                        writer.printf("Unexpected stdout.\nExpected:\n{s}\nActual:\n{s}", .{
                             mismatch.expected,
                             mismatch.actual,
                         });
                     },
                     .memory_leak => {
-                        try writer.print("Memory leak\n", .{});
+                        writer.print("Memory leak\n");
                     },
                 }
             }
@@ -159,8 +158,8 @@ pub const TestRunner = struct {
     pub fn runTests(
         self: *Self,
         allocator: Allocator,
-        stdout: *AnyWriter,
-        stderr: *AnyWriter,
+        stdout_writer: *Writer,
+        stderr_writer: *Writer,
     ) !void {
         var diags = Diagnostics.init(allocator);
         defer diags.deinit();
@@ -168,14 +167,14 @@ pub const TestRunner = struct {
         var passed: u32 = 0;
         var failed: u32 = 0;
 
-        try stdout.print("Running language tests...\n\n", .{});
+        stdout_writer.print("Running language tests...\n\n");
 
         for (self.tests.items) |*test_| {
-            try stdout.print("Running '{s}'... ", .{test_.path});
+            stdout_writer.printf("Running '{s}'... ", .{test_.path});
 
             self.runTest(test_, &diags) catch |err| switch (err) {
                 error.TestFailure => {
-                    try stdout.print("FAILED\n", .{});
+                    stdout_writer.print("FAILED\n");
                     failed += 1;
 
                     continue;
@@ -183,11 +182,11 @@ pub const TestRunner = struct {
                 else => return err,
             };
 
-            try stdout.print("PASSED\n", .{});
+            stdout_writer.print("PASSED\n");
             passed += 1;
         }
 
-        try stdout.print(
+        stdout_writer.printf(
             "\nTests ran: {}\nTests passed: {}\nTests failed: {}\n",
             .{
                 passed + failed,
@@ -198,11 +197,11 @@ pub const TestRunner = struct {
 
         if (failed > 0) {
             for (diags.getEntries()) |*diag| {
-                try stderr.print("\nDiagnostics for '{s}':\n", .{diag.path});
-                try diag.print(stderr);
+                stderr_writer.printf("\nDiagnostics for '{s}':\n", .{diag.path});
+                diag.print(stderr_writer);
             }
 
-            try stderr.print("\n", .{});
+            stderr_writer.print("\n");
 
             return error.TestFailure;
         }

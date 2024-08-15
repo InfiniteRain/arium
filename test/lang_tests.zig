@@ -1,10 +1,12 @@
 const std = @import("std");
+const shared = @import("shared");
 const arium = @import("arium");
 const test_mod = @import("test.zig");
 const test_runner_mod = @import("test_runner.zig");
 
 const Allocator = std.mem.Allocator;
 const fs = std.fs;
+const Writer = shared.Writer;
 const Tokenizer = arium.Tokenizer;
 const TestRunner = test_runner_mod.TestRunner;
 const Test = test_mod.Test;
@@ -18,6 +20,9 @@ pub fn main() !void {
 
     var stdout = std.io.getStdOut().writer().any();
     var stderr = std.io.getStdErr().writer().any();
+
+    var stdout_writer = Writer.init(&stdout);
+    var stderr_writer = Writer.init(&stderr);
 
     {
         var test_runner = TestRunner.init(allocator);
@@ -55,16 +60,16 @@ pub fn main() !void {
                 has_config_errors = true;
                 switch (err) {
                     error.ConfigParseFailure => {
-                        try stderr.print("Test configuration diagnostics for '{s}':\n", .{entry.path});
+                        stderr_writer.printf("Test configuration diagnostics for '{s}':\n", .{entry.path});
 
                         for (diags.getEntries()) |diag| {
-                            try stderr.print("Line {}: {s}\n", .{
+                            stderr_writer.printf("Line {}: {s}\n", .{
                                 diag.position.line,
                                 diag.message,
                             });
                         }
 
-                        try stderr.print("\n", .{});
+                        stderr_writer.printf("\n", .{});
                     },
                     else => return err,
                 }
@@ -75,7 +80,7 @@ pub fn main() !void {
             return error.ConfigParseFailure;
         }
 
-        try test_runner.runTests(allocator, &stdout, &stderr);
+        try test_runner.runTests(allocator, &stdout_writer, &stderr_writer);
     }
 
     if (gpa.deinit() == .leak) {

@@ -94,7 +94,7 @@ fn runFile(
                 err_writer.printf("Error at {}:{}: {s}\n", .{
                     diag.token.position.line,
                     diag.token.position.column,
-                    diag.message,
+                    diag.getMessage(),
                 });
             }
             std.posix.exit(65);
