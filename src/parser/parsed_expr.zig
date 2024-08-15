@@ -1,10 +1,8 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
-const io_handler_mod = @import("../io_handler.zig");
 
 const Allocator = std.mem.Allocator;
 const Token = tokenizer.Token;
-const IoHandler = io_handler_mod.IoHandler;
 
 pub const ParsedExpr = union(enum) {
     const Self = @This();
@@ -127,49 +125,5 @@ pub const ParsedExpr = union(enum) {
         }
 
         allocator.destroy(self);
-    }
-
-    pub fn print(self: *const Self, io: *IoHandler) void {
-        switch (self.*) {
-            .binary => |binary| Self.printParenthesized(
-                io,
-                binary.operator_token.lexeme,
-                .{ binary.left, binary.right },
-            ),
-            .literal => |literal| io.outf("{s}", .{literal.token.lexeme}),
-            .unary => |unary| Self.printParenthesized(
-                io,
-                unary.operator_token.lexeme,
-                .{unary.right},
-            ),
-        }
-    }
-
-    fn printParenthesized(
-        io: *IoHandler,
-        name: []const u8,
-        expr: anytype,
-    ) void {
-        const ExprsType = @TypeOf(expr);
-        const exprs_type_info = @typeInfo(ExprsType);
-
-        if (exprs_type_info != .Struct) {
-            @compileError("expected tuple, found " ++ @typeName(ExprsType));
-        }
-
-        const fields = exprs_type_info.Struct.fields;
-
-        io.outf("({s} ", .{name});
-
-        inline for (fields, 0..) |field, i| {
-            const union_index = comptime std.fmt.parseInt(usize, field.name, 10) catch unreachable;
-            expr[union_index].print(io);
-
-            if (i != fields.len - 1) {
-                io.out(" ");
-            }
-        }
-
-        io.out(")");
     }
 };

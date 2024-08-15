@@ -9,6 +9,7 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const SharedDiagnostics = shared.Diagnostics;
+const Writer = shared.Writer;
 const Tokenizer = arium.Tokenizer;
 const IoHandler = arium.IoHandler;
 const Parser = arium.Parser;
@@ -219,12 +220,6 @@ pub const TestRunner = struct {
         var stdout_test_writer = TestWriter.init(self.allocator);
         defer stdout_test_writer.deinit();
 
-        var stderr_test_writer = TestWriter.init(self.allocator);
-        defer stderr_test_writer.deinit();
-
-        // todo: implement TestReader when need arises
-        const stdin_test_reader = std.io.getStdIn();
-
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         const allocator = gpa.allocator();
 
@@ -235,11 +230,8 @@ pub const TestRunner = struct {
 
         blk: {
             const stdout = stdout_test_writer.writer().any();
-            const stderr = stderr_test_writer.writer().any();
-            const stdin = stdin_test_reader.reader().any();
 
-            var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
-            defer io.deinit();
+            const stdout_writer = Writer.init(&stdout);
 
             var tokenizer = Tokenizer.init(test_.source);
             var parser = Parser.init(allocator);
@@ -293,7 +285,7 @@ pub const TestRunner = struct {
             // diags are owned by the test runner, not the tests.
             var vm_diags = Vm.Diagnostics.init(self.allocator);
 
-            Vm.interpret(&memory, &io, &vm_diags, .{}) catch |err| switch (err) {
+            Vm.interpret(&memory, &stdout_writer, &vm_diags, .{}) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.Panic => {
                     try diag_entry.failure_info.append(.{ .vm = vm_diags });

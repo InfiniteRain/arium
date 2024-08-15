@@ -1,12 +1,10 @@
 const std = @import("std");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
-const io_handler_mod = @import("../io_handler.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const meta = std.meta;
 const Position = tokenizer_mod.Position;
-const IoHandler = io_handler_mod.IoHandler;
 
 pub const SemaExpr = struct {
     const Self = @This();
@@ -255,66 +253,5 @@ pub const SemaExpr = struct {
             },
         }
         allocator.destroy(self);
-    }
-
-    pub fn print(self: *const Self, io: *IoHandler) void {
-        switch (self.kind) {
-            .literal => |literal| {
-                io.outf("{s}[", .{self.eval_type.stringify()});
-
-                switch (literal) {
-                    .int => |int| io.outf("{}", .{int}),
-                    .float => |float| io.outf("{d}", .{float}),
-                    .bool => |bool_| io.outf("{}", .{bool_}),
-                    .string => |string| io.outf("{s}", .{string}),
-                }
-
-                io.out("]");
-            },
-            .binary => |binary| Self.printParenthesized(
-                io,
-                @tagName(binary.kind),
-                self.eval_type,
-                .{ binary.left, binary.right },
-            ),
-            .unary => |unary| Self.printParenthesized(
-                io,
-                @tagName(unary.kind),
-                self.eval_type,
-                .{unary.right},
-            ),
-            .invalid => |_| {
-                io.out("<invalid>");
-            },
-        }
-    }
-
-    fn printParenthesized(
-        io: *IoHandler,
-        name: []const u8,
-        eval_type: EvalType,
-        expr: anytype,
-    ) void {
-        const ExprsType = @TypeOf(expr);
-        const exprs_type_info = @typeInfo(ExprsType);
-
-        if (exprs_type_info != .Struct) {
-            @compileError("expected tuple, found " ++ @typeName(ExprsType));
-        }
-
-        const fields = exprs_type_info.Struct.fields;
-
-        io.outf("({s}[{s}] ", .{ name, eval_type.stringify() });
-
-        inline for (fields, 0..) |field, i| {
-            const union_index = comptime std.fmt.parseInt(usize, field.name, 10) catch unreachable;
-            expr[union_index].print(io);
-
-            if (i != fields.len - 1) {
-                io.out(" ");
-            }
-        }
-
-        io.out(")");
     }
 };

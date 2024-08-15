@@ -1,8 +1,7 @@
-const std = @import("std");
-const io_handler_mod = @import("../io_handler.zig");
+const shared = @import("shared");
 const obj_mod = @import("obj.zig");
 
-const IoHandler = io_handler_mod.IoHandler;
+const Writer = shared.Writer;
 const Obj = obj_mod.Obj;
 
 pub const Value = union(enum) {
@@ -14,14 +13,14 @@ pub const Value = union(enum) {
     bool: bool,
     obj: *Obj,
 
-    pub fn print(self: Self, io: *IoHandler) void {
+    pub fn print(self: Self, writer: *const Writer) void {
         switch (self) {
-            .unit => io.out("unit"),
-            .int => io.outf("{}", .{self.int}),
-            .float => io.outf("{d}", .{self.float}),
-            .bool => io.outf("{}", .{self.bool}),
+            .unit => writer.print("unit"),
+            .int => writer.printf("{}", .{self.int}),
+            .float => writer.printf("{d}", .{self.float}),
+            .bool => writer.printf("{}", .{self.bool}),
             .obj => |obj| switch (obj.kind) {
-                .string => io.outf("{s}", .{obj.as(Obj.String).chars}),
+                .string => writer.printf("{s}", .{obj.as(Obj.String).chars}),
             },
         }
     }

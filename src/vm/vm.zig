@@ -4,20 +4,19 @@ const managed_memory_mod = @import("../state/managed_memory.zig");
 const value_mod = @import("../state/value.zig");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
-const io_handler = @import("../io_handler.zig");
 const obj_mod = @import("../state/obj.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
 const SharedDiagnostics = shared.Diagnostics;
+const Writer = shared.Writer;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const Value = value_mod.Value;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const Stack = stack_mod.Stack;
-const IoHandler = io_handler.IoHandler;
 const Obj = obj_mod.Obj;
 const Token = tokenizer_mod.Token;
 const Position = tokenizer_mod.Position;
@@ -47,14 +46,14 @@ pub const Vm = struct {
 
     config: Config,
     memory: *ManagedMemory,
-    io: *IoHandler,
+    out_writer: *const Writer,
     allocator: Allocator,
     state: *VmState,
     diagnostics: ?*Diagnostics,
 
     pub fn interpret(
         memory: *ManagedMemory,
-        io: *IoHandler,
+        out_writer: *const Writer,
         diagnostics: ?*Diagnostics,
         config: Config,
     ) Error!void {
@@ -62,8 +61,8 @@ pub const Vm = struct {
 
         var vm = Vm{
             .memory = memory,
-            .io = io,
             .allocator = allocator,
+            .out_writer = out_writer,
             .state = &memory.vm_state.?,
             .config = config,
             .diagnostics = diagnostics,
@@ -77,20 +76,20 @@ pub const Vm = struct {
             const ip_offset = self.getOffset();
 
             if (self.config.trace_execution) {
-                self.io.out("               ");
+                self.out_writer.print("               ");
 
                 var slot: [*]Value = @ptrCast(&self.memory.vm_state.?.stack.items[0]);
 
                 while (@intFromPtr(slot) < @intFromPtr(self.memory.vm_state.?.stack.top)) {
-                    self.io.out("[");
-                    slot[0].print(self.io);
-                    self.io.out("] ");
+                    self.out_writer.print("[");
+                    slot[0].print(self.out_writer);
+                    self.out_writer.print("] ");
                     slot += 1;
                 }
 
-                self.io.out("\n");
+                self.out_writer.print("\n");
 
-                _ = self.chunk().printInstruction(self.io, ip_offset);
+                _ = self.chunk().printInstruction(self.out_writer, ip_offset);
             }
 
             const op_code = self.readOpCode();
@@ -281,8 +280,8 @@ pub const Vm = struct {
                 },
                 .print => {
                     const value = self.pop();
-                    value.print(self.io);
-                    self.io.out("\n");
+                    value.print(self.out_writer);
+                    self.out_writer.print("\n");
                 },
                 .return_ => {
                     return;

@@ -1,11 +1,9 @@
 const std = @import("std");
-const io_handler_mod = @import("../io_handler.zig");
 const token_trie_mod = @import("token_trie.zig");
 
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const expect = std.testing.expect;
-const IoHandler = io_handler_mod.IoHandler;
 const generateTrie = token_trie_mod.generateTrie;
 
 const token_trie = generateTrie(.{
@@ -67,15 +65,6 @@ pub const Token = struct {
     kind: Kind,
     lexeme: []const u8,
     position: Position,
-
-    pub fn print(self: *const Self, io: *IoHandler) void {
-        io.outf("[kind = .{s}, lexeme = \"{s}\", line = {}, column = {}]", .{
-            @tagName(self.kind),
-            self.lexeme,
-            self.position.line,
-            self.position.column,
-        });
-    }
 };
 
 pub const Tokenizer = struct {

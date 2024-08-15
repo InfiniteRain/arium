@@ -1,18 +1,18 @@
 const std = @import("std");
+const shared = @import("shared");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const value_mod = @import("../state/value.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
-const io_handler_mod = @import("../io_handler.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const ascii = std.ascii;
 const math = std.math;
 const expect = std.testing.expect;
+const Writer = shared.Writer;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Value = value_mod.Value;
 const Position = tokenizer_mod.Position;
-const IoHandler = io_handler_mod.IoHandler;
 
 pub const OpCode = enum(u8) {
     constant,
@@ -143,28 +143,32 @@ pub const Chunk = struct {
         try self.writeU8(@as(u8, @intCast(index)), position);
     }
 
-    pub fn print(self: *Self, io: *IoHandler) void {
+    pub fn print(self: *Self, writer: *const Writer) void {
         var index: usize = 0;
 
         while (index < self.code.items.len) {
-            index += self.printInstruction(io, index);
+            index += self.printInstruction(writer, index);
         }
     }
 
-    pub fn printInstruction(self: *const Self, io: *IoHandler, offset: usize) usize {
-        io.outf("{:0>4} ", .{offset});
+    pub fn printInstruction(
+        self: *const Self,
+        writer: *const Writer,
+        offset: usize,
+    ) usize {
+        writer.printf("{:0>4} ", .{offset});
 
         if (self.positions.items[offset]) |position| {
-            io.outf("{: >4}:{: <4} ", .{ position.line, position.column });
+            writer.printf("{: >4}:{: <4} ", .{ position.line, position.column });
         } else {
-            io.out("          ");
+            writer.print("          ");
         }
 
         const byte = self.code.items[offset];
         const op_code = @as(OpCode, @enumFromInt(byte));
 
         return switch (op_code) {
-            .constant => self.printConstantInstructionName(io, offset),
+            .constant => self.printConstantInstructionName(writer, offset),
 
             .constant_bool_false,
             .constant_bool_true,
@@ -198,7 +202,7 @@ pub const Chunk = struct {
             .print,
             .return_,
             .pop,
-            => self.printInstructionName(io, offset),
+            => self.printInstructionName(writer, offset),
 
             .if_equal,
             .if_not_equal,
@@ -209,47 +213,59 @@ pub const Chunk = struct {
             .if_true,
             .if_false,
             .jump,
-            => self.printJumpInstructionName(io, offset),
+            => self.printJumpInstructionName(writer, offset),
 
             _ => @panic("unknown instruction"),
         };
     }
 
-    fn printInstructionName(self: *const Self, io: *IoHandler, offset: usize) usize {
+    fn printInstructionName(
+        self: *const Self,
+        writer: *const Writer,
+        offset: usize,
+    ) usize {
         const byte = self.readU8(offset);
         const op_code: OpCode = @enumFromInt(byte);
 
-        printOpCode(op_code, io);
-        io.out("\n");
+        printOpCode(op_code, writer);
+        writer.print("\n");
 
         return 1;
     }
 
-    fn printConstantInstructionName(self: *const Self, io: *IoHandler, offset: usize) usize {
+    fn printConstantInstructionName(
+        self: *const Self,
+        writer: *const Writer,
+        offset: usize,
+    ) usize {
         const byte = self.readU8(offset);
         const op_code: OpCode = @enumFromInt(byte);
         const index = self.readU8(offset + 1);
 
-        Self.printOpCode(op_code, io);
-        io.outf(" {: <4} '", .{index});
-        self.constants.items[index].print(io);
-        io.out("'\n");
+        Self.printOpCode(op_code, writer);
+        writer.printf(" {: <4} '", .{index});
+        self.constants.items[index].print(writer);
+        writer.print("'\n");
 
         return 2;
     }
 
-    fn printJumpInstructionName(self: *const Self, io: *IoHandler, offset: usize) usize {
+    fn printJumpInstructionName(
+        self: *const Self,
+        writer: *const Writer,
+        offset: usize,
+    ) usize {
         const byte = self.readU8(offset);
         const op_code: OpCode = @enumFromInt(byte);
         const jump_offset = self.readU16(offset + 1);
 
-        Self.printOpCode(op_code, io);
-        io.outf(" to {}\n", .{offset + jump_offset + 3});
+        Self.printOpCode(op_code, writer);
+        writer.printf(" to {}\n", .{offset + jump_offset + 3});
 
         return 3;
     }
 
-    fn printOpCode(op_code: OpCode, io: *IoHandler) void {
+    fn printOpCode(op_code: OpCode, writer: *const Writer) void {
         const tag_name = switch (op_code) {
             .return_ => "return",
             else => @tagName(op_code),
@@ -258,7 +274,7 @@ pub const Chunk = struct {
         var fill: u8 = 24;
 
         for (tag_name) |char| {
-            io.outf("{c}", .{ascii.toUpper(char)});
+            writer.printf("{c}", .{ascii.toUpper(char)});
 
             if (fill > 0) {
                 fill -= 1;
@@ -266,7 +282,7 @@ pub const Chunk = struct {
         }
 
         for (0..fill) |_| {
-            io.out(" ");
+            writer.print(" ");
         }
     }
 

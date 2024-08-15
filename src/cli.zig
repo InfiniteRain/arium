@@ -1,6 +1,6 @@
 const std = @import("std");
+const shared = @import("shared");
 const clap = @import("clap");
-const io_handler_mod = @import("io_handler.zig");
 const tokenizer_mod = @import("parser/tokenizer.zig");
 const parser_mod = @import("parser/parser.zig");
 const sema_mod = @import("sema/sema.zig");
@@ -10,7 +10,7 @@ const vm_mod = @import("vm/vm.zig");
 
 const Allocator = std.mem.Allocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
-const IoHandler = io_handler_mod.IoHandler;
+const Writer = shared.Writer;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Parser = parser_mod.Parser;
 const Sema = sema_mod.Sema;
@@ -24,10 +24,9 @@ pub fn runCli() !void {
 
     const stdout = std.io.getStdOut().writer().any();
     const stderr = std.io.getStdErr().writer().any();
-    const stdin = std.io.getStdIn().reader().any();
 
-    var io = try IoHandler.init(allocator, &stdin, &stdout, &stderr);
-    defer io.deinit();
+    const stdout_writer = Writer.init(&stdout);
+    const stderr_writer = Writer.init(&stderr);
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help         Display help and exit.
@@ -47,29 +46,41 @@ pub fn runCli() !void {
         .allocator = allocator,
     }) catch |err| {
         diag.report(stderr, err) catch {};
-        try usage(&io, &params);
+        try usage(&stderr_writer, &params);
         std.posix.exit(64);
     };
     defer res.deinit();
 
     if (res.args.help != 0) {
-        try usage(&io, &params);
-        io.out("\n\n");
-        try options(&io, &params);
+        try usage(&stdout_writer, &params);
+        stdout_writer.print("\n\n");
+        try options(&stdout_writer, &params);
         return;
     }
 
     if (res.positionals.len == 0) {
-        try usage(&io, &params);
-        io.out("\n");
+        try usage(&stderr_writer, &params);
+        stderr_writer.print("\n");
         return;
     }
 
-    try runFile(allocator, &io, res.positionals[0], res.args);
+    try runFile(
+        allocator,
+        &stdout_writer,
+        &stderr_writer,
+        res.positionals[0],
+        res.args,
+    );
 }
 
-fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: anytype) !void {
-    const source = try readFileAlloc(allocator, file_path, io);
+fn runFile(
+    allocator: Allocator,
+    out_writer: *const Writer,
+    err_writer: *const Writer,
+    file_path: []const u8,
+    args: anytype,
+) !void {
+    const source = try readFileAlloc(allocator, file_path, out_writer);
 
     var tokenizer = Tokenizer.init(source);
 
@@ -80,7 +91,7 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
     const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
         error.ParseFailure => {
             for (parser_diags.getEntries()) |diag| {
-                io.outf("Error at {}:{}: {s}\n", .{
+                err_writer.printf("Error at {}:{}: {s}\n", .{
                     diag.token.position.line,
                     diag.token.position.column,
                     diag.message,
@@ -99,7 +110,7 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
     var sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
             for (sema_diags.getEntries()) |diag| {
-                io.outf("Error at {}:{}: {s}\n", .{
+                err_writer.printf("Error at {}:{}: {s}\n", .{
                     diag.position.line,
                     diag.position.column,
                     diag.message,
@@ -117,21 +128,21 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
     try Compiler.compile(&memory, sema_stmt);
 
     if (args.@"dprint-byte-code" > 0) {
-        io.out("== CHUNK ==\n");
-        memory.vm_state.?.chunk.print(io);
-        io.out("\n== EXECUTION ==\n");
+        out_writer.print("== CHUNK ==\n");
+        memory.vm_state.?.chunk.print(out_writer);
+        out_writer.print("\n== EXECUTION ==\n");
     }
 
     var vm_diagnostics = Vm.Diagnostics.init(allocator);
     defer vm_diagnostics.deinit();
 
-    Vm.interpret(&memory, io, &vm_diagnostics, .{
+    Vm.interpret(&memory, out_writer, &vm_diagnostics, .{
         .trace_execution = args.@"dtrace-execution" > 0,
     }) catch |err| switch (err) {
         error.Panic => {
             const diags = vm_diagnostics.getEntries();
 
-            io.outf("Panic at {}:{}: {s}\n", .{
+            err_writer.printf("Panic at {}:{}: {s}\n", .{
                 diags[0].position.line,
                 diags[0].position.column,
                 diags[0].message,
@@ -141,9 +152,13 @@ fn runFile(allocator: Allocator, io: *IoHandler, file_path: []const u8, args: an
     };
 }
 
-fn readFileAlloc(allocator: Allocator, file_path: []const u8, io: *IoHandler) ![]u8 {
+fn readFileAlloc(
+    allocator: Allocator,
+    file_path: []const u8,
+    writer: *const Writer,
+) ![]u8 {
     const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch {
-        io.outf("Could not open file '{s}'.\n", .{file_path});
+        writer.printf("Could not open file '{s}'.\n", .{file_path});
         std.posix.exit(74);
     };
     defer file.close();
@@ -153,17 +168,17 @@ fn readFileAlloc(allocator: Allocator, file_path: []const u8, io: *IoHandler) ![
     try file.seekTo(0);
 
     return file.reader().readAllAlloc(allocator, end) catch {
-        io.outf("Not enough memory to read '{s}'.\n", .{file_path});
+        writer.printf("Not enough memory to read '{s}'.\n", .{file_path});
         std.posix.exit(74);
     };
 }
 
-fn usage(io: *IoHandler, params: anytype) !void {
-    io.out("Usage: ");
-    try clap.usage(io.stderr.*, clap.Help, params);
+fn usage(writer: *const Writer, params: anytype) !void {
+    writer.print("Usage: ");
+    try clap.usage(writer.backing_writer.*, clap.Help, params);
 }
 
-fn options(io: *IoHandler, params: anytype) !void {
-    io.out("Options:\n");
-    try clap.help(io.stderr.*, clap.Help, params, .{});
+fn options(writer: *const Writer, params: anytype) !void {
+    writer.print("Options:\n");
+    try clap.help(writer.backing_writer.*, clap.Help, params, .{});
 }
