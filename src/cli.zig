@@ -91,11 +91,12 @@ fn runFile(
     const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
         error.ParseFailure => {
             for (parser_diags.getEntries()) |diag| {
-                err_writer.printf("Error at {}:{}: {s}\n", .{
+                err_writer.printf("Error at {}:{}: ", .{
                     diag.token.position.line,
                     diag.token.position.column,
-                    diag.getMessage(),
                 });
+                diag.printMessage(err_writer);
+                err_writer.print("\n");
             }
             std.posix.exit(65);
         },
@@ -110,11 +111,12 @@ fn runFile(
     var sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
             for (sema_diags.getEntries()) |diag| {
-                err_writer.printf("Error at {}:{}: {s}\n", .{
+                err_writer.printf("Error at {}:{}: ", .{
                     diag.position.line,
                     diag.position.column,
-                    diag.message,
                 });
+                diag.printMessage(err_writer);
+                err_writer.print("\n");
             }
             std.posix.exit(65);
         },

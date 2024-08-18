@@ -13,6 +13,7 @@ const meta = std.meta;
 const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
 const SharedDiagnostics = shared.Diagnostics;
+const Writer = shared.Writer;
 const ParsedExpr = parsed_expr_mod.ParsedExpr;
 const ParsedStmt = parsed_stmt_mod.ParsedStmt;
 const SemaExpr = sema_expr_mod.SemaExpr;
@@ -31,11 +32,85 @@ pub const Sema = struct {
     };
 
     pub const DiagnosticEntry = struct {
-        message: []u8,
+        pub const Kind = union(enum) {
+            expected_expr_type: SemaExpr.EvalType,
+            unexpected_arithmetic_type: SemaExpr.EvalType,
+            unexpected_operand_type: struct { SemaExpr.EvalType, SemaExpr.EvalType },
+            unexpected_concat_type: struct { SemaExpr.EvalType, SemaExpr.EvalType },
+            unexpected_equality_type: struct { SemaExpr.EvalType, SemaExpr.EvalType },
+            unexpected_comparison_type: SemaExpr.EvalType,
+            unexpected_logical_type: SemaExpr.EvalType,
+            unexpected_logical_negation_type: SemaExpr.EvalType,
+            unexpected_arithmetic_negation_type: SemaExpr.EvalType,
+        };
+
+        kind: Kind,
         position: Position,
 
         pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            allocator.free(self.message);
+            _ = self;
+            _ = allocator;
+        }
+
+        pub fn printMessage(
+            self: *const DiagnosticEntry,
+            writer: *const Writer,
+        ) void {
+            switch (self.kind) {
+                .expected_expr_type,
+                => |eval_type| writer.printf(
+                    "Expected expression to be {s}.",
+                    .{eval_type.stringify()},
+                ),
+
+                .unexpected_arithmetic_type,
+                => |eval_type| writer.printf(
+                    "Can't perform arithmetic operation on {s}.",
+                    .{eval_type.stringify()},
+                ),
+
+                .unexpected_operand_type,
+                => |eval_types| writer.printf(
+                    "Operand is expected to be of type {s}, got {s}.",
+                    .{ eval_types[0].stringify(), eval_types[1].stringify() },
+                ),
+
+                .unexpected_concat_type,
+                => |eval_types| writer.printf(
+                    "Can't perform concatenation on values of types {s} and {s}.",
+                    .{ eval_types[0].stringify(), eval_types[1].stringify() },
+                ),
+
+                .unexpected_equality_type,
+                => |eval_types| writer.printf(
+                    "Can't perform equality between values of types {s} and {s}.",
+                    .{ eval_types[0].stringify(), eval_types[1].stringify() },
+                ),
+
+                .unexpected_comparison_type,
+                => |eval_type| writer.printf(
+                    "Can't perform comparison operation on value of type {s}.",
+                    .{eval_type.stringify()},
+                ),
+
+                .unexpected_logical_type,
+                => |eval_type| writer.printf(
+                    "Can't perform logical operation on value of type {s}.",
+                    .{eval_type.stringify()},
+                ),
+
+                .unexpected_logical_negation_type,
+                => |eval_type| writer.printf(
+                    "Can't perform logical negation on value of type {s}.",
+                    .{eval_type.stringify()},
+                ),
+
+                .unexpected_arithmetic_negation_type,
+                => |eval_type| writer.printf(
+                    "Can't perform arithmetic negation on value of type {s}.",
+                    .{eval_type.stringify()},
+                ),
+            }
         }
     };
 
@@ -51,7 +126,11 @@ pub const Sema = struct {
         };
     }
 
-    pub fn analyze(self: *Self, block: *ParsedStmt, diagnostics: ?*Diagnostics) Error!*SemaStmt {
+    pub fn analyze(
+        self: *Self,
+        block: *ParsedStmt,
+        diagnostics: ?*Diagnostics,
+    ) Error!*SemaStmt {
         self.diagnostics = diagnostics;
         self.had_error = false;
 
@@ -83,8 +162,7 @@ pub const Sema = struct {
                 if (expr.eval_type != .bool) {
                     return try self.semaErrorWithInvalidStmt(
                         stmt.position,
-                        "Expected a Bool for assertion.",
-                        .{},
+                        .{ .expected_expr_type = .bool },
                         .{expr},
                         .{},
                     );
@@ -132,8 +210,7 @@ pub const Sema = struct {
                         if (left.eval_type != .int and left.eval_type != .float) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Can't perform arithmetic operation on {s}.",
-                                .{left.eval_type.stringify()},
+                                .{ .unexpected_arithmetic_type = left.eval_type },
                                 .{ left, right },
                             );
                         }
@@ -141,8 +218,7 @@ pub const Sema = struct {
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Operand is expected to be of type {s}, got {s}.",
-                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
@@ -165,8 +241,7 @@ pub const Sema = struct {
                         if (isString(eval_type) or !isString(right.eval_type)) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Can't perform a concatenation on types {s} and {s}.",
-                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                .{ .unexpected_concat_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
@@ -177,8 +252,7 @@ pub const Sema = struct {
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Can't perform equality operation between types {s} and {s}.",
-                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                .{ .unexpected_equality_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
@@ -202,8 +276,7 @@ pub const Sema = struct {
                         if (left.eval_type != .int and left.eval_type != .float) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Can't perform comparison operation on {s}.",
-                                .{left.eval_type.stringify()},
+                                .{ .unexpected_comparison_type = left.eval_type },
                                 .{ left, right },
                             );
                         }
@@ -211,8 +284,7 @@ pub const Sema = struct {
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Operand is expected to be of type {s}, got {s}.",
-                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
@@ -240,8 +312,7 @@ pub const Sema = struct {
                         if (left.eval_type != .bool) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Can't perform logical and operation on {s}.",
-                                .{left.eval_type.stringify()},
+                                .{ .unexpected_logical_type = left.eval_type },
                                 .{ left, right },
                             );
                         }
@@ -249,8 +320,7 @@ pub const Sema = struct {
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
                                 binary.operator_token.position,
-                                "Operand is expected to be of type {s}, got {s}.",
-                                .{ left.eval_type.stringify(), right.eval_type.stringify() },
+                                .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
@@ -285,8 +355,7 @@ pub const Sema = struct {
                         .bool => .negate_bool,
                         else => return try self.semaErrorWithInvalidExpr(
                             unary.operator_token.position,
-                            "Can't perform logical negation on {s}.",
-                            .{eval_type.stringify()},
+                            .{ .unexpected_logical_negation_type = eval_type },
                             .{right},
                         ),
                     }
@@ -295,8 +364,7 @@ pub const Sema = struct {
                     .float => .negate_float,
                     else => return try self.semaErrorWithInvalidExpr(
                         unary.operator_token.position,
-                        "Can't perform arithmetic negation on {s}.",
-                        .{eval_type.stringify()},
+                        .{ .unexpected_arithmetic_negation_type = eval_type },
                         .{right},
                     ),
                 };
@@ -327,23 +395,21 @@ pub const Sema = struct {
     fn semaErrorWithInvalidExpr(
         self: *Self,
         position: Position,
-        comptime fmt: []const u8,
-        args: anytype,
+        diagnostic_kind: DiagnosticEntry.Kind,
         child_exprs: anytype,
     ) Error!*SemaExpr {
-        try self.semaError(position, fmt, args);
+        try self.semaError(position, diagnostic_kind);
         return try self.createInvalidExpr(child_exprs);
     }
 
     fn semaErrorWithInvalidStmt(
         self: *Self,
         position: Position,
-        comptime fmt: []const u8,
-        args: anytype,
+        diagnostic_kind: DiagnosticEntry.Kind,
         child_exprs: anytype,
         child_stmts: anytype,
     ) Error!*SemaStmt {
-        try self.semaError(position, fmt, args);
+        try self.semaError(position, diagnostic_kind);
         return try SemaStmt.Kind.Invalid.create(
             self.allocator,
             child_exprs,
@@ -354,21 +420,18 @@ pub const Sema = struct {
     fn semaError(
         self: *Self,
         position: Position,
-        comptime fmt: []const u8,
-        args: anytype,
+        diagnostic_kind: DiagnosticEntry.Kind,
     ) Error!void {
         self.had_error = true;
 
         if (self.diagnostics) |diagnostics| {
-            // allocating with diagnostic's allocator, for an edge case found
-            // in lang-tests, where new allocator is created for each test
-            // to detect memory leaks; this makes line it so that diagnostics
-            // could be created with the base allocator instead of an allocator
-            // local to the test.
-            const message = try allocPrint(diagnostics.allocator, fmt, args);
-
+            // in case of ever needing to alloc something in here, make sure to
+            // use diagnostics.allocator instead of self.allocator. this is
+            // necessary for lang-tests where a new allocator is created for
+            // each test to detect memory leaks. that allocator then gets
+            // deinited while diagnostics are owned by the tests.
             try diagnostics.add(.{
-                .message = message,
+                .kind = diagnostic_kind,
                 .position = position,
             });
         }

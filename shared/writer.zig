@@ -11,8 +11,8 @@ pub const Writer = struct {
         return .{ .backing_writer = writer };
     }
 
-    pub fn print(self: *const Self, comptime text: []const u8) void {
-        self.printf(text, .{});
+    pub fn print(self: *const Self, text: []const u8) void {
+        self.printf("{s}", .{text});
     }
 
     pub fn printf(

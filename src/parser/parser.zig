@@ -10,6 +10,7 @@ const assert = std.debug.assert;
 const expectError = std.testing.expectError;
 const allocPrint = std.fmt.allocPrint;
 const SharedDiagnostics = shared.Diagnostics;
+const Writer = shared.Writer;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Position = tokenizer_mod.Position;
@@ -42,25 +43,25 @@ pub const Parser = struct {
             _ = allocator; // autofix
         }
 
-        pub fn getMessage(self: *const DiagnosticEntry) []const u8 {
+        pub fn printMessage(self: *const DiagnosticEntry, writer: *const Writer) void {
             return switch (self.kind) {
                 .expected_end_token,
-                => "Unexpected token (use ';' to separate statements on the same line).",
+                => writer.print("Unexpected token (use ';' to separate statements on the same line)."),
 
                 .invalid_token,
-                => |message| message,
+                => |message| writer.print(message),
 
                 .expected_statement,
-                => "Expected statement.",
+                => writer.print("Expected statement."),
 
                 .expected_expression,
-                => "Expected expression.",
+                => writer.print("Expected expression."),
 
                 .expected_left_paren_before_expr,
-                => "Expected '(' before expression.",
+                => writer.print("Expected '(' before expression."),
 
                 .expected_right_paren_after_expr,
-                => "Expected ')' after expression.",
+                => writer.print("Expected ')' after expression."),
             };
         }
     };
@@ -524,7 +525,7 @@ pub const Parser = struct {
             // in case of ever needing to alloc something in here, make sure to
             // use diagnostics.allocator instead of self.allocator. this is
             // necessary for lang-tests where a new allocator is created for
-            // each quest to detect memory leaks. that allocator then gets
+            // each test to detect memory leaks. that allocator then gets
             // deinited while diagnostics are owned by the tests.
             try diagnostics.add(.{
                 .kind = diagnostic_kind,

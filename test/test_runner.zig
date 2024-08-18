@@ -67,25 +67,27 @@ pub const TestRunner = struct {
             }
         }
 
-        fn print(self: *DiagnosticEntry, writer: *Writer) void {
+        fn print(self: *DiagnosticEntry, writer: *const Writer) void {
             for (self.failure_info.items) |*info| {
                 switch (info.*) {
                     .parser => |*diags| {
                         for (diags.getEntries()) |diag| {
-                            writer.printf("Parser error [{}:{}]: {s}\n", .{
+                            writer.printf("Error at {}:{}: ", .{
                                 diag.token.position.line,
                                 diag.token.position.column,
-                                diag.getMessage(),
                             });
+                            diag.printMessage(writer);
+                            writer.print("\n");
                         }
                     },
                     .sema => |*diags| {
                         for (diags.getEntries()) |diag| {
-                            writer.printf("Sema error [{}:{}]: {s}\n", .{
+                            writer.printf("Sema error [{}:{}]: ", .{
                                 diag.position.line,
                                 diag.position.column,
-                                diag.message,
                             });
+                            diag.printMessage(writer);
+                            writer.print("\n");
                         }
                     },
                     .compiler => |compiler_err| {
@@ -158,8 +160,8 @@ pub const TestRunner = struct {
     pub fn runTests(
         self: *Self,
         allocator: Allocator,
-        stdout_writer: *Writer,
-        stderr_writer: *Writer,
+        stdout_writer: *const Writer,
+        stderr_writer: *const Writer,
     ) !void {
         var diags = Diagnostics.init(allocator);
         defer diags.deinit();
