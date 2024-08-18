@@ -37,40 +37,11 @@ pub const Parser = struct {
         };
 
         kind: Kind,
-        token: Token,
+        position: Position,
 
         pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            _ = self; // autofix
-            _ = allocator; // autofix
-        }
-
-        pub fn printMessage(self: *const DiagnosticEntry, writer: *const Writer) void {
-            return switch (self.kind) {
-                .expected_end_token,
-                => |token_kind| {
-                    writer.print("Expected ");
-                    token_kind.printQuoted(writer);
-                    writer.print(", line break or ';'.");
-                },
-
-                .invalid_token,
-                => |message| writer.print(message),
-
-                .expected_statement,
-                => writer.print("Expected statement."),
-
-                .expected_expression,
-                => writer.print("Expected expression."),
-
-                .expected_left_paren_before_expr,
-                => writer.print("Expected '(' before expression."),
-
-                .expected_right_paren_after_expr,
-                => writer.print("Expected ')' after expression."),
-
-                .int_literal_overflows,
-                => writer.print("Integer literal value overflows."),
-            };
+            _ = self;
+            _ = allocator;
         }
     };
 
@@ -166,11 +137,10 @@ pub const Parser = struct {
         }
 
         if (self.match(.invalid, false)) {
-            try self.parserError(self.previous(), .{
-                .invalid_token = self.previous().lexeme,
-            });
+            const prev = self.previous();
+            try self.parserError(.{ .invalid_token = prev.lexeme }, prev.position);
         } else {
-            try self.parserError(self.peek(), .expected_statement);
+            try self.parserError(.expected_statement, self.peek().position);
         }
 
         return error.ParseFailure;
@@ -433,7 +403,7 @@ pub const Parser = struct {
             const prev = self.previous();
             const int = std.fmt.parseInt(i64, prev.lexeme, 10) catch |err| switch (err) {
                 error.Overflow => blk: {
-                    try self.parserError(prev, .int_literal_overflows);
+                    try self.parserError(.int_literal_overflows, prev.position);
                     break :blk 0;
                 },
                 else => unreachable,
@@ -466,9 +436,10 @@ pub const Parser = struct {
         }
 
         if (self.match(.invalid, ignore_new_line)) {
-            try self.parserError(self.previous(), .{ .invalid_token = self.previous().lexeme });
+            const prev = self.previous();
+            try self.parserError(.{ .invalid_token = prev.lexeme }, prev.position);
         } else {
-            try self.parserError(self.peek(), .expected_expression);
+            try self.parserError(.expected_expression, self.peek().position);
         }
 
         return error.ParseFailure;
@@ -496,7 +467,7 @@ pub const Parser = struct {
             return self.advance();
         }
 
-        try self.parserError(self.peek(), diagnostic_kind);
+        try self.parserError(diagnostic_kind, self.peek().position);
         return error.ParseFailure;
     }
 
@@ -567,8 +538,8 @@ pub const Parser = struct {
 
     fn parserError(
         self: *Self,
-        token: Token,
         diagnostic_kind: DiagnosticEntry.Kind,
+        position: Position,
     ) Error!void {
         if (self.diagnostics) |diagnostics| {
             // in case of ever needing to alloc something in here, make sure to
@@ -578,7 +549,7 @@ pub const Parser = struct {
             // deinited while diagnostics are owned by the tests.
             try diagnostics.add(.{
                 .kind = diagnostic_kind,
-                .token = token,
+                .position = position,
             });
         }
     }

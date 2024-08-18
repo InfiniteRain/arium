@@ -91,14 +91,7 @@ fn runFile(
 
     const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
         error.ParseFailure => {
-            for (parser_diags.getEntries()) |diag| {
-                err_writer.printf("Error at {}:{}: ", .{
-                    diag.token.position.line,
-                    diag.token.position.column,
-                });
-                diag.printMessage(err_writer);
-                err_writer.print("\n");
-            }
+            error_reporter.reportParserDiags(&parser_diags, err_writer);
             std.posix.exit(65);
         },
         else => return err,

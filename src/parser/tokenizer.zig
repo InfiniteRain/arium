@@ -62,13 +62,6 @@ pub const Token = struct {
         comment,
         eof,
         invalid,
-
-        pub fn printQuoted(self: Token.Kind, writer: *const Writer) void {
-            switch (self) {
-                .eof => writer.print("end of file"),
-                else => writer.printf("'{s}'", .{@tagName(self)}),
-            }
-        }
     };
 
     kind: Kind,

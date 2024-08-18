@@ -72,14 +72,7 @@ pub const TestRunner = struct {
             for (self.failure_info.items) |*info| {
                 switch (info.*) {
                     .parser => |*diags| {
-                        for (diags.getEntries()) |diag| {
-                            writer.printf("Error at {}:{}: ", .{
-                                diag.token.position.line,
-                                diag.token.position.column,
-                            });
-                            diag.printMessage(writer);
-                            writer.print("\n");
-                        }
+                        error_reporter.reportParserDiags(diags, writer);
                     },
                     .sema => |*diags| {
                         error_reporter.reportSemaDiags(diags, writer);
