@@ -16,6 +16,7 @@ const Sema = arium.Sema;
 const ManagedMemory = arium.ManagedMemory;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
+const error_reporter = arium.error_reporter;
 const Test = test_mod.Test;
 const TestWriter = test_writer_mod.TestWriter;
 
@@ -81,14 +82,7 @@ pub const TestRunner = struct {
                         }
                     },
                     .sema => |*diags| {
-                        for (diags.getEntries()) |diag| {
-                            writer.printf("Sema error [{}:{}]: ", .{
-                                diag.position.line,
-                                diag.position.column,
-                            });
-                            diag.printMessage(writer);
-                            writer.print("\n");
-                        }
+                        error_reporter.reportSemaDiags(diags, writer);
                     },
                     .compiler => |compiler_err| {
                         writer.printf("Compiler error: {!}\n", .{compiler_err});

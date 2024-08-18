@@ -7,6 +7,7 @@ const sema_mod = @import("sema/sema.zig");
 const managed_memory_mod = @import("state/managed_memory.zig");
 const compiler_mod = @import("compiler/compiler.zig");
 const vm_mod = @import("vm/vm.zig");
+const error_reporter = @import("reporter/error_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
@@ -110,14 +111,7 @@ fn runFile(
 
     var sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
-            for (sema_diags.getEntries()) |diag| {
-                err_writer.printf("Error at {}:{}: ", .{
-                    diag.position.line,
-                    diag.position.column,
-                });
-                diag.printMessage(err_writer);
-                err_writer.print("\n");
-            }
+            error_reporter.reportSemaDiags(&sema_diags, err_writer);
             std.posix.exit(65);
         },
         else => return err,
