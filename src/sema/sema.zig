@@ -181,18 +181,16 @@ pub const Sema = struct {
         self: *Self,
         expr: *ParsedExpr,
     ) Error!*SemaExpr {
-        switch (expr.*) {
+        switch (expr.kind) {
             .literal => |literal| {
-                var lexeme = literal.token.lexeme;
                 const literal_variant: SemaExpr.Kind.Literal = switch (literal.kind) {
-                    .int => .{ .int = std.fmt.parseInt(i64, lexeme, 10) catch unreachable },
-                    .float => .{ .float = std.fmt.parseFloat(f64, lexeme) catch unreachable },
-                    .bool => .{ .bool = lexeme.len == 4 },
-                    .string => .{ .string = lexeme[1 .. lexeme.len - 1] },
+                    .int => |int| .{ .int = int },
+                    .float => |float| .{ .float = float },
+                    .bool => |bool_| .{ .bool = bool_ },
+                    .string => |string| .{ .string = string },
                 };
-                const position = literal.token.position;
 
-                return SemaExpr.Kind.Literal.create(self.allocator, literal_variant, position);
+                return SemaExpr.Kind.Literal.create(self.allocator, literal_variant, expr.position);
             },
             .binary => |binary| {
                 const BinaryKind = SemaExpr.Kind.Binary.Kind;
@@ -205,11 +203,11 @@ pub const Sema = struct {
                     return self.createInvalidExpr(.{ left, right });
                 }
 
-                switch (binary.operator_kind) {
+                switch (binary.kind) {
                     .add, .subtract, .divide, .multiply => {
                         if (left.eval_type != .int and left.eval_type != .float) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_arithmetic_type = left.eval_type },
                                 .{ left, right },
                             );
@@ -217,19 +215,19 @@ pub const Sema = struct {
 
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
 
-                        binary_kind = if (left.eval_type == .int) switch (binary.operator_kind) {
+                        binary_kind = if (left.eval_type == .int) switch (binary.kind) {
                             .add => .add_int,
                             .subtract => .subtract_int,
                             .multiply => .multiply_int,
                             .divide => .divide_int,
                             else => unreachable,
-                        } else switch (binary.operator_kind) {
+                        } else switch (binary.kind) {
                             .add => .add_float,
                             .subtract => .subtract_float,
                             .multiply => .multiply_float,
@@ -240,7 +238,7 @@ pub const Sema = struct {
                     .concat => {
                         if (isString(eval_type) or !isString(right.eval_type)) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_concat_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
@@ -251,14 +249,14 @@ pub const Sema = struct {
                     .equal, .not_equal => {
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_equality_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
 
                         eval_type = .bool;
-                        binary_kind = if (binary.operator_kind == .equal) switch (left.eval_type) {
+                        binary_kind = if (binary.kind == .equal) switch (left.eval_type) {
                             .int => .equal_int,
                             .float => .equal_float,
                             .bool => .equal_bool,
@@ -275,7 +273,7 @@ pub const Sema = struct {
                     .greater, .greater_equal, .less, .less_equal => {
                         if (left.eval_type != .int and left.eval_type != .float) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_comparison_type = left.eval_type },
                                 .{ left, right },
                             );
@@ -283,7 +281,7 @@ pub const Sema = struct {
 
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
@@ -291,14 +289,14 @@ pub const Sema = struct {
 
                         eval_type = .bool;
                         binary_kind = switch (left.eval_type) {
-                            .int => switch (binary.operator_kind) {
+                            .int => switch (binary.kind) {
                                 .greater => .greater_int,
                                 .greater_equal => .greater_equal_int,
                                 .less => .less_int,
                                 .less_equal => .less_equal_int,
                                 else => unreachable,
                             },
-                            .float => switch (binary.operator_kind) {
+                            .float => switch (binary.kind) {
                                 .greater => .greater_float,
                                 .greater_equal => .greater_equal_float,
                                 .less => .less_float,
@@ -311,7 +309,7 @@ pub const Sema = struct {
                     .or_, .and_ => {
                         if (left.eval_type != .bool) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_logical_type = left.eval_type },
                                 .{ left, right },
                             );
@@ -319,24 +317,22 @@ pub const Sema = struct {
 
                         if (left.eval_type.tag() != right.eval_type.tag()) {
                             return try self.semaErrorWithInvalidExpr(
-                                binary.operator_token.position,
+                                expr.position,
                                 .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
                                 .{ left, right },
                             );
                         }
 
                         eval_type = .bool;
-                        binary_kind = if (binary.operator_kind == .and_) .and_ else .or_;
+                        binary_kind = if (binary.kind == .and_) .and_ else .or_;
                     },
                 }
-
-                const position = binary.operator_token.position;
 
                 return SemaExpr.Kind.Binary.create(
                     self.allocator,
                     binary_kind,
                     eval_type,
-                    position,
+                    expr.position,
                     left,
                     right,
                 );
@@ -350,11 +346,11 @@ pub const Sema = struct {
                 }
 
                 const eval_type = right.eval_type;
-                const unary_kind: UnaryKind = if (unary.operator_kind == .negate_bool)
+                const unary_kind: UnaryKind = if (unary.kind == .negate_bool)
                     switch (right.eval_type) {
                         .bool => .negate_bool,
                         else => return try self.semaErrorWithInvalidExpr(
-                            unary.operator_token.position,
+                            expr.position,
                             .{ .unexpected_logical_negation_type = eval_type },
                             .{right},
                         ),
@@ -363,18 +359,17 @@ pub const Sema = struct {
                     .int => .negate_int,
                     .float => .negate_float,
                     else => return try self.semaErrorWithInvalidExpr(
-                        unary.operator_token.position,
+                        expr.position,
                         .{ .unexpected_arithmetic_negation_type = eval_type },
                         .{right},
                     ),
                 };
-                const position = unary.operator_token.position;
 
                 return SemaExpr.Kind.Unary.create(
                     self.allocator,
                     unary_kind,
                     eval_type,
-                    position,
+                    expr.position,
                     right,
                 );
             },

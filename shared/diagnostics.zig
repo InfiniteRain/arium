@@ -25,7 +25,11 @@ pub fn Diagnostics(T: type) type {
             self.entries.clearAndFree();
         }
 
-        pub fn getEntries(self: *Self) []T {
+        pub fn getLen(self: *const Self) usize {
+            return self.entries.items.len;
+        }
+
+        pub fn getEntries(self: *const Self) []T {
             return self.entries.items;
         }
 

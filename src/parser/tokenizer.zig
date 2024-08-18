@@ -1,9 +1,11 @@
 const std = @import("std");
+const shared = @import("shared");
 const token_trie_mod = @import("token_trie.zig");
 
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const expect = std.testing.expect;
+const Writer = shared.Writer;
 const generateTrie = token_trie_mod.generateTrie;
 
 const token_trie = generateTrie(.{
@@ -60,6 +62,13 @@ pub const Token = struct {
         comment,
         eof,
         invalid,
+
+        pub fn printQuoted(self: Token.Kind, writer: *const Writer) void {
+            switch (self) {
+                .eof => writer.print("end of file"),
+                else => writer.printf("'{s}'", .{@tagName(self)}),
+            }
+        }
     };
 
     kind: Kind,
@@ -159,7 +168,7 @@ pub const Tokenizer = struct {
             return false;
         }
 
-        self.current += 1;
+        _ = self.advance();
         return true;
     }
 
@@ -174,7 +183,7 @@ pub const Tokenizer = struct {
             return false;
         }
 
-        self.current += 1;
+        _ = self.advance();
         return true;
     }
 
@@ -226,12 +235,6 @@ pub const Tokenizer = struct {
             }
 
             _ = self.advance();
-        }
-
-        // if at eof, adjust column so that the column of eof token is one
-        // character after the comment end
-        if (self.peek() == null) {
-            self.column += 1;
         }
 
         return self.makeToken(.comment);

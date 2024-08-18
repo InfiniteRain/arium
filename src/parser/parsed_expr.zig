@@ -3,117 +3,130 @@ const tokenizer = @import("tokenizer.zig");
 
 const Allocator = std.mem.Allocator;
 const Token = tokenizer.Token;
+const Position = tokenizer.Position;
 
-pub const ParsedExpr = union(enum) {
+pub const ParsedExpr = struct {
     const Self = @This();
 
-    pub const Literal = struct {
-        pub const Kind = enum {
-            int,
-            float,
-            bool,
-            string,
-        };
-
-        token: Token,
-        kind: Kind,
-
-        pub fn create(allocator: Allocator, token: Token, literal_kind: Kind) !*Self {
-            const expr = try allocator.create(Self);
-
-            expr.* = .{
-                .literal = .{
-                    .token = token,
-                    .kind = literal_kind,
-                },
+    pub const Kind = union(enum) {
+        pub const Literal = struct {
+            pub const Kind = union(enum) {
+                int: i64,
+                float: f64,
+                bool: bool,
+                string: []const u8,
             };
 
-            return expr;
-        }
-    };
+            kind: Literal.Kind,
 
-    pub const Binary = struct {
-        pub const OperatorKind = enum {
-            add,
-            subtract,
-            divide,
-            multiply,
-            concat,
+            pub fn create(
+                allocator: Allocator,
+                literal_kind: Literal.Kind,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
 
-            equal,
-            not_equal,
-            greater,
-            greater_equal,
-            less,
-            less_equal,
+                expr.* = .{
+                    .kind = .{
+                        .literal = .{
+                            .kind = literal_kind,
+                        },
+                    },
+                    .position = position,
+                };
 
-            and_,
-            or_,
+                return expr;
+            }
         };
 
-        left: *Self,
-        operator_token: Token,
-        operator_kind: OperatorKind,
-        right: *Self,
+        pub const Binary = struct {
+            pub const Kind = enum {
+                add,
+                subtract,
+                divide,
+                multiply,
+                concat,
 
-        pub fn create(
-            allocator: Allocator,
+                equal,
+                not_equal,
+                greater,
+                greater_equal,
+                less,
+                less_equal,
+
+                and_,
+                or_,
+            };
+
             left: *Self,
-            operator_token: Token,
-            operator_kind: OperatorKind,
+            kind: Binary.Kind,
             right: *Self,
-        ) !*Self {
-            const expr = try allocator.create(Self);
 
-            expr.* = .{
-                .binary = .{
-                    .left = left,
-                    .operator_token = operator_token,
-                    .operator_kind = operator_kind,
-                    .right = right,
-                },
-            };
+            pub fn create(
+                allocator: Allocator,
+                left: *Self,
+                kind: Binary.Kind,
+                right: *Self,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
 
-            return expr;
-        }
-    };
+                expr.* = .{
+                    .kind = .{
+                        .binary = .{
+                            .left = left,
+                            .kind = kind,
+                            .right = right,
+                        },
+                    },
+                    .position = position,
+                };
 
-    pub const Unary = struct {
-        pub const OperatorKind = enum {
-            negate_bool,
-            negate_num,
+                return expr;
+            }
         };
 
-        operator_token: Token,
-        operator_kind: OperatorKind,
-        right: *Self,
-
-        pub fn create(
-            allocator: Allocator,
-            operator_token: Token,
-            operator_kind: OperatorKind,
-            right: *Self,
-        ) !*Self {
-            const expr = try allocator.create(Self);
-
-            expr.* = .{
-                .unary = .{
-                    .operator_token = operator_token,
-                    .operator_kind = operator_kind,
-                    .right = right,
-                },
+        pub const Unary = struct {
+            pub const Kind = enum {
+                negate_bool,
+                negate_num,
             };
 
-            return expr;
-        }
+            kind: Unary.Kind,
+            right: *Self,
+
+            pub fn create(
+                allocator: Allocator,
+                kind: Unary.Kind,
+                right: *Self,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .unary = .{
+                            .kind = kind,
+                            .right = right,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return expr;
+            }
+        };
+
+        literal: Literal,
+        binary: Binary,
+        unary: Unary,
     };
 
-    literal: Literal,
-    binary: Binary,
-    unary: Unary,
+    kind: Kind,
+    position: Position,
 
     pub fn destroy(self: *Self, allocator: Allocator) void {
-        switch (self.*) {
+        switch (self.kind) {
             .binary => |binary| {
                 binary.left.destroy(allocator);
                 binary.right.destroy(allocator);
