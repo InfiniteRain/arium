@@ -69,8 +69,6 @@ pub const Chunk = struct {
 
     pub const Error = error{
         OutOfMemory,
-        TooManyConstants,
-        JumpTooBig,
     };
 
     allocator: Allocator,
@@ -78,7 +76,7 @@ pub const Chunk = struct {
     positions: ArrayList(?Position), // todo: replace with RLE
     constants: ArrayList(Value),
 
-    pub fn init(allocator: Allocator) Error!Self {
+    pub fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
             .code = ArrayList(u8).init(allocator),
@@ -118,7 +116,7 @@ pub const Chunk = struct {
         return self.code.items.len - 2;
     }
 
-    pub fn patchJump(self: *Self, offset: usize) Error!void {
+    pub fn patchJump(self: *Self, offset: usize) error{JumpTooBig}!void {
         const jump = self.code.items.len - offset - 2;
 
         if (offset > math.maxInt(u16)) {
@@ -131,7 +129,10 @@ pub const Chunk = struct {
         self.code.items[offset + 1] = @intCast(jump_converted & 0xFF);
     }
 
-    pub fn writeConstant(self: *Self, value: Value, position: ?Position) Error!void {
+    pub fn writeConstant(self: *Self, value: Value, position: ?Position) error{
+        TooManyConstants,
+        OutOfMemory,
+    }!void {
         if (self.constants.items.len == 256) {
             return error.TooManyConstants;
         }
@@ -320,7 +321,7 @@ pub const Chunk = struct {
 test "writeByte works for all supported types" {
     // GIVEN
     var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = try Chunk.init(memory.allocator());
+    var chunk = Chunk.init(memory.allocator());
     defer chunk.deinit();
 
     // WHEN
@@ -347,7 +348,7 @@ test "writeByte works for all supported types" {
 test "writeConstant should work" {
     // GIVEN
     var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = try Chunk.init(memory.allocator());
+    var chunk = Chunk.init(memory.allocator());
     defer chunk.deinit();
 
     // WHEN

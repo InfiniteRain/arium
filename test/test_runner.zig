@@ -32,7 +32,7 @@ pub const TestRunner = struct {
         pub const FailureInfo = union(enum) {
             parser: Parser.Diagnostics,
             sema: Sema.Diagnostics,
-            compiler: Compiler.Error,
+            compiler: Compiler.Diagnostics,
             vm: Vm.Diagnostics,
             out_mismatch: struct {
                 expected: []const u8,
@@ -53,6 +53,9 @@ pub const TestRunner = struct {
                     .sema => |*diags| {
                         diags.deinit();
                     },
+                    .compiler => |*diags| {
+                        diags.deinit();
+                    },
                     .vm => |*diags| {
                         diags.deinit();
                     },
@@ -61,7 +64,6 @@ pub const TestRunner = struct {
                         allocator.free(mismatch.actual);
                     },
 
-                    .compiler,
                     .memory_leak,
                     => {},
                 }
@@ -77,8 +79,8 @@ pub const TestRunner = struct {
                     .sema => |*diags| {
                         error_reporter.reportSemaDiags(diags, writer);
                     },
-                    .compiler => |compiler_err| {
-                        writer.printf("Compiler error: {!}\n", .{compiler_err});
+                    .compiler => |*diags| {
+                        error_reporter.reportCompilerDiags(diags, writer);
                     },
                     .vm => |*diags| {
                         const diag = diags.getEntries()[0];
@@ -247,10 +249,6 @@ pub const TestRunner = struct {
 
             const sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
                 error.SemaFailure => {
-                    // try diags.add(.{
-                    //     .path = test_.path,
-                    //     .failure_info = .{ .sema = sema_diags },
-                    // });
                     try diag_entry.failure_info.append(.{ .sema = sema_diags });
                     break :blk;
                 },
@@ -261,12 +259,16 @@ pub const TestRunner = struct {
             var memory = ManagedMemory.init(allocator);
             defer memory.deinit();
 
-            Compiler.compile(&memory, sema_stmt) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => {
-                    try diag_entry.failure_info.append(.{ .compiler = err });
+            // allocate using TestRunner's allocator to prevent segfaults on dealloc.
+            // diags are owned by the test runner, not the tests.
+            var compiler_diags = Compiler.Diagnostics.init(test_.allocator);
+
+            Compiler.compile(&memory, sema_stmt, &compiler_diags) catch |err| switch (err) {
+                error.CompileFailure => {
+                    try diag_entry.failure_info.append(.{ .compiler = compiler_diags });
                     break :blk;
                 },
+                error.OutOfMemory => return error.OutOfMemory,
             };
 
             // allocate using TestRunner's allocator to prevent segfaults on dealloc.

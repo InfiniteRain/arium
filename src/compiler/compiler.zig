@@ -15,6 +15,7 @@ const Allocator = mem.Allocator;
 const BoundedArray = std.BoundedArray;
 const assert = std.debug.assert;
 const spread = shared.spread;
+const SharedDiagnostics = shared.Diagnostics;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const Chunk = chunk_mod.Chunk;
@@ -53,16 +54,37 @@ pub const Compiler = struct {
 
     pub const Error = error{
         OutOfMemory,
-        TooManyConstants,
-        TooManyBranchJumps,
-        JumpTooBig,
+        CompileFailure,
     };
+
+    pub const DiagnosticEntry = struct {
+        pub const Kind = enum {
+            too_many_constants,
+            too_many_branch_jumps,
+            jump_too_big,
+        };
+
+        kind: Kind,
+        position: ?Position,
+
+        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+            _ = self;
+            _ = allocator;
+        }
+    };
+
+    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
 
     vm_state: *VmState,
     allocator: Allocator,
     chunk: Chunk,
+    diagnostics: ?*Diagnostics,
 
-    pub fn compile(memory: *ManagedMemory, stmt: *const SemaStmt) Error!void {
+    pub fn compile(
+        memory: *ManagedMemory,
+        stmt: *const SemaStmt,
+        diagnostics: ?*Diagnostics,
+    ) Error!void {
         const allocator = memory.allocator();
 
         var vm_state: VmState = undefined;
@@ -74,8 +96,23 @@ pub const Compiler = struct {
         var compiler = Self{
             .vm_state = &vm_state,
             .allocator = allocator,
-            .chunk = try Chunk.init(allocator),
+            .chunk = Chunk.init(allocator),
+            .diagnostics = diagnostics,
         };
+
+        errdefer {
+            compiler.chunk.deinit();
+            vm_state.stack.deinit();
+            vm_state.strings.deinit();
+
+            var current = vm_state.objs;
+
+            while (current) |obj| {
+                const next = obj.next;
+                obj.destroy(allocator);
+                current = next;
+            }
+        }
 
         try compiler.compileStmt(stmt);
         try compiler.chunk.writeU8(.return_, null);
@@ -139,7 +176,7 @@ pub const Compiler = struct {
                         3 => try self.chunk.writeU8(.constant_int_3, expr.position),
                         4 => try self.chunk.writeU8(.constant_int_4, expr.position),
                         5 => try self.chunk.writeU8(.constant_int_5, expr.position),
-                        else => try self.chunk.writeConstant(.{ .int = int }, expr.position),
+                        else => try self.writeConstant(.{ .int = int }, expr.position),
                     },
                     .float => |float| {
                         if (float == 0) {
@@ -149,14 +186,14 @@ pub const Compiler = struct {
                         } else if (float == 2) {
                             try self.chunk.writeU8(.constant_float_2, expr.position);
                         } else {
-                            try self.chunk.writeConstant(.{ .float = float }, expr.position);
+                            try self.writeConstant(.{ .float = float }, expr.position);
                         }
                     },
                     .bool => |bool_| switch (bool_) {
                         true => try self.chunk.writeU8(.constant_bool_true, expr.position),
                         false => try self.chunk.writeU8(.constant_bool_false, expr.position),
                     },
-                    .string => |string| try self.chunk.writeConstant(
+                    .string => |string| try self.writeConstant(
                         .{
                             .obj = &(try Obj.String.createFromCopied(
                                 self.allocator,
@@ -238,10 +275,10 @@ pub const Compiler = struct {
 
             if (is_inverted) {
                 ctx.then_branch_offsets.append(offset) catch
-                    return error.TooManyBranchJumps;
+                    return self.tooManyBranchJumps(offset);
             } else {
                 ctx.else_branch_offsets.append(offset) catch
-                    return error.TooManyBranchJumps;
+                    return self.tooManyBranchJumps(offset);
             }
         }
     }
@@ -266,16 +303,16 @@ pub const Compiler = struct {
         if (!ctx.is_child_to_logical or ctx.current_logical == null) {
             try self.chunk.writeU8(.constant_bool_true, position);
             const then_offset = try self.chunk.writeJump(.jump, position);
-            try self.chunk.patchJump(offset);
+            try self.patchJump(offset);
 
             try self.chunk.writeU8(.constant_bool_false, position);
-            try self.chunk.patchJump(then_offset);
+            try self.patchJump(then_offset);
         } else if (is_inverted) {
             ctx.then_branch_offsets.append(offset) catch
-                return error.TooManyBranchJumps;
+                return self.tooManyBranchJumps(offset);
         } else {
             ctx.else_branch_offsets.append(offset) catch
-                return error.TooManyBranchJumps;
+                return self.tooManyBranchJumps(offset);
         }
     }
 
@@ -348,7 +385,7 @@ pub const Compiler = struct {
             try self.patchJumps(ctx.else_branch_offsets);
 
             try self.chunk.writeU8(.constant_bool_false, position);
-            try self.chunk.patchJump(then_offset);
+            try self.patchJump(then_offset);
         }
     }
 
@@ -448,12 +485,6 @@ pub const Compiler = struct {
         return .{ cmp_op_code, if_op_code };
     }
 
-    fn patchJumps(self: *Self, jumps: *BranchOffsets) Error!void {
-        while (jumps.popOrNull()) |jump| {
-            try self.chunk.patchJump(jump);
-        }
-    }
-
     fn invertLastBranchJump(
         self: *Self,
         ctx: ExprContext,
@@ -464,11 +495,61 @@ pub const Compiler = struct {
         try self.chunk.updateU8(invertComparisonOpCode(if_op_code), last_jump.index);
 
         if (last_jump.is_inverted) {
-            ctx.else_branch_offsets.append(ctx.then_branch_offsets.pop()) catch
-                return error.TooManyBranchJumps;
+            const offset = ctx.then_branch_offsets.pop();
+            ctx.else_branch_offsets.append(offset) catch
+                return self.tooManyBranchJumps(offset);
         } else {
-            ctx.then_branch_offsets.append(ctx.else_branch_offsets.pop()) catch
-                return error.TooManyBranchJumps;
+            const offset = ctx.else_branch_offsets.pop();
+            ctx.then_branch_offsets.append(offset) catch
+                return self.tooManyBranchJumps(offset);
+        }
+    }
+
+    fn patchJumps(self: *Self, jumps: *BranchOffsets) Error!void {
+        while (jumps.popOrNull()) |jump| {
+            try self.patchJump(jump);
+        }
+    }
+
+    fn patchJump(self: *Self, offset: usize) Error!void {
+        self.chunk.patchJump(offset) catch |err| switch (err) {
+            error.JumpTooBig => {
+                try self.compilerError(.jump_too_big, self.chunk.positions.items[offset]);
+                return error.CompileFailure;
+            },
+        };
+    }
+
+    fn writeConstant(self: *Self, value: Value, position: ?Position) Error!void {
+        self.chunk.writeConstant(value, position) catch |err| switch (err) {
+            error.TooManyConstants => {
+                try self.compilerError(.too_many_constants, position);
+                return error.CompileFailure;
+            },
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+    }
+
+    fn tooManyBranchJumps(self: *Self, offset: usize) Error {
+        try self.compilerError(.too_many_branch_jumps, self.chunk.positions.items[offset]);
+        return error.CompileFailure;
+    }
+
+    fn compilerError(
+        self: *Self,
+        diagnostic_kind: DiagnosticEntry.Kind,
+        position: ?Position,
+    ) Error!void {
+        if (self.diagnostics) |diagnostics| {
+            // in case of ever needing to alloc something in here, make sure to
+            // use diagnostics.allocator instead of self.allocator. this is
+            // necessary for lang-tests where a new allocator is created for
+            // each test to detect memory leaks. that allocator then gets
+            // deinited while diagnostics are owned by the tests.
+            try diagnostics.add(.{
+                .kind = diagnostic_kind,
+                .position = position,
+            });
         }
     }
 };

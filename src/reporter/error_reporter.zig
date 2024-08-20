@@ -3,11 +3,13 @@ const shared = @import("shared");
 const parser_mod = @import("../parser/parser.zig");
 const sema_mod = @import("../sema/sema.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
+const compiler_mod = @import("../compiler/compiler.zig");
 
 const Writer = shared.Writer;
 const Parser = parser_mod.Parser;
 const Sema = sema_mod.Sema;
 const Token = tokenizer_mod.Token;
+const Compiler = compiler_mod.Compiler;
 
 pub fn reportParserDiags(
     diags: *const Parser.Diagnostics,
@@ -139,5 +141,40 @@ pub fn reportSemaDiag(
             "Can't perform arithmetic negation on value of type {s}.",
             .{eval_type.stringify()},
         ),
+    }
+}
+
+pub fn reportCompilerDiags(
+    diags: *const Compiler.Diagnostics,
+    writer: *const Writer,
+) void {
+    for (diags.getEntries()) |*diag| {
+        reportCompilerDiag(diag, writer);
+        writer.print("\n");
+    }
+}
+
+pub fn reportCompilerDiag(
+    diag: *const Compiler.DiagnosticEntry,
+    writer: *const Writer,
+) void {
+    if (diag.position) |position| {
+        writer.printf("Error at {}:{}: ", .{
+            position.line,
+            position.column,
+        });
+    } else {
+        writer.print("Error: ");
+    }
+
+    switch (diag.kind) {
+        .too_many_branch_jumps,
+        => writer.print("Too many branching jumps is required to be generated for this expression."),
+
+        .jump_too_big,
+        => writer.print("Required jump is too big."),
+
+        .too_many_constants,
+        => writer.print("Too many constants declared in chunk."),
     }
 }

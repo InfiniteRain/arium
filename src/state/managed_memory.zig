@@ -19,8 +19,6 @@ const HashTable = hash_table_mod.HashTable;
 const Position = tokenizer_mod.Position;
 
 pub const VmState = struct {
-    const Self = @This();
-
     chunk: Chunk,
     ip: [*]u8,
     stack: Stack,

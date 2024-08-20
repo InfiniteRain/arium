@@ -103,6 +103,8 @@ pub const Tokenizer = struct {
             return self.makeEofToken();
         }
 
+        const old_line = self.line;
+        const old_column = self.column;
         const char = self.advance();
         self.column_start = self.column;
 
@@ -119,7 +121,7 @@ pub const Tokenizer = struct {
             '>' => self.makeToken(if (self.match('=')) .greater_equal else .greater),
             '"' => self.string(),
             ';' => self.makeToken(.semicolon),
-            '\n' => self.makeToken(.new_line),
+            '\n' => makeNewLineToken(old_line, old_column),
             else => {
                 if (Self.isAlpha(char)) {
                     return self.identifier();
@@ -296,6 +298,17 @@ pub const Tokenizer = struct {
         };
     }
 
+    fn makeNewLineToken(old_line: u64, old_column: u64) Token {
+        return .{
+            .kind = .new_line,
+            .lexeme = "\n",
+            .position = .{
+                .line = old_line,
+                .column = old_column + 1,
+            },
+        };
+    }
+
     fn makeEofToken(self: *const Self) Token {
         return .{
             .kind = .eof,
@@ -345,8 +358,8 @@ test "tokenizer correctly handles a string with only a newline" {
     // THEN
     try expect(token.kind == .new_line);
     try expect(token.lexeme.len == 1);
-    try expect(token.position.line == 2);
-    try expect(token.position.column == 0);
+    try expect(token.position.line == 1);
+    try expect(token.position.column == 1);
 }
 
 test "tokenizer parses numbers correctly" {

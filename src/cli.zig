@@ -114,7 +114,16 @@ fn runFile(
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();
 
-    try Compiler.compile(&memory, sema_stmt);
+    var compiler_diags = Compiler.Diagnostics.init(allocator);
+    defer compiler_diags.deinit();
+
+    Compiler.compile(&memory, sema_stmt, &compiler_diags) catch |err| switch (err) {
+        error.CompileFailure => {
+            error_reporter.reportCompilerDiags(&compiler_diags, err_writer);
+            std.posix.exit(65);
+        },
+        else => return err,
+    };
 
     if (args.@"dprint-byte-code" > 0) {
         out_writer.print("== CHUNK ==\n");
