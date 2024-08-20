@@ -3,6 +3,7 @@ const shared = @import("shared");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const value_mod = @import("../state/value.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
+const value_reporter = @import("../reporter/value_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -245,7 +246,7 @@ pub const Chunk = struct {
 
         Self.printOpCode(op_code, writer);
         writer.printf(" {: <4} '", .{index});
-        self.constants.items[index].print(writer);
+        value_reporter.printValue(self.constants.items[index], writer);
         writer.print("'\n");
 
         return 2;

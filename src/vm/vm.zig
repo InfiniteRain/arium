@@ -6,6 +6,7 @@ const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const obj_mod = @import("../state/obj.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
+const value_reporter = @import("../reporter/value_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
@@ -87,7 +88,7 @@ pub const Vm = struct {
 
                 while (@intFromPtr(slot) < @intFromPtr(self.memory.vm_state.?.stack.top)) {
                     self.out_writer.print("[");
-                    slot[0].print(self.out_writer);
+                    value_reporter.printValue(slot[0], self.out_writer);
                     self.out_writer.print("] ");
                     slot += 1;
                 }
@@ -284,7 +285,7 @@ pub const Vm = struct {
                 },
                 .print => {
                     const value = self.pop();
-                    value.print(self.out_writer);
+                    value_reporter.printValue(value, self.out_writer);
                     self.out_writer.print("\n");
                 },
                 .return_ => {
