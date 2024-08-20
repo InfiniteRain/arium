@@ -7,6 +7,7 @@ const stack_mod = @import("../state/stack.zig");
 const obj_mod = @import("../state/obj.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const value_reporter = @import("../reporter/value_reporter.zig");
+const debug_reporter = @import("../reporter/debug_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
@@ -95,7 +96,7 @@ pub const Vm = struct {
 
                 self.out_writer.print("\n");
 
-                _ = self.chunk().printInstruction(self.out_writer, ip_offset);
+                _ = debug_reporter.reportInstruction(self.chunk(), self.out_writer, ip_offset);
             }
 
             const op_code = self.readOpCode();
@@ -346,8 +347,8 @@ pub const Vm = struct {
         return self.state.stack.pop();
     }
 
-    fn chunk(self: *Self) Chunk {
-        return self.state.chunk;
+    fn chunk(self: *Self) *Chunk {
+        return &self.state.chunk;
     }
 
     fn getOffset(self: *Self) usize {

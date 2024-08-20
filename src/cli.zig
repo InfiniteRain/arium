@@ -8,6 +8,7 @@ const managed_memory_mod = @import("state/managed_memory.zig");
 const compiler_mod = @import("compiler/compiler.zig");
 const vm_mod = @import("vm/vm.zig");
 const error_reporter = @import("reporter/error_reporter.zig");
+const debug_reporter = @import("reporter/debug_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
@@ -127,7 +128,7 @@ fn runFile(
 
     if (args.@"dprint-byte-code" > 0) {
         out_writer.print("== CHUNK ==\n");
-        memory.vm_state.?.chunk.print(out_writer);
+        debug_reporter.reportChunk(&memory.vm_state.?.chunk, out_writer);
         out_writer.print("\n== EXECUTION ==\n");
     }
 

@@ -7,7 +7,6 @@ const value_reporter = @import("../reporter/value_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const ascii = std.ascii;
 const math = std.math;
 const expect = std.testing.expect;
 const Writer = shared.Writer;
@@ -145,154 +144,11 @@ pub const Chunk = struct {
         try self.writeU8(@as(u8, @intCast(index)), position);
     }
 
-    pub fn print(self: *Self, writer: *const Writer) void {
-        var index: usize = 0;
-
-        while (index < self.code.items.len) {
-            index += self.printInstruction(writer, index);
-        }
-    }
-
-    pub fn printInstruction(
-        self: *const Self,
-        writer: *const Writer,
-        offset: usize,
-    ) usize {
-        writer.printf("{:0>4} ", .{offset});
-
-        if (self.positions.items[offset]) |position| {
-            writer.printf("{: >4}:{: <4} ", .{ position.line, position.column });
-        } else {
-            writer.print("          ");
-        }
-
-        const byte = self.code.items[offset];
-        const op_code = @as(OpCode, @enumFromInt(byte));
-
-        return switch (op_code) {
-            .constant => self.printConstantInstructionName(writer, offset),
-
-            .constant_bool_false,
-            .constant_bool_true,
-            .constant_int_n1,
-            .constant_int_0,
-            .constant_int_1,
-            .constant_int_2,
-            .constant_int_3,
-            .constant_int_4,
-            .constant_int_5,
-            .constant_float_0,
-            .constant_float_1,
-            .constant_float_2,
-            .negate_bool,
-            .negate_int,
-            .negate_float,
-            .add_int,
-            .add_float,
-            .subtract_int,
-            .subtract_float,
-            .multiply_int,
-            .multiply_float,
-            .divide_int,
-            .divide_float,
-            .concat,
-            .compare_int,
-            .compare_float,
-            .compare_bool,
-            .compare_obj,
-            .assert,
-            .print,
-            .return_,
-            .pop,
-            => self.printInstructionName(writer, offset),
-
-            .if_equal,
-            .if_not_equal,
-            .if_greater,
-            .if_greater_equal,
-            .if_less,
-            .if_less_equal,
-            .if_true,
-            .if_false,
-            .jump,
-            => self.printJumpInstructionName(writer, offset),
-
-            _ => @panic("unknown instruction"),
-        };
-    }
-
-    fn printInstructionName(
-        self: *const Self,
-        writer: *const Writer,
-        offset: usize,
-    ) usize {
-        const byte = self.readU8(offset);
-        const op_code: OpCode = @enumFromInt(byte);
-
-        printOpCode(op_code, writer);
-        writer.print("\n");
-
-        return 1;
-    }
-
-    fn printConstantInstructionName(
-        self: *const Self,
-        writer: *const Writer,
-        offset: usize,
-    ) usize {
-        const byte = self.readU8(offset);
-        const op_code: OpCode = @enumFromInt(byte);
-        const index = self.readU8(offset + 1);
-
-        Self.printOpCode(op_code, writer);
-        writer.printf(" {: <4} '", .{index});
-        value_reporter.printValue(self.constants.items[index], writer);
-        writer.print("'\n");
-
-        return 2;
-    }
-
-    fn printJumpInstructionName(
-        self: *const Self,
-        writer: *const Writer,
-        offset: usize,
-    ) usize {
-        const byte = self.readU8(offset);
-        const op_code: OpCode = @enumFromInt(byte);
-        const jump_offset = self.readU16(offset + 1);
-
-        Self.printOpCode(op_code, writer);
-        writer.printf(" to {}\n", .{offset + jump_offset + 3});
-
-        return 3;
-    }
-
-    fn printOpCode(op_code: OpCode, writer: *const Writer) void {
-        const tag_name = switch (op_code) {
-            .return_ => "return",
-            else => @tagName(op_code),
-        };
-
-        var fill: u8 = 24;
-
-        for (tag_name) |char| {
-            writer.printf("{c}", .{ascii.toUpper(char)});
-
-            if (fill > 0) {
-                fill -= 1;
-            }
-        }
-
-        for (0..fill) |_| {
-            writer.print(" ");
-        }
-    }
-
-    fn readU8(self: *const Self, offset: usize) u8 {
+    pub fn readU8(self: *const Self, offset: usize) u8 {
         return self.code.items[offset];
     }
 
-    fn readU16(self: *const Self, offset: usize) u16 {
+    pub fn readU16(self: *const Self, offset: usize) u16 {
         const left: u16 = self.code.items[offset];
         const right = self.code.items[offset + 1];
         return (left << 8) | right;
