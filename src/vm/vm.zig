@@ -30,11 +30,16 @@ pub const Vm = struct {
     };
 
     pub const DiagnosticEntry = struct {
-        message: []const u8,
+        pub const Kind = enum {
+            assertion_fail,
+        };
+
+        kind: Kind,
         position: Position,
 
         pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            allocator.free(self.message);
+            _ = self;
+            _ = allocator;
         }
     };
 
@@ -271,9 +276,8 @@ pub const Vm = struct {
 
                     if (!a) {
                         try self.panic(
+                            .assertion_fail,
                             self.getPosition(ip_offset),
-                            "Assertion failed.",
-                            .{},
                         );
                         return error.Panic;
                     }
@@ -355,21 +359,18 @@ pub const Vm = struct {
 
     fn panic(
         self: *Self,
+        diagnostic_kind: DiagnosticEntry.Kind,
         position: Position,
-        comptime fmt: []const u8,
-        args: anytype,
     ) Error!void {
         if (self.diagnostics) |diagnostics| {
-            // allocating with diagnostic's allocator, for an edge case found
-            // in lang-tests, where new allocator is created for each test
-            // to detect memory leaks; this makes line it so that diagnostics
-            // could be created with the base allocator instead of an allocator
-            // local to the test.
-            const message = try allocPrint(diagnostics.allocator, fmt, args);
-
+            // in case of ever needing to alloc something in here, make sure to
+            // use diagnostics.allocator instead of self.allocator. this is
+            // necessary for lang-tests where a new allocator is created for
+            // each test to detect memory leaks. that allocator then gets
+            // deinited while diagnostics are owned by the tests.
             try diagnostics.add(.{
                 .position = position,
-                .message = message,
+                .kind = diagnostic_kind,
             });
         }
     }

@@ -131,20 +131,15 @@ fn runFile(
         out_writer.print("\n== EXECUTION ==\n");
     }
 
-    var vm_diagnostics = Vm.Diagnostics.init(allocator);
-    defer vm_diagnostics.deinit();
+    var vm_diags = Vm.Diagnostics.init(allocator);
+    defer vm_diags.deinit();
 
-    Vm.interpret(&memory, out_writer, &vm_diagnostics, .{
+    Vm.interpret(&memory, out_writer, &vm_diags, .{
         .trace_execution = args.@"dtrace-execution" > 0,
     }) catch |err| switch (err) {
         error.Panic => {
-            const diags = vm_diagnostics.getEntries();
-
-            err_writer.printf("Panic at {}:{}: {s}\n", .{
-                diags[0].position.line,
-                diags[0].position.column,
-                diags[0].message,
-            });
+            error_reporter.reportVmDiags(&vm_diags, err_writer);
+            std.posix.exit(65);
         },
         else => return err,
     };

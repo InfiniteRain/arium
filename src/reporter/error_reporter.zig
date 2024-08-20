@@ -4,12 +4,14 @@ const parser_mod = @import("../parser/parser.zig");
 const sema_mod = @import("../sema/sema.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const compiler_mod = @import("../compiler/compiler.zig");
+const vm_mod = @import("../vm/vm.zig");
 
 const Writer = shared.Writer;
 const Parser = parser_mod.Parser;
 const Sema = sema_mod.Sema;
 const Token = tokenizer_mod.Token;
 const Compiler = compiler_mod.Compiler;
+const Vm = vm_mod.Vm;
 
 pub fn reportParserDiags(
     diags: *const Parser.Diagnostics,
@@ -176,5 +178,30 @@ pub fn reportCompilerDiag(
 
         .too_many_constants,
         => writer.print("Too many constants declared in chunk."),
+    }
+}
+
+pub fn reportVmDiags(
+    diags: *const Vm.Diagnostics,
+    writer: *const Writer,
+) void {
+    for (diags.getEntries()) |*diag| {
+        reportVmDiag(diag, writer);
+        writer.print("\n");
+    }
+}
+
+pub fn reportVmDiag(
+    diag: *const Vm.DiagnosticEntry,
+    writer: *const Writer,
+) void {
+    writer.printf("Panic at {}:{}: ", .{
+        diag.position.line,
+        diag.position.column,
+    });
+
+    switch (diag.kind) {
+        .assertion_fail,
+        => writer.print("Assertion failed."),
     }
 }

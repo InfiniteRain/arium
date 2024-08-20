@@ -83,13 +83,7 @@ pub const TestRunner = struct {
                         error_reporter.reportCompilerDiags(diags, writer);
                     },
                     .vm => |*diags| {
-                        const diag = diags.getEntries()[0];
-
-                        writer.printf("VM panic [{}:{}]: {s}\n", .{
-                            diag.position.line,
-                            diag.position.column,
-                            diag.message,
-                        });
+                        error_reporter.reportVmDiags(diags, writer);
                     },
                     .out_mismatch => |mismatch| {
                         writer.printf("Unexpected stdout.\nExpected:\n{s}\nActual:\n{s}", .{
@@ -276,10 +270,10 @@ pub const TestRunner = struct {
             var vm_diags = Vm.Diagnostics.init(self.allocator);
 
             Vm.interpret(&memory, &stdout_writer, &vm_diags, .{}) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
                 error.Panic => {
                     try diag_entry.failure_info.append(.{ .vm = vm_diags });
                 },
+                error.OutOfMemory => return error.OutOfMemory,
             };
         }
 
