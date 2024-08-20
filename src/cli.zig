@@ -129,14 +129,21 @@ fn runFile(
     if (args.@"dprint-byte-code" > 0) {
         out_writer.print("== CHUNK ==\n");
         debug_reporter.reportChunk(&memory.vm_state.?.chunk, out_writer);
-        out_writer.print("\n== EXECUTION ==\n");
     }
 
     var vm_diags = Vm.Diagnostics.init(allocator);
     defer vm_diags.deinit();
 
+    if (args.@"dtrace-execution" > 0) {
+        out_writer.print("\n== EXECUTION ==\n");
+    }
+
     Vm.interpret(&memory, out_writer, &vm_diags, .{
-        .trace_execution = args.@"dtrace-execution" > 0,
+        .debug_writer = out_writer,
+        .debugExecutionIteration = if (args.@"dtrace-execution" > 0)
+            debug_reporter.reportExecutionIteration
+        else
+            null,
     }) catch |err| switch (err) {
         error.Panic => {
             error_reporter.reportVmDiags(&vm_diags, err_writer);

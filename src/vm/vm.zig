@@ -48,7 +48,13 @@ pub const Vm = struct {
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
 
     pub const Config = struct {
-        trace_execution: bool = false,
+        debug_writer: ?*const Writer = null,
+        debugExecutionIteration: ?*const fn (
+            writer: *const Writer,
+            values: []const Value,
+            chunk: *const Chunk,
+            ip_offset: usize,
+        ) void = null,
     };
 
     config: Config,
@@ -82,21 +88,17 @@ pub const Vm = struct {
         while (true) {
             const ip_offset = self.getOffset();
 
-            if (self.config.trace_execution) {
-                self.out_writer.print("               ");
+            if (self.config.debugExecutionIteration != null and
+                self.config.debug_writer != null)
+            {
+                const callback = self.config.debugExecutionIteration.?;
+                const writer = self.config.debug_writer.?;
+                const vm_state = self.memory.vm_state.?;
+                const stack = vm_state.stack;
+                const size = (@intFromPtr(stack.top) - @intFromPtr(&stack.items[0])) / @sizeOf(Value);
+                const values = stack.items[0..size];
 
-                var slot: [*]Value = @ptrCast(&self.memory.vm_state.?.stack.items[0]);
-
-                while (@intFromPtr(slot) < @intFromPtr(self.memory.vm_state.?.stack.top)) {
-                    self.out_writer.print("[");
-                    value_reporter.printValue(slot[0], self.out_writer);
-                    self.out_writer.print("] ");
-                    slot += 1;
-                }
-
-                self.out_writer.print("\n");
-
-                _ = debug_reporter.reportInstruction(self.chunk(), self.out_writer, ip_offset);
+                callback(writer, values, &vm_state.chunk, ip_offset);
             }
 
             const op_code = self.readOpCode();

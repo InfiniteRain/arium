@@ -1,11 +1,13 @@
 const std = @import("std");
 const shared = @import("shared");
 const chunk_mod = @import("../compiler/chunk.zig");
+const value_mod = @import("../state/value.zig");
 const value_reporter = @import("../reporter/value_reporter.zig");
 
 const Writer = shared.Writer;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
+const Value = value_mod.Value;
 
 pub fn reportChunk(chunk: *const Chunk, writer: *const Writer) void {
     var index: usize = 0;
@@ -148,4 +150,23 @@ pub fn reportInstruction(
 
         _ => @panic("unknown instruction"),
     };
+}
+
+pub fn reportExecutionIteration(
+    writer: *const Writer,
+    values: []const Value,
+    chunk: *const Chunk,
+    ip_offset: usize,
+) void {
+    writer.print("               ");
+
+    for (values) |value| {
+        writer.print("[");
+        value_reporter.printValue(value, writer);
+        writer.print("] ");
+    }
+
+    writer.print("\n");
+
+    _ = reportInstruction(chunk, writer, ip_offset);
 }
