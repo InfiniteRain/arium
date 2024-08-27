@@ -1,0 +1,7 @@
+/// run
+
+print(0) /// out 0
+print(0 + 1) /// out 1
+print(0
++ 1
++ 1) /// out 2
