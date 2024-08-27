@@ -8,6 +8,7 @@ const Runner = runner_mod.Runner;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
+const Compiler = arium.Compiler;
 const error_reporter = arium.error_reporter;
 const Config = config_mod.Config;
 
@@ -74,7 +75,10 @@ pub fn reportRunnerDiagnostic(
                 reportErrParserMismatch(mismatch, writer);
             },
             .err_sema_mismatch => |*mismatch| {
-                reportSemaParserMismatch(mismatch, writer);
+                reportErrSemaMismatch(mismatch, writer);
+            },
+            .err_compiler_mismatch => |*mismatch| {
+                reportErrCompilerMismatch(mismatch, writer);
             },
             .memory_leak => {
                 writer.print("Memory leak.");
@@ -93,7 +97,7 @@ pub fn reportErrParserMismatch(
     reportParserDiags(&mismatch.actual, writer);
 }
 
-pub fn reportSemaParserMismatch(
+pub fn reportErrSemaMismatch(
     mismatch: *const Runner.DiagnosticEntry.Mismatch(Sema.Diagnostics),
     writer: *const Writer,
 ) void {
@@ -101,6 +105,16 @@ pub fn reportSemaParserMismatch(
     reportSemaDiags(&mismatch.expected, writer);
     writer.print("\nActual:\n");
     reportSemaDiags(&mismatch.actual, writer);
+}
+
+pub fn reportErrCompilerMismatch(
+    mismatch: *const Runner.DiagnosticEntry.Mismatch(Compiler.Diagnostics),
+    writer: *const Writer,
+) void {
+    writer.print("Unexpected compiler error.\nExpected:\n");
+    reportCompilerDiags(&mismatch.expected, writer);
+    writer.print("\nActual:\n");
+    reportCompilerDiags(&mismatch.actual, writer);
 }
 
 pub fn reportOutMismatch(
@@ -182,6 +196,18 @@ pub fn reportSemaDiags(
         }
 
         writer.print(".\n");
+    }
+}
+
+pub fn reportCompilerDiags(
+    diags: *const Compiler.Diagnostics,
+    writer: *const Writer,
+) void {
+    for (diags.getEntries()) |entry| {
+        writer.printf(
+            "'{s}' on line {}\n",
+            .{ @tagName(entry.kind), entry.position.line },
+        );
     }
 }
 

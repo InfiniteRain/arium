@@ -47,6 +47,7 @@ pub const Runner = struct {
             out_mismatch: Mismatch([]const u8),
             err_parser_mismatch: Mismatch(Parser.Diagnostics),
             err_sema_mismatch: Mismatch(Sema.Diagnostics),
+            err_compiler_mismatch: Mismatch(Compiler.Diagnostics),
             memory_leak,
         };
 
@@ -80,9 +81,11 @@ pub const Runner = struct {
                         mismatch.expected.deinit();
                         mismatch.actual.deinit();
                     },
-
-                    .memory_leak,
-                    => {},
+                    .err_compiler_mismatch => |*mismatch| {
+                        mismatch.expected.deinit();
+                        mismatch.actual.deinit();
+                    },
+                    .memory_leak => {},
                 }
             }
         }
@@ -245,7 +248,11 @@ pub const Runner = struct {
 
             Compiler.compile(&memory, sema_stmt, &compiler_diags) catch |err| switch (err) {
                 error.CompileFailure => {
-                    try diag_entry.failures.append(.{ .compiler = compiler_diags });
+                    if (config.expectations.err_compiler.getLen() > 0) {
+                        actual.err_compiler = compiler_diags;
+                    } else {
+                        try diag_entry.failures.append(.{ .compiler = compiler_diags });
+                    }
                     break :blk;
                 },
                 error.OutOfMemory => return error.OutOfMemory,
@@ -323,6 +330,15 @@ pub const Runner = struct {
                 .err_sema_mismatch = .{
                     .expected = try cloneDiags(&expectations.err_sema),
                     .actual = try cloneDiags(&actuals.err_sema),
+                },
+            });
+        }
+
+        if (!verifyErrCompiler(&expectations.err_compiler, &actuals.err_compiler)) {
+            try diag_entry.failures.append(.{
+                .err_compiler_mismatch = .{
+                    .expected = try cloneDiags(&expectations.err_compiler),
+                    .actual = try cloneDiags(&actuals.err_compiler),
                 },
             });
         }
@@ -423,6 +439,30 @@ pub const Runner = struct {
                         return false;
                     }
                 },
+            }
+        }
+
+        return true;
+    }
+
+    fn verifyErrCompiler(
+        expected: *const Compiler.Diagnostics,
+        actual: *const Compiler.Diagnostics,
+    ) bool {
+        if (expected.getLen() != actual.getLen()) {
+            return false;
+        }
+
+        for (
+            expected.getEntries(),
+            actual.getEntries(),
+        ) |expected_entry, actual_entry| {
+            if (expected_entry.kind != actual_entry.kind) {
+                return false;
+            }
+
+            if (expected_entry.position.line != actual_entry.position.line) {
+                return false;
             }
         }
 

@@ -10,6 +10,7 @@ const Position = arium.Position;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
+const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const SharedDiagnostics = shared.Diagnostics;
 const meta = shared.meta;
@@ -49,6 +50,7 @@ pub const Config = struct {
         out,
         err_parser,
         err_sema,
+        err_compiler,
     };
 
     pub const Expectations = struct {
@@ -56,6 +58,7 @@ pub const Config = struct {
         out: ArrayList(u8),
         err_parser: Parser.Diagnostics,
         err_sema: Sema.Diagnostics,
+        err_compiler: Compiler.Diagnostics,
 
         pub fn init(allocator: Allocator) Expectations {
             return .{
@@ -63,6 +66,7 @@ pub const Config = struct {
                 .out = ArrayList(u8).init(allocator),
                 .err_parser = Parser.Diagnostics.init(allocator),
                 .err_sema = Sema.Diagnostics.init(allocator),
+                .err_compiler = Compiler.Diagnostics.init(allocator),
             };
         }
 
@@ -70,6 +74,7 @@ pub const Config = struct {
             self.out.clearAndFree();
             self.err_parser.deinit();
             self.err_sema.deinit();
+            self.err_compiler.deinit();
         }
     };
 
@@ -207,6 +212,7 @@ pub const Config = struct {
             .out => try parseOutDirective(ctx),
             .err_parser => try parseErrParserDirective(ctx),
             .err_sema => try parseErrSemaDirective(ctx),
+            .err_compiler => try parseErrCompilerDirective(ctx),
         }
     }
 
@@ -269,6 +275,25 @@ pub const Config = struct {
         try parseEndOfLine(ctx);
 
         try ctx.expectations.err_sema.add(.{
+            .kind = diag_kind,
+            .position = .{
+                .line = line,
+                .column = 0, // not part of the check for now
+            },
+        });
+    }
+
+    fn parseErrCompilerDirective(ctx: *DirectiveContext) DirectiveError!void {
+        if (ctx.kind != .compile and ctx.kind != .run) {
+            return illegalDirectiveFailure(ctx, .err_compiler);
+        }
+
+        const line = try parseInt(ctx, u64);
+        const diag_kind = try parseEnumVariant(ctx, Compiler.DiagnosticEntry.Kind);
+
+        try parseEndOfLine(ctx);
+
+        try ctx.expectations.err_compiler.add(.{
             .kind = diag_kind,
             .position = .{
                 .line = line,

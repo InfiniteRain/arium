@@ -65,7 +65,7 @@ pub const Compiler = struct {
         };
 
         kind: Kind,
-        position: ?Position,
+        position: Position,
     };
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
@@ -110,7 +110,7 @@ pub const Compiler = struct {
         }
 
         try compiler.compileStmt(stmt);
-        try compiler.chunk.writeU8(.return_, null);
+        try compiler.chunk.writeU8(.return_, .{ .line = 0, .column = 0 });
 
         vm_state.chunk = compiler.chunk;
         vm_state.ip = @ptrCast(&compiler.chunk.code.items[0]);
@@ -515,7 +515,7 @@ pub const Compiler = struct {
         };
     }
 
-    fn writeConstant(self: *Self, value: Value, position: ?Position) Error!void {
+    fn writeConstant(self: *Self, value: Value, position: Position) Error!void {
         self.chunk.writeConstant(value, position) catch |err| switch (err) {
             error.TooManyConstants => {
                 try self.compilerError(.too_many_constants, position);
@@ -533,7 +533,7 @@ pub const Compiler = struct {
     fn compilerError(
         self: *Self,
         diagnostic_kind: DiagnosticEntry.Kind,
-        position: ?Position,
+        position: Position,
     ) Error!void {
         if (self.diagnostics) |diagnostics| {
             // in case of ever needing to alloc something in here, make sure to

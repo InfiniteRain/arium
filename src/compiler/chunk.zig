@@ -73,14 +73,14 @@ pub const Chunk = struct {
 
     allocator: Allocator,
     code: ArrayList(u8),
-    positions: ArrayList(?Position), // todo: replace with RLE
+    positions: ArrayList(Position), // todo: replace with RLE
     constants: ArrayList(Value),
 
     pub fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
             .code = ArrayList(u8).init(allocator),
-            .positions = ArrayList(?Position).init(allocator),
+            .positions = ArrayList(Position).init(allocator),
             .constants = ArrayList(Value).init(allocator),
         };
     }
@@ -91,7 +91,7 @@ pub const Chunk = struct {
         self.constants.deinit();
     }
 
-    pub fn writeU8(self: *Self, data: anytype, position: ?Position) Error!void {
+    pub fn writeU8(self: *Self, data: anytype, position: Position) Error!void {
         try self.code.append(resolveU8(data));
         try self.positions.append(position);
     }
@@ -100,7 +100,7 @@ pub const Chunk = struct {
         self.code.items[index] = resolveU8(data);
     }
 
-    pub fn writeU16(self: *Self, data: u16, position: ?Position) Error!void {
+    pub fn writeU16(self: *Self, data: u16, position: Position) Error!void {
         try self.writeU8(@as(u8, @intCast((data >> 8) & 0xFF)), position);
         try self.writeU8(@as(u8, @intCast(data & 0xFF)), position);
     }
@@ -108,7 +108,7 @@ pub const Chunk = struct {
     pub fn writeJump(
         self: *Self,
         op_code: OpCode,
-        position: ?Position,
+        position: Position,
     ) Error!usize {
         try self.writeU8(op_code, position);
         try self.writeU16(0, position);
@@ -129,7 +129,7 @@ pub const Chunk = struct {
         self.code.items[offset + 1] = @intCast(jump_converted & 0xFF);
     }
 
-    pub fn writeConstant(self: *Self, value: Value, position: ?Position) error{
+    pub fn writeConstant(self: *Self, value: Value, position: Position) error{
         TooManyConstants,
         OutOfMemory,
     }!void {

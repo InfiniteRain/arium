@@ -353,7 +353,7 @@ pub const Vm = struct {
     }
 
     fn getPosition(self: *Self, offset: usize) Position {
-        return self.chunk().positions.items[offset].?;
+        return self.chunk().positions.items[offset];
     }
 
     fn panic(

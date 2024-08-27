@@ -160,14 +160,10 @@ pub fn reportCompilerDiag(
     diag: *const Compiler.DiagnosticEntry,
     writer: *const Writer,
 ) void {
-    if (diag.position) |position| {
-        writer.printf("Error at {}:{}: ", .{
-            position.line,
-            position.column,
-        });
-    } else {
-        writer.print("Error: ");
-    }
+    writer.printf("Error at {}:{}: ", .{
+        diag.position.line,
+        diag.position.column,
+    });
 
     switch (diag.kind) {
         .too_many_branch_jumps,
