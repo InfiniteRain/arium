@@ -6,6 +6,7 @@ const compiler_mod = @import("compiler/compiler.zig");
 const vm_mod = @import("vm/vm.zig");
 const error_reporter_mod = @import("reporter/error_reporter.zig");
 
+pub const Token = tokenizer_mod.Token;
 pub const Tokenizer = tokenizer_mod.Tokenizer;
 pub const Position = tokenizer_mod.Position;
 pub const Parser = parser_mod.Parser;

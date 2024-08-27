@@ -7,6 +7,8 @@ pub fn Diagnostics(T: type) type {
     return struct {
         const Self = @This();
 
+        const Error = error{OutOfMemory};
+
         allocator: Allocator,
         entries: ArrayList(T),
 
@@ -33,8 +35,15 @@ pub fn Diagnostics(T: type) type {
             return self.entries.items;
         }
 
-        pub fn add(self: *Self, entry: T) !void {
+        pub fn add(self: *Self, entry: T) Error!void {
             try self.entries.append(entry);
+        }
+
+        pub fn clone(self: *const Self) Error!Self {
+            return .{
+                .allocator = self.allocator,
+                .entries = try self.entries.clone(),
+            };
         }
     };
 }

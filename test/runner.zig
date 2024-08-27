@@ -1,8 +1,9 @@
 const std = @import("std");
 const shared = @import("shared");
 const arium = @import("arium");
-const test_mod = @import("test.zig");
 const test_writer_mod = @import("test_writer.zig");
+const config_mod = @import("config.zig");
+const test_reporter = @import("test_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -17,10 +18,10 @@ const ManagedMemory = arium.ManagedMemory;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const error_reporter = arium.error_reporter;
-const Test = test_mod.Test;
 const TestWriter = test_writer_mod.TestWriter;
+const Config = config_mod.Config;
 
-pub const TestRunner = struct {
+pub const Runner = struct {
     const Self = @This();
 
     const Error = error{
@@ -28,24 +29,29 @@ pub const TestRunner = struct {
         TestFailure,
     };
 
-    const DiagnosticEntry = struct {
+    pub const DiagnosticEntry = struct {
+        pub fn Mismatch(T: type) type {
+            return struct {
+                expected: T,
+                actual: T,
+            };
+        }
+
         pub const FailureInfo = union(enum) {
             parser: Parser.Diagnostics,
             sema: Sema.Diagnostics,
             compiler: Compiler.Diagnostics,
             vm: Vm.Diagnostics,
-            out_mismatch: struct {
-                expected: []const u8,
-                actual: []const u8,
-            },
+            out_mismatch: Mismatch([]const u8),
+            err_parser_mismatch: Mismatch(Parser.Diagnostics),
             memory_leak,
         };
 
         path: []const u8,
-        failure_info: ArrayList(FailureInfo),
+        failures: ArrayList(FailureInfo),
 
         pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            for (self.failure_info.items) |*info| {
+            for (self.failures.items) |*info| {
                 switch (info.*) {
                     .parser => |*diags| {
                         diags.deinit();
@@ -63,37 +69,13 @@ pub const TestRunner = struct {
                         allocator.free(mismatch.expected);
                         allocator.free(mismatch.actual);
                     },
+                    .err_parser_mismatch => |*mismatch| {
+                        mismatch.expected.deinit();
+                        mismatch.actual.deinit();
+                    },
 
                     .memory_leak,
                     => {},
-                }
-            }
-        }
-
-        fn print(self: *DiagnosticEntry, writer: *const Writer) void {
-            for (self.failure_info.items) |*info| {
-                switch (info.*) {
-                    .parser => |*diags| {
-                        error_reporter.reportParserDiags(diags, writer);
-                    },
-                    .sema => |*diags| {
-                        error_reporter.reportSemaDiags(diags, writer);
-                    },
-                    .compiler => |*diags| {
-                        error_reporter.reportCompilerDiags(diags, writer);
-                    },
-                    .vm => |*diags| {
-                        error_reporter.reportVmDiags(diags, writer);
-                    },
-                    .out_mismatch => |mismatch| {
-                        writer.printf("Unexpected stdout.\nExpected:\n{s}\nActual:\n{s}", .{
-                            mismatch.expected,
-                            mismatch.actual,
-                        });
-                    },
-                    .memory_leak => {
-                        writer.print("Memory leak\n");
-                    },
                 }
             }
         }
@@ -101,23 +83,19 @@ pub const TestRunner = struct {
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
 
-    pub const Actuals = struct {
-        out: ArrayList(u8),
-    };
-
     allocator: Allocator,
-    tests: ArrayList(Test),
+    tests: ArrayList(Config),
 
-    pub fn init(allocator: Allocator) TestRunner {
+    pub fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
-            .tests = ArrayList(Test).init(allocator),
+            .tests = ArrayList(Config).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.tests.items) |*test_| {
-            test_.deinit();
+        for (self.tests.items) |*config| {
+            config.deinit();
         }
 
         self.tests.clearAndFree();
@@ -129,15 +107,15 @@ pub const TestRunner = struct {
         self: *Self,
         path: []const u8,
         source: []const u8,
-        test_diags: *Test.Diagnostics,
+        config_diags: *Config.Diagnostics,
     ) !void {
-        const test_ = try Test.initFromOwnedPathAndSource(
+        const config = try Config.initFromOwnedPathAndSource(
             self.allocator,
             path,
             source,
-            test_diags,
+            config_diags,
         );
-        try self.tests.append(test_);
+        try self.tests.append(config);
     }
 
     pub fn runTests(
@@ -154,10 +132,10 @@ pub const TestRunner = struct {
 
         stdout_writer.print("Running language tests...\n\n");
 
-        for (self.tests.items) |*test_| {
-            stdout_writer.printf("Running '{s}'... ", .{test_.path});
+        for (self.tests.items) |*config| {
+            stdout_writer.printf("Running '{s}'... ", .{config.path});
 
-            self.runTest(test_, &diags) catch |err| switch (err) {
+            self.runTest(config, &diags) catch |err| switch (err) {
                 error.TestFailure => {
                     stdout_writer.print("FAILED\n");
                     failed += 1;
@@ -181,43 +159,40 @@ pub const TestRunner = struct {
         );
 
         if (failed > 0) {
-            for (diags.getEntries()) |*diag| {
-                stderr_writer.printf("\nDiagnostics for '{s}':\n", .{diag.path});
-                diag.print(stderr_writer);
-            }
-
-            stderr_writer.print("\n");
-
+            test_reporter.reportRunnerDiagnostics(&diags, stderr_writer);
             return error.TestFailure;
         }
     }
 
-    fn runTest(self: *Self, test_: *Test, diags: *Diagnostics) Error!void {
-        switch (test_.kind) {
-            .run => try self.runRunKind(test_, diags),
+    fn runTest(self: *Self, config: *Config, diags: *Diagnostics) Error!void {
+        switch (config.kind) {
+            .run => try self.runRunKind(config, diags),
         }
     }
 
-    fn runRunKind(self: *Self, test_: *Test, diags: *Diagnostics) Error!void {
-        assert(test_.kind == .run);
+    fn runRunKind(self: *Self, config: *Config, diags: *Diagnostics) Error!void {
+        assert(config.kind == .run);
 
-        var stdout_test_writer = TestWriter.init(self.allocator);
-        defer stdout_test_writer.deinit();
+        var stdout_configwriter = TestWriter.init(self.allocator);
+        defer stdout_configwriter.deinit();
 
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         const allocator = gpa.allocator();
 
         var diag_entry = DiagnosticEntry{
-            .path = test_.path,
-            .failure_info = ArrayList(DiagnosticEntry.FailureInfo).init(self.allocator),
+            .path = config.path,
+            .failures = ArrayList(DiagnosticEntry.FailureInfo).init(self.allocator),
         };
 
+        var actual = Config.Expectations.init(self.allocator);
+        defer actual.deinit();
+
         blk: {
-            const stdout = stdout_test_writer.writer().any();
+            const stdout = stdout_configwriter.writer().any();
 
             const stdout_writer = Writer.init(&stdout);
 
-            var tokenizer = Tokenizer.init(test_.source);
+            var tokenizer = Tokenizer.init(config.source);
             var parser = Parser.init(allocator);
 
             // allocate using TestRunner's allocator to prevent segfaults on dealloc.
@@ -226,9 +201,13 @@ pub const TestRunner = struct {
 
             const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
                 error.ParseFailure => {
-                    try diag_entry.failure_info.append(.{
-                        .parser = parser_diags,
-                    });
+                    if (config.expectations.err_parser.getLen() > 0) {
+                        actual.err_parser = parser_diags;
+                    } else {
+                        try diag_entry.failures.append(.{
+                            .parser = parser_diags,
+                        });
+                    }
                     break :blk;
                 },
                 error.OutOfMemory => return error.OutOfMemory,
@@ -239,11 +218,11 @@ pub const TestRunner = struct {
 
             // allocate using TestRunner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
-            var sema_diags = Sema.Diagnostics.init(test_.allocator);
+            var sema_diags = Sema.Diagnostics.init(config.allocator);
 
             const sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
                 error.SemaFailure => {
-                    try diag_entry.failure_info.append(.{ .sema = sema_diags });
+                    try diag_entry.failures.append(.{ .sema = sema_diags });
                     break :blk;
                 },
                 error.OutOfMemory => return error.OutOfMemory,
@@ -255,11 +234,11 @@ pub const TestRunner = struct {
 
             // allocate using TestRunner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
-            var compiler_diags = Compiler.Diagnostics.init(test_.allocator);
+            var compiler_diags = Compiler.Diagnostics.init(config.allocator);
 
             Compiler.compile(&memory, sema_stmt, &compiler_diags) catch |err| switch (err) {
                 error.CompileFailure => {
-                    try diag_entry.failure_info.append(.{ .compiler = compiler_diags });
+                    try diag_entry.failures.append(.{ .compiler = compiler_diags });
                     break :blk;
                 },
                 error.OutOfMemory => return error.OutOfMemory,
@@ -271,7 +250,7 @@ pub const TestRunner = struct {
 
             Vm.interpret(&memory, &stdout_writer, &vm_diags, .{}) catch |err| switch (err) {
                 error.Panic => {
-                    try diag_entry.failure_info.append(.{ .vm = vm_diags });
+                    try diag_entry.failures.append(.{ .vm = vm_diags });
                 },
                 error.OutOfMemory => return error.OutOfMemory,
             };
@@ -279,44 +258,92 @@ pub const TestRunner = struct {
 
         switch (gpa.deinit()) {
             .leak => {
-                try diag_entry.failure_info.append(.memory_leak);
+                try diag_entry.failures.append(.memory_leak);
             },
             .ok => {},
         }
 
-        if (diag_entry.failure_info.items.len == 0) {
-            const actual = Test.Expectations{
-                .out = stdout_test_writer.output,
-            };
-
-            try self.checkExpectations(test_, &actual, &diag_entry);
+        if (diag_entry.failures.items.len == 0) {
+            try actual.out.appendSlice(stdout_configwriter.output.items);
+            try self.verifyExpectations(&config.expectations, &actual, &diag_entry);
         }
 
-        if (diag_entry.failure_info.items.len > 0) {
+        if (diag_entry.failures.items.len > 0) {
             try diags.add(diag_entry);
             return error.TestFailure;
         }
     }
 
-    fn checkExpectations(
+    fn verifyExpectations(
         self: *Self,
-        test_: *const Test,
-        actuals: *const Test.Expectations,
+        expectations: *const Config.Expectations,
+        actuals: *const Config.Expectations,
         diag_entry: *DiagnosticEntry,
     ) !void {
-        if (!std.mem.eql(u8, actuals.out.items, test_.expectations.out.items)) {
-            const expected = try self.allocator.alloc(u8, test_.expectations.out.items.len);
-            @memcpy(expected, test_.expectations.out.items);
-
-            const actual = try self.allocator.alloc(u8, actuals.out.items.len);
-            @memcpy(actual, actuals.out.items);
-
-            try diag_entry.failure_info.append(.{
+        if (!verifyOut(&expectations.out, &actuals.out)) {
+            try diag_entry.failures.append(.{
                 .out_mismatch = .{
-                    .expected = expected,
-                    .actual = actual,
+                    .expected = try self.allocator.dupe(
+                        u8,
+                        expectations.out.items,
+                    ),
+                    .actual = try self.allocator.dupe(
+                        u8,
+                        actuals.out.items,
+                    ),
                 },
             });
         }
+
+        if (!verifyErrParser(&expectations.err_parser, &actuals.err_parser)) {
+            try diag_entry.failures.append(.{
+                .err_parser_mismatch = .{
+                    .expected = try expectations.err_parser.clone(),
+                    .actual = try actuals.err_parser.clone(),
+                },
+            });
+        }
+    }
+
+    fn verifyErrParser(
+        expected: *const Parser.Diagnostics,
+        actual: *const Parser.Diagnostics,
+    ) bool {
+        if (expected.getLen() != actual.getLen()) {
+            return false;
+        }
+
+        for (expected.getEntries(), actual.getEntries()) |expected_entry, actual_entry| {
+            if (@intFromEnum(expected_entry.kind) != @intFromEnum(actual_entry.kind)) {
+                return false;
+            }
+
+            if (expected_entry.position.line != actual_entry.position.line) {
+                return false;
+            }
+
+            switch (expected_entry.kind) {
+                .expected_end_token,
+                => |token| if (token != actual_entry.kind.expected_end_token) {
+                    return false;
+                },
+
+                .invalid_token,
+                => |msg| if (!std.mem.eql(u8, msg, actual_entry.kind.invalid_token)) {
+                    return false;
+                },
+
+                else => {},
+            }
+        }
+
+        return true;
+    }
+
+    fn verifyOut(
+        expected: *const ArrayList(u8),
+        actual: *const ArrayList(u8),
+    ) bool {
+        return std.mem.eql(u8, expected.items, actual.items);
     }
 };

@@ -1,15 +1,16 @@
 const std = @import("std");
 const shared = @import("shared");
 const arium = @import("arium");
-const test_mod = @import("test.zig");
-const test_runner_mod = @import("test_runner.zig");
+const runner_mod = @import("runner.zig");
+const config_mod = @import("config.zig");
+const test_reporter = @import("test_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const fs = std.fs;
 const Writer = shared.Writer;
 const Tokenizer = arium.Tokenizer;
-const TestRunner = test_runner_mod.TestRunner;
-const Test = test_mod.Test;
+const Runner = runner_mod.Runner;
+const Config = config_mod.Config;
 
 const test_folder = "test/case";
 const lang_extension = "aum";
@@ -25,7 +26,7 @@ pub fn main() !void {
     var stderr_writer = Writer.init(&stderr);
 
     {
-        var test_runner = TestRunner.init(allocator);
+        var test_runner = Runner.init(allocator);
         defer test_runner.deinit();
 
         const dir = try fs.cwd().openDir("./" ++ test_folder, .{ .iterate = true });
@@ -53,23 +54,18 @@ pub fn main() !void {
             @memcpy(path, entry.path);
             const source = try readFileAlloc(allocator, entry.path);
 
-            var diags = Test.Diagnostics.init(allocator);
+            var diags = Config.Diagnostics.init(allocator);
             defer diags.deinit();
 
             test_runner.addTest(path, source, &diags) catch |err| {
                 has_config_errors = true;
                 switch (err) {
                     error.ConfigParseFailure => {
-                        stderr_writer.printf("Test configuration diagnostics for '{s}':\n", .{entry.path});
-
-                        for (diags.getEntries()) |diag| {
-                            stderr_writer.printf("Line {}: {s}\n", .{
-                                diag.position.line,
-                                diag.message,
-                            });
-                        }
-
-                        stderr_writer.printf("\n", .{});
+                        test_reporter.reportConfigDiagnostics(
+                            entry.path,
+                            &diags,
+                            &stderr_writer,
+                        );
                     },
                     else => return err,
                 }
