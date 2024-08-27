@@ -48,6 +48,7 @@ pub const Runner = struct {
             err_parser_mismatch: Mismatch(Parser.Diagnostics),
             err_sema_mismatch: Mismatch(Sema.Diagnostics),
             err_compiler_mismatch: Mismatch(Compiler.Diagnostics),
+            err_vm_mismatch: Mismatch(Vm.Diagnostics),
             memory_leak,
         };
 
@@ -82,6 +83,10 @@ pub const Runner = struct {
                         mismatch.actual.deinit();
                     },
                     .err_compiler_mismatch => |*mismatch| {
+                        mismatch.expected.deinit();
+                        mismatch.actual.deinit();
+                    },
+                    .err_vm_mismatch => |*mismatch| {
                         mismatch.expected.deinit();
                         mismatch.actual.deinit();
                     },
@@ -271,7 +276,11 @@ pub const Runner = struct {
 
             Vm.interpret(&memory, &stdout_writer, &vm_diags, .{}) catch |err| switch (err) {
                 error.Panic => {
-                    try diag_entry.failures.append(.{ .vm = vm_diags });
+                    if (config.expectations.err_vm.getLen() > 0) {
+                        actual.err_vm = vm_diags;
+                    } else {
+                        try diag_entry.failures.append(.{ .vm = vm_diags });
+                    }
                 },
                 error.OutOfMemory => return error.OutOfMemory,
             };
@@ -339,6 +348,15 @@ pub const Runner = struct {
                 .err_compiler_mismatch = .{
                     .expected = try cloneDiags(&expectations.err_compiler),
                     .actual = try cloneDiags(&actuals.err_compiler),
+                },
+            });
+        }
+
+        if (!verifyErrVm(&expectations.err_vm, &actuals.err_vm)) {
+            try diag_entry.failures.append(.{
+                .err_vm_mismatch = .{
+                    .expected = try cloneDiags(&expectations.err_vm),
+                    .actual = try cloneDiags(&actuals.err_vm),
                 },
             });
         }
@@ -448,6 +466,30 @@ pub const Runner = struct {
     fn verifyErrCompiler(
         expected: *const Compiler.Diagnostics,
         actual: *const Compiler.Diagnostics,
+    ) bool {
+        if (expected.getLen() != actual.getLen()) {
+            return false;
+        }
+
+        for (
+            expected.getEntries(),
+            actual.getEntries(),
+        ) |expected_entry, actual_entry| {
+            if (expected_entry.kind != actual_entry.kind) {
+                return false;
+            }
+
+            if (expected_entry.position.line != actual_entry.position.line) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    fn verifyErrVm(
+        expected: *const Vm.Diagnostics,
+        actual: *const Vm.Diagnostics,
     ) bool {
         if (expected.getLen() != actual.getLen()) {
             return false;

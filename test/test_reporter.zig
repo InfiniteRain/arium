@@ -9,6 +9,7 @@ const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
 const Compiler = arium.Compiler;
+const Vm = arium.Vm;
 const error_reporter = arium.error_reporter;
 const Config = config_mod.Config;
 
@@ -80,6 +81,9 @@ pub fn reportRunnerDiagnostic(
             .err_compiler_mismatch => |*mismatch| {
                 reportErrCompilerMismatch(mismatch, writer);
             },
+            .err_vm_mismatch => |*mismatch| {
+                reportErrVmMismatch(mismatch, writer);
+            },
             .memory_leak => {
                 writer.print("Memory leak.");
             },
@@ -115,6 +119,16 @@ pub fn reportErrCompilerMismatch(
     reportCompilerDiags(&mismatch.expected, writer);
     writer.print("\nActual:\n");
     reportCompilerDiags(&mismatch.actual, writer);
+}
+
+pub fn reportErrVmMismatch(
+    mismatch: *const Runner.DiagnosticEntry.Mismatch(Vm.Diagnostics),
+    writer: *const Writer,
+) void {
+    writer.print("Unexpected vm error.\nExpected:\n");
+    reportVmDiags(&mismatch.expected, writer);
+    writer.print("\nActual:\n");
+    reportVmDiags(&mismatch.actual, writer);
 }
 
 pub fn reportOutMismatch(
@@ -201,6 +215,18 @@ pub fn reportSemaDiags(
 
 pub fn reportCompilerDiags(
     diags: *const Compiler.Diagnostics,
+    writer: *const Writer,
+) void {
+    for (diags.getEntries()) |entry| {
+        writer.printf(
+            "'{s}' on line {}\n",
+            .{ @tagName(entry.kind), entry.position.line },
+        );
+    }
+}
+
+pub fn reportVmDiags(
+    diags: *const Vm.Diagnostics,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |entry| {

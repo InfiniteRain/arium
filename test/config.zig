@@ -51,6 +51,7 @@ pub const Config = struct {
         err_parser,
         err_sema,
         err_compiler,
+        err_vm,
     };
 
     pub const Expectations = struct {
@@ -59,6 +60,7 @@ pub const Config = struct {
         err_parser: Parser.Diagnostics,
         err_sema: Sema.Diagnostics,
         err_compiler: Compiler.Diagnostics,
+        err_vm: Vm.Diagnostics,
 
         pub fn init(allocator: Allocator) Expectations {
             return .{
@@ -67,6 +69,7 @@ pub const Config = struct {
                 .err_parser = Parser.Diagnostics.init(allocator),
                 .err_sema = Sema.Diagnostics.init(allocator),
                 .err_compiler = Compiler.Diagnostics.init(allocator),
+                .err_vm = Vm.Diagnostics.init(allocator),
             };
         }
 
@@ -75,6 +78,7 @@ pub const Config = struct {
             self.err_parser.deinit();
             self.err_sema.deinit();
             self.err_compiler.deinit();
+            self.err_vm.deinit();
         }
     };
 
@@ -213,6 +217,7 @@ pub const Config = struct {
             .err_parser => try parseErrParserDirective(ctx),
             .err_sema => try parseErrSemaDirective(ctx),
             .err_compiler => try parseErrCompilerDirective(ctx),
+            .err_vm => try parseErrVmDirective(ctx),
         }
     }
 
@@ -294,6 +299,25 @@ pub const Config = struct {
         try parseEndOfLine(ctx);
 
         try ctx.expectations.err_compiler.add(.{
+            .kind = diag_kind,
+            .position = .{
+                .line = line,
+                .column = 0, // not part of the check for now
+            },
+        });
+    }
+
+    fn parseErrVmDirective(ctx: *DirectiveContext) DirectiveError!void {
+        if (ctx.kind != .run) {
+            return illegalDirectiveFailure(ctx, .err_vm);
+        }
+
+        const line = try parseInt(ctx, u64);
+        const diag_kind = try parseEnumVariant(ctx, Vm.DiagnosticEntry.Kind);
+
+        try parseEndOfLine(ctx);
+
+        try ctx.expectations.err_vm.add(.{
             .kind = diag_kind,
             .position = .{
                 .line = line,
