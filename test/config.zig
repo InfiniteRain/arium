@@ -8,11 +8,24 @@ const Token = arium.Token;
 const Tokenizer = arium.Tokenizer;
 const Position = arium.Position;
 const Parser = arium.Parser;
+const Sema = arium.Sema;
+const SemaExpr = arium.SemaExpr;
 const Vm = arium.Vm;
 const SharedDiagnostics = shared.Diagnostics;
+const meta = shared.meta;
 
 pub const Config = struct {
     const Self = @This();
+
+    pub const Error = error{
+        OutOfMemory,
+        ConfigParseFailure,
+    };
+
+    pub const DirectiveError = error{
+        OutOfMemory,
+        DirectiveParseFailure,
+    };
 
     pub const DiagnosticEntry = struct {
         message: []const u8,
@@ -26,35 +39,43 @@ pub const Config = struct {
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
 
     pub const Kind = enum {
+        parse,
+        sema,
+        compile,
         run,
     };
 
     pub const Directive = enum {
         out,
         err_parser,
+        err_sema,
     };
 
     pub const Expectations = struct {
         allocator: Allocator,
         out: ArrayList(u8),
         err_parser: Parser.Diagnostics,
+        err_sema: Sema.Diagnostics,
 
         pub fn init(allocator: Allocator) Expectations {
             return .{
                 .allocator = allocator,
                 .out = ArrayList(u8).init(allocator),
                 .err_parser = Parser.Diagnostics.init(allocator),
+                .err_sema = Sema.Diagnostics.init(allocator),
             };
         }
 
         pub fn deinit(self: *Expectations) void {
             self.out.clearAndFree();
             self.err_parser.deinit();
+            self.err_sema.deinit();
         }
     };
 
     const DirectiveContext = struct {
         allocator: Allocator,
+        kind: Kind,
         diags: *Diagnostics,
         position: Position,
         split_iter: *SplitIter,
@@ -75,10 +96,7 @@ pub const Config = struct {
         path: []const u8,
         source: []const u8,
         diags: *Diagnostics,
-    ) error{
-        OutOfMemory,
-        ConfigParseFailure,
-    }!Self {
+    ) Error!Self {
         errdefer allocator.free(path);
         errdefer allocator.free(source);
 
@@ -96,10 +114,7 @@ pub const Config = struct {
         path: []const u8,
         source: []const u8,
         diags: *Diagnostics,
-    ) error{
-        OutOfMemory,
-        ConfigParseFailure,
-    }!Self {
+    ) Error!Self {
         var tokenizer = Tokenizer.init(source);
         const first_token = tokenizer.scanToken();
         const config_line_opt = parseConfigComment(first_token);
@@ -125,6 +140,7 @@ pub const Config = struct {
             );
         }
 
+        const test_kind = test_kind_opt.?;
         var expectations = Expectations.init(allocator);
         errdefer expectations.deinit();
 
@@ -140,6 +156,7 @@ pub const Config = struct {
             var split = std.mem.splitScalar(u8, directive_line_opt.?, ' ');
             var ctx: DirectiveContext = .{
                 .allocator = allocator,
+                .kind = test_kind,
                 .diags = diags,
                 .position = current_token.position,
                 .split_iter = &split,
@@ -160,7 +177,7 @@ pub const Config = struct {
             .allocator = allocator,
             .path = path,
             .source = source,
-            .kind = test_kind_opt.?,
+            .kind = test_kind,
             .vm_config = .{},
             .expectations = expectations,
         };
@@ -174,9 +191,7 @@ pub const Config = struct {
             null;
     }
 
-    fn parseDirective(
-        ctx: *DirectiveContext,
-    ) error{ OutOfMemory, DirectiveParseFailure }!void {
+    fn parseDirective(ctx: *DirectiveContext) DirectiveError!void {
         const directive_kind_str = try parseStr(ctx);
         const directive_kind_opt = std.meta.stringToEnum(Directive, directive_kind_str);
 
@@ -191,26 +206,27 @@ pub const Config = struct {
         switch (directive_kind_opt.?) {
             .out => try parseOutDirective(ctx),
             .err_parser => try parseErrParserDirective(ctx),
+            .err_sema => try parseErrSemaDirective(ctx),
         }
     }
 
-    fn parseOutDirective(ctx: *DirectiveContext) error{OutOfMemory}!void {
-        try ctx.expectations.out.appendSlice(parseRestString(ctx));
-        try ctx.expectations.out.append('\n');
-    }
-
-    fn parseErrParserDirective(ctx: *DirectiveContext) error{ OutOfMemory, DirectiveParseFailure }!void {
+    fn parseErrParserDirective(ctx: *DirectiveContext) DirectiveError!void {
         const line = try parseInt(ctx, u64);
         var diag_kind = try parseUnionVariant(ctx, Parser.DiagnosticEntry.Kind);
 
         switch (diag_kind) {
-            .expected_end_token => diag_kind.expected_end_token =
-                try parseEnumVariant(ctx, Token.Kind),
+            .expected_end_token,
+            => meta.setUnionValue(&diag_kind, try parseEnumVariant(ctx, Token.Kind)),
 
-            .invalid_token => diag_kind.invalid_token =
-                parseRestString(ctx),
+            .invalid_token,
+            => meta.setUnionValue(&diag_kind, parseRestString(ctx)),
 
-            else => {},
+            .expected_statement,
+            .expected_expression,
+            .expected_left_paren_before_expr,
+            .expected_right_paren_after_expr,
+            .int_literal_overflows,
+            => {},
         }
 
         try parseEndOfLine(ctx);
@@ -224,17 +240,80 @@ pub const Config = struct {
         });
     }
 
-    fn parseStr(
+    fn parseErrSemaDirective(ctx: *DirectiveContext) DirectiveError!void {
+        if (ctx.kind != .sema and ctx.kind != .compile and ctx.kind != .run) {
+            return illegalDirectiveFailure(ctx, .err_sema);
+        }
+
+        const line = try parseInt(ctx, u64);
+        var diag_kind = try parseUnionVariant(ctx, Sema.DiagnosticEntry.Kind);
+
+        switch (diag_kind) {
+            .unexpected_operand_type,
+            .unexpected_concat_type,
+            .unexpected_equality_type,
+            => meta.setUnionValue(&diag_kind, Sema.DiagnosticEntry.EvalTypeTuple{
+                try parseEvalKind(ctx),
+                try parseEvalKind(ctx),
+            }),
+
+            .expected_expr_type,
+            .unexpected_arithmetic_type,
+            .unexpected_comparison_type,
+            .unexpected_logical_type,
+            .unexpected_logical_negation_type,
+            .unexpected_arithmetic_negation_type,
+            => meta.setUnionValue(&diag_kind, try parseEvalKind(ctx)),
+        }
+
+        try parseEndOfLine(ctx);
+
+        try ctx.expectations.err_sema.add(.{
+            .kind = diag_kind,
+            .position = .{
+                .line = line,
+                .column = 0, // not part of the check for now
+            },
+        });
+    }
+
+    fn parseOutDirective(ctx: *DirectiveContext) DirectiveError!void {
+        if (ctx.kind != .run) {
+            return illegalDirectiveFailure(ctx, .out);
+        }
+
+        try ctx.expectations.out.appendSlice(parseRestString(ctx));
+        try ctx.expectations.out.append('\n');
+    }
+
+    fn parseEvalKind(
         ctx: *DirectiveContext,
-    ) error{ OutOfMemory, DirectiveParseFailure }![]const u8 {
+    ) DirectiveError!SemaExpr.EvalType {
+        var eval_type = try parseUnionVariant(ctx, SemaExpr.EvalType);
+
+        switch (eval_type) {
+            .obj,
+            => meta.setUnionValue(
+                &eval_type,
+                try parseEnumVariant(ctx, SemaExpr.EvalType.ObjKind),
+            ),
+
+            .int,
+            .float,
+            .bool,
+            .invalid,
+            => {},
+        }
+
+        return eval_type;
+    }
+
+    fn parseStr(ctx: *DirectiveContext) DirectiveError![]const u8 {
         return nextNonEmpty(ctx) orelse
             return directiveParseFailure(ctx, "Expected string.", .{});
     }
 
-    fn parseInt(
-        ctx: *DirectiveContext,
-        T: type,
-    ) error{ OutOfMemory, DirectiveParseFailure }!T {
+    fn parseInt(ctx: *DirectiveContext, T: type) DirectiveError!T {
         const msg = "Expected {s}.";
         const args = .{@typeName(T)};
 
@@ -246,24 +325,21 @@ pub const Config = struct {
         };
     }
 
-    fn parseUnionVariant(
-        ctx: *DirectiveContext,
-        T: type,
-    ) error{ OutOfMemory, DirectiveParseFailure }!T {
+    fn parseUnionVariant(ctx: *DirectiveContext, T: type) DirectiveError!T {
         const msg = "Expected a union variant of {s}.";
         const args = .{@typeName(T)};
 
         const param = nextNonEmpty(ctx) orelse
             return directiveParseFailure(ctx, msg, args);
 
-        return stringToUnion(T, param) orelse
+        return meta.stringToUnion(T, param) orelse
             return directiveParseFailure(ctx, msg, args);
     }
 
     fn parseEnumVariant(
         ctx: *DirectiveContext,
         comptime T: type,
-    ) error{ OutOfMemory, DirectiveParseFailure }!T {
+    ) DirectiveError!T {
         const msg = "Expected an enum variant of {s}.";
         const args = .{@typeName(T)};
 
@@ -278,9 +354,7 @@ pub const Config = struct {
         return std.mem.trim(u8, ctx.split_iter.rest(), " ");
     }
 
-    fn parseEndOfLine(
-        ctx: *DirectiveContext,
-    ) error{ OutOfMemory, DirectiveParseFailure }!void {
+    fn parseEndOfLine(ctx: *DirectiveContext) DirectiveError!void {
         if (nextNonEmpty(ctx) != null) {
             return directiveParseFailure(ctx, "Expected end of comment.", .{});
         }
@@ -296,16 +370,6 @@ pub const Config = struct {
             .message = try std.fmt.allocPrint(diags.allocator, fmt, args),
             .position = position,
         });
-    }
-
-    fn stringToUnion(T: type, name: []const u8) ?T {
-        inline for (@typeInfo(T).Union.fields) |field| {
-            if (std.mem.eql(u8, name, field.name)) {
-                return @unionInit(T, field.name, undefined);
-            }
-        }
-
-        return null;
     }
 
     fn nextNonEmpty(ctx: *DirectiveContext) ?[]const u8 {
@@ -332,8 +396,19 @@ pub const Config = struct {
         ctx: *DirectiveContext,
         comptime fmt: []const u8,
         args: anytype,
-    ) error{ OutOfMemory, DirectiveParseFailure } {
+    ) DirectiveError {
         try addDiag(ctx.diags, ctx.position, fmt, args);
         return error.DirectiveParseFailure;
+    }
+
+    fn illegalDirectiveFailure(
+        ctx: *DirectiveContext,
+        directive: Directive,
+    ) DirectiveError {
+        return directiveParseFailure(
+            ctx,
+            "Test of kind '{s}' can't use directive '{s}'.",
+            .{ @tagName(ctx.kind), @tagName(directive) },
+        );
     }
 };

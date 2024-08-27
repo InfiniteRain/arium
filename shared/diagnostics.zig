@@ -20,8 +20,10 @@ pub fn Diagnostics(T: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            for (self.entries.items) |*entry| {
-                T.deinit(entry, self.allocator);
+            if (std.meta.hasMethod(T, "deinit")) {
+                for (self.entries.items) |*entry| {
+                    T.deinit(entry, self.allocator);
+                }
             }
 
             self.entries.clearAndFree();
@@ -37,13 +39,6 @@ pub fn Diagnostics(T: type) type {
 
         pub fn add(self: *Self, entry: T) Error!void {
             try self.entries.append(entry);
-        }
-
-        pub fn clone(self: *const Self) Error!Self {
-            return .{
-                .allocator = self.allocator,
-                .entries = try self.entries.clone(),
-            };
         }
     };
 }

@@ -14,7 +14,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const BoundedArray = std.BoundedArray;
 const assert = std.debug.assert;
-const spread = shared.spread;
+const meta = shared.meta;
 const SharedDiagnostics = shared.Diagnostics;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
@@ -66,11 +66,6 @@ pub const Compiler = struct {
 
         kind: Kind,
         position: ?Position,
-
-        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            _ = self;
-            _ = allocator;
-        }
     };
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
@@ -339,7 +334,7 @@ pub const Compiler = struct {
             then_branch_offsets = &new_then_branch_offsets;
         }
 
-        const left_ctx = spread(ctx, .{
+        const left_ctx = meta.spread(ctx, .{
             .is_child_to_logical = true,
             .previous_logical = previous_logical,
             .current_logical = current_logical,
@@ -363,7 +358,7 @@ pub const Compiler = struct {
             try self.patchJumps(then_branch_offsets);
         }
 
-        const right_ctx = spread(left_ctx, .{
+        const right_ctx = meta.spread(left_ctx, .{
             .else_branch_offsets = ctx.else_branch_offsets,
             .then_branch_offsets = ctx.then_branch_offsets,
         });
@@ -395,7 +390,7 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprContext,
     ) Error!void {
-        const new_ctx = spread(ctx, .{
+        const new_ctx = meta.spread(ctx, .{
             .is_child_to_logical = false,
             .current_logical = ctx.current_logical,
             .previous_logical = ctx.previous_logical,

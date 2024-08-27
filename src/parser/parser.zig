@@ -38,11 +38,6 @@ pub const Parser = struct {
 
         kind: Kind,
         position: Position,
-
-        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            _ = self;
-            _ = allocator;
-        }
     };
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);

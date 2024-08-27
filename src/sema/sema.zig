@@ -32,12 +32,17 @@ pub const Sema = struct {
     };
 
     pub const DiagnosticEntry = struct {
+        pub const EvalTypeTuple = struct {
+            SemaExpr.EvalType,
+            SemaExpr.EvalType,
+        };
+
         pub const Kind = union(enum) {
             expected_expr_type: SemaExpr.EvalType,
             unexpected_arithmetic_type: SemaExpr.EvalType,
-            unexpected_operand_type: struct { SemaExpr.EvalType, SemaExpr.EvalType },
-            unexpected_concat_type: struct { SemaExpr.EvalType, SemaExpr.EvalType },
-            unexpected_equality_type: struct { SemaExpr.EvalType, SemaExpr.EvalType },
+            unexpected_operand_type: EvalTypeTuple,
+            unexpected_concat_type: EvalTypeTuple,
+            unexpected_equality_type: EvalTypeTuple,
             unexpected_comparison_type: SemaExpr.EvalType,
             unexpected_logical_type: SemaExpr.EvalType,
             unexpected_logical_negation_type: SemaExpr.EvalType,
@@ -46,11 +51,6 @@ pub const Sema = struct {
 
         kind: Kind,
         position: Position,
-
-        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
-            _ = self;
-            _ = allocator;
-        }
     };
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);

@@ -6,6 +6,8 @@ const config_mod = @import("config.zig");
 const Writer = shared.Writer;
 const Runner = runner_mod.Runner;
 const Parser = arium.Parser;
+const Sema = arium.Sema;
+const SemaExpr = arium.SemaExpr;
 const error_reporter = arium.error_reporter;
 const Config = config_mod.Config;
 
@@ -71,11 +73,34 @@ pub fn reportRunnerDiagnostic(
             .err_parser_mismatch => |*mismatch| {
                 reportErrParserMismatch(mismatch, writer);
             },
+            .err_sema_mismatch => |*mismatch| {
+                reportSemaParserMismatch(mismatch, writer);
+            },
             .memory_leak => {
                 writer.print("Memory leak.");
             },
         }
     }
+}
+
+pub fn reportErrParserMismatch(
+    mismatch: *const Runner.DiagnosticEntry.Mismatch(Parser.Diagnostics),
+    writer: *const Writer,
+) void {
+    writer.print("Unexpected parser error(s).\nExpected:\n");
+    reportParserDiags(&mismatch.expected, writer);
+    writer.print("\nActual:\n");
+    reportParserDiags(&mismatch.actual, writer);
+}
+
+pub fn reportSemaParserMismatch(
+    mismatch: *const Runner.DiagnosticEntry.Mismatch(Sema.Diagnostics),
+    writer: *const Writer,
+) void {
+    writer.print("Unexpected sema error(s).\nExpected:\n");
+    reportSemaDiags(&mismatch.expected, writer);
+    writer.print("\nActual:\n");
+    reportSemaDiags(&mismatch.actual, writer);
 }
 
 pub fn reportOutMismatch(
@@ -86,16 +111,6 @@ pub fn reportOutMismatch(
         mismatch.expected,
         mismatch.actual,
     });
-}
-
-pub fn reportErrParserMismatch(
-    mismatch: *const Runner.DiagnosticEntry.Mismatch(Parser.Diagnostics),
-    writer: *const Writer,
-) void {
-    writer.print("Unexpected parser error.\nExpected:\n");
-    reportParserDiags(&mismatch.expected, writer);
-    writer.print("\nActual:\n");
-    reportParserDiags(&mismatch.actual, writer);
 }
 
 pub fn reportParserDiags(
@@ -113,13 +128,78 @@ pub fn reportParserDiags(
                 " with token {s}",
                 .{@tagName(token)},
             ),
+
             .invalid_token => |msg| writer.printf(
                 " '{s}'",
                 .{msg},
             ),
-            else => {},
+
+            .expected_statement,
+            .expected_expression,
+            .expected_left_paren_before_expr,
+            .expected_right_paren_after_expr,
+            .int_literal_overflows,
+            => {},
         }
 
         writer.print(".\n");
+    }
+}
+
+pub fn reportSemaDiags(
+    diags: *const Sema.Diagnostics,
+    writer: *const Writer,
+) void {
+    for (diags.getEntries()) |entry| {
+        writer.printf(
+            "'{s}' on line {}",
+            .{ @tagName(entry.kind), entry.position.line },
+        );
+
+        switch (entry.kind) {
+            .expected_expr_type,
+            .unexpected_arithmetic_type,
+            .unexpected_comparison_type,
+            .unexpected_logical_type,
+            .unexpected_logical_negation_type,
+            .unexpected_arithmetic_negation_type,
+            => |eval_type| {
+                writer.print(" with eval type ");
+                reportEvalType(eval_type, writer);
+            },
+
+            .unexpected_operand_type,
+            .unexpected_concat_type,
+            .unexpected_equality_type,
+            => |eval_type| {
+                const left, const right = eval_type;
+
+                writer.print(" with eval types ");
+                reportEvalType(left, writer);
+                writer.print(" and ");
+                reportEvalType(right, writer);
+            },
+        }
+
+        writer.print(".\n");
+    }
+}
+
+pub fn reportEvalType(
+    eval_type: SemaExpr.EvalType,
+    writer: *const Writer,
+) void {
+    writer.printf("{s}", .{@tagName(eval_type)});
+
+    switch (eval_type) {
+        .obj => |kind| {
+            writer.printf(" {s}", .{@tagName(kind)});
+        },
+
+        .int,
+        .float,
+        .bool,
+        .invalid,
+        => {},
     }
 }
