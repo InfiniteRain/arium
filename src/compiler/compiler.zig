@@ -77,7 +77,7 @@ pub const Compiler = struct {
 
     pub fn compile(
         memory: *ManagedMemory,
-        stmt: *const SemaStmt,
+        block: *const SemaExpr,
         diagnostics: ?*Diagnostics,
     ) Error!void {
         const allocator = memory.allocator();
@@ -109,7 +109,7 @@ pub const Compiler = struct {
             }
         }
 
-        try compiler.compileStmt(stmt);
+        try compiler.compileExpr(block, null);
         try compiler.chunk.writeU8(.return_, .{ .line = 0, .column = 0 });
 
         vm_state.chunk = compiler.chunk;
@@ -123,11 +123,6 @@ pub const Compiler = struct {
         stmt: *const SemaStmt,
     ) Error!void {
         switch (stmt.kind) {
-            .block => |block| {
-                for (block.stmts.items) |child_stmt| {
-                    try self.compileStmt(child_stmt);
-                }
-            },
             .assert => |assert_stmt| {
                 try self.compileExpr(assert_stmt.expr, null);
                 try self.chunk.writeU8(.assert, stmt.position);
@@ -252,6 +247,11 @@ pub const Compiler = struct {
                     },
                     expr.position,
                 );
+            },
+            .block => |block| {
+                for (block.stmts.items) |child_stmt| {
+                    try self.compileStmt(child_stmt);
+                }
             },
             .invalid => @panic("invalid expression"),
         }

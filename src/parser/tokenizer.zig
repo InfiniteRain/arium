@@ -16,6 +16,8 @@ const token_trie = generateTrie(.{
     .{ "not", .not },
     .{ "print", .print },
     .{ "assert", .assert },
+    .{ "do", .do },
+    .{ "end", .end },
 });
 
 pub const Position = struct {
@@ -53,6 +55,8 @@ pub const Token = struct {
         not,
         and_,
         or_,
+        do,
+        end,
 
         assert,
         print,

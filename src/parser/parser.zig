@@ -58,66 +58,12 @@ pub const Parser = struct {
         self: *Self,
         tokenizer: *Tokenizer,
         diagnostics: ?*Diagnostics,
-    ) Error!*ParsedStmt {
+    ) Error!*ParsedExpr {
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanNonCommentToken();
         self.diagnostics = diagnostics;
 
         return try self.parseBlock(.eof, .{ .line = 1, .column = 1 });
-    }
-
-    fn parseBlock(
-        self: *Self,
-        end_token_kind: Token.Kind,
-        position: Position,
-    ) Error!*ParsedStmt {
-        var stmts = ArrayList(*ParsedStmt).init(self.allocator);
-        errdefer stmts.clearAndFree();
-
-        var block = try ParsedStmt.Kind.Block.create(
-            self.allocator,
-            stmts,
-            position,
-        );
-        errdefer block.destroy(self.allocator);
-
-        if (self.match(end_token_kind, true)) {
-            return block;
-        }
-
-        const old_num_diags = if (self.diagnostics) |diags| diags.getLen() else 0;
-
-        while (true) {
-            const stmt = self.parseStmt() catch |err| switch (err) {
-                error.ParseFailure => {
-                    // todo: perhaps add semicolon error message here
-
-                    if (self.check(.eof)) {
-                        break;
-                    }
-
-                    continue;
-                },
-                else => return err,
-            };
-
-            try block.kind.block.stmts.append(stmt);
-
-            if (!self.matchStmtTerminator() or self.check(end_token_kind)) {
-                break;
-            }
-        }
-
-        _ = try self.consume(
-            end_token_kind,
-            .{ .expected_end_token = end_token_kind },
-        );
-
-        if (self.diagnostics != null and self.diagnostics.?.getLen() > old_num_diags) {
-            return error.ParseFailure;
-        }
-
-        return block;
     }
 
     fn parseStmt(self: *Self) Error!*ParsedStmt {
@@ -438,6 +384,60 @@ pub const Parser = struct {
         }
 
         return error.ParseFailure;
+    }
+
+    fn parseBlock(
+        self: *Self,
+        end_token_kind: Token.Kind,
+        position: Position,
+    ) Error!*ParsedExpr {
+        var stmts = ArrayList(*ParsedStmt).init(self.allocator);
+        errdefer stmts.clearAndFree();
+
+        var block = try ParsedExpr.Kind.Block.create(
+            self.allocator,
+            stmts,
+            position,
+        );
+        errdefer block.destroy(self.allocator);
+
+        if (self.match(end_token_kind, true)) {
+            return block;
+        }
+
+        const old_num_diags = if (self.diagnostics) |diags| diags.getLen() else 0;
+
+        while (true) {
+            const stmt = self.parseStmt() catch |err| switch (err) {
+                error.ParseFailure => {
+                    // todo: perhaps add semicolon error message here
+
+                    if (self.check(.eof)) {
+                        break;
+                    }
+
+                    continue;
+                },
+                else => return err,
+            };
+
+            try block.kind.block.stmts.append(stmt);
+
+            if (!self.matchStmtTerminator() or self.check(end_token_kind)) {
+                break;
+            }
+        }
+
+        _ = try self.consume(
+            end_token_kind,
+            .{ .expected_end_token = end_token_kind },
+        );
+
+        if (self.diagnostics != null and self.diagnostics.?.getLen() > old_num_diags) {
+            return error.ParseFailure;
+        }
+
+        return block;
     }
 
     fn match(self: *Self, kind: Token.Kind, ignore_new_line: bool) bool {

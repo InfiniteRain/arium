@@ -89,13 +89,12 @@ pub fn reportInstruction(
     writer: *const Writer,
     offset: usize,
 ) usize {
-    writer.printf("{:0>4} ", .{offset});
-
-    if (chunk.positions.items[offset]) |position| {
-        writer.printf("{: >4}:{: <4} ", .{ position.line, position.column });
-    } else {
-        writer.print("          ");
-    }
+    const position = chunk.positions.items[offset];
+    writer.printf("{:0>4} {: >4}:{: <4} ", .{
+        offset,
+        position.line,
+        position.column,
+    });
 
     const byte = chunk.code.items[offset];
     const op_code = @as(OpCode, @enumFromInt(byte));

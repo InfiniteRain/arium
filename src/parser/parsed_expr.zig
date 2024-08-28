@@ -1,9 +1,12 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
+const parsed_stmt_mod = @import("parsed_stmt.zig");
 
+const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Token = tokenizer.Token;
 const Position = tokenizer.Position;
+const ParsedStmt = parsed_stmt_mod.ParsedStmt;
 
 pub const ParsedExpr = struct {
     const Self = @This();
@@ -117,9 +120,34 @@ pub const ParsedExpr = struct {
             }
         };
 
+        // todo: try turning all references to const (expr/stmt)
+        pub const Block = struct {
+            stmts: ArrayList(*ParsedStmt),
+
+            pub fn create(
+                allocator: Allocator,
+                stmts: ArrayList(*ParsedStmt),
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .block = .{
+                            .stmts = stmts,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return expr;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
+        block: Block,
     };
 
     kind: Kind,
@@ -134,6 +162,13 @@ pub const ParsedExpr = struct {
             .literal => {},
             .unary => |unary| {
                 unary.right.destroy(allocator);
+            },
+            .block => |*block| {
+                for (block.stmts.items) |stmt| {
+                    stmt.destroy(allocator);
+                }
+
+                block.stmts.clearAndFree();
             },
         }
 

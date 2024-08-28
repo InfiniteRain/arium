@@ -11,29 +11,6 @@ pub const ParsedStmt = struct {
     const Self = @This();
 
     pub const Kind = union(enum) {
-        pub const Block = struct {
-            stmts: ArrayList(*ParsedStmt),
-
-            pub fn create(
-                allocator: Allocator,
-                stmts: ArrayList(*ParsedStmt),
-                position: Position,
-            ) !*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
-                        .block = .{
-                            .stmts = stmts,
-                        },
-                    },
-                    .position = position,
-                };
-
-                return stmt;
-            }
-        };
-
         pub const Assert = struct {
             expr: *ParsedExpr,
 
@@ -81,7 +58,6 @@ pub const ParsedStmt = struct {
         };
 
         print: Print,
-        block: Block,
         assert: Assert,
     };
 
@@ -90,13 +66,6 @@ pub const ParsedStmt = struct {
 
     pub fn destroy(self: *Self, allocator: Allocator) void {
         switch (self.kind) {
-            .block => |*block| {
-                for (block.stmts.items) |stmt| {
-                    stmt.destroy(allocator);
-                }
-
-                block.stmts.clearAndFree();
-            },
             .assert => |assert| assert.expr.destroy(allocator),
             .print => |print| print.expr.destroy(allocator),
         }

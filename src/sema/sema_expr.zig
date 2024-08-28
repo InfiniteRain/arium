@@ -1,10 +1,12 @@
 const std = @import("std");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
+const sema_stmt_mod = @import("sema_stmt.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const meta = std.meta;
 const Position = tokenizer_mod.Position;
+const SemaStmt = sema_stmt_mod.SemaStmt;
 
 pub const SemaExpr = struct {
     const Self = @This();
@@ -166,6 +168,31 @@ pub const SemaExpr = struct {
             }
         };
 
+        pub const Block = struct {
+            stmts: ArrayList(*SemaStmt),
+
+            pub fn create(
+                allocator: Allocator,
+                stmts: ArrayList(*SemaStmt),
+                eval_type: EvalType,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .block = .{
+                            .stmts = stmts,
+                        },
+                    },
+                    .eval_type = eval_type,
+                    .position = position,
+                };
+
+                return expr;
+            }
+        };
+
         pub const Invalid = struct {
             child_exprs: ArrayList(*Self),
 
@@ -197,6 +224,7 @@ pub const SemaExpr = struct {
         literal: Literal,
         binary: Binary,
         unary: Unary,
+        block: Block,
         invalid: Invalid,
     };
 
@@ -243,6 +271,13 @@ pub const SemaExpr = struct {
             },
             .unary => |unary| {
                 unary.right.destroy(allocator);
+            },
+            .block => |*block| {
+                for (block.stmts.items) |stmt| {
+                    stmt.destroy(allocator);
+                }
+
+                block.stmts.clearAndFree();
             },
             .invalid => |*invalid| {
                 for (invalid.child_exprs.items) |child_expr| {

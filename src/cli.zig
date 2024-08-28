@@ -90,27 +90,27 @@ fn runFile(
     var parser_diags = Parser.Diagnostics.init(allocator);
     defer parser_diags.deinit();
 
-    const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
+    const sema_expr = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
         error.ParseFailure => {
             error_reporter.reportParserDiags(&parser_diags, err_writer);
             std.posix.exit(65);
         },
         else => return err,
     };
-    defer parsed_stmt.destroy(allocator);
+    defer sema_expr.destroy(allocator);
 
     var sema = Sema.init(allocator);
     var sema_diags = Sema.Diagnostics.init(allocator);
     defer sema_diags.deinit();
 
-    var sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
+    var sema_block = sema.analyze(sema_expr, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
             error_reporter.reportSemaDiags(&sema_diags, err_writer);
             std.posix.exit(65);
         },
         else => return err,
     };
-    defer sema_stmt.destroy(allocator);
+    defer sema_block.destroy(allocator);
 
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();
@@ -118,7 +118,7 @@ fn runFile(
     var compiler_diags = Compiler.Diagnostics.init(allocator);
     defer compiler_diags.deinit();
 
-    Compiler.compile(&memory, sema_stmt, &compiler_diags) catch |err| switch (err) {
+    Compiler.compile(&memory, sema_block, &compiler_diags) catch |err| switch (err) {
         error.CompileFailure => {
             error_reporter.reportCompilerDiags(&compiler_diags, err_writer);
             std.posix.exit(65);

@@ -202,7 +202,7 @@ pub const Runner = struct {
             // diags are owned by the test runner, not the tests.
             var parser_diags = Parser.Diagnostics.init(self.allocator);
 
-            const parsed_stmt = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
+            const parsed_block = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
                 error.ParseFailure => {
                     if (config.expectations.err_parser.getLen() > 0) {
                         actual.err_parser = parser_diags;
@@ -215,7 +215,7 @@ pub const Runner = struct {
                 },
                 error.OutOfMemory => return error.OutOfMemory,
             };
-            defer parsed_stmt.destroy(test_allocator);
+            defer parsed_block.destroy(test_allocator);
 
             if (config.kind == .parse) {
                 break :blk;
@@ -227,7 +227,7 @@ pub const Runner = struct {
             // diags are owned by the test runner, not the tests.
             var sema_diags = Sema.Diagnostics.init(self.allocator);
 
-            const sema_stmt = sema.analyze(parsed_stmt, &sema_diags) catch |err| switch (err) {
+            const sema_block = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
                 error.SemaFailure => {
                     if (config.expectations.err_sema.getLen() > 0) {
                         actual.err_sema = sema_diags;
@@ -238,7 +238,7 @@ pub const Runner = struct {
                 },
                 error.OutOfMemory => return error.OutOfMemory,
             };
-            defer sema_stmt.destroy(test_allocator);
+            defer sema_block.destroy(test_allocator);
 
             if (config.kind == .sema) {
                 break :blk;
@@ -251,7 +251,7 @@ pub const Runner = struct {
             // diags are owned by the test runner, not the tests.
             var compiler_diags = Compiler.Diagnostics.init(self.allocator);
 
-            Compiler.compile(&memory, sema_stmt, &compiler_diags) catch |err| switch (err) {
+            Compiler.compile(&memory, sema_block, &compiler_diags) catch |err| switch (err) {
                 error.CompileFailure => {
                     if (config.expectations.err_compiler.getLen() > 0) {
                         actual.err_compiler = compiler_diags;

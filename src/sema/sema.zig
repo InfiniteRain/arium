@@ -67,13 +67,13 @@ pub const Sema = struct {
 
     pub fn analyze(
         self: *Self,
-        block: *ParsedStmt,
+        block: *ParsedExpr,
         diagnostics: ?*Diagnostics,
-    ) Error!*SemaStmt {
+    ) Error!*SemaExpr {
         self.diagnostics = diagnostics;
         self.had_error = false;
 
-        const sema_block = try self.analyzeStmt(block);
+        const sema_block = try self.analyzeExpr(block);
 
         if (self.had_error) {
             sema_block.destroy(self.allocator);
@@ -85,16 +85,6 @@ pub const Sema = struct {
 
     fn analyzeStmt(self: *Self, stmt: *ParsedStmt) Error!*SemaStmt {
         switch (stmt.kind) {
-            .block => |block| {
-                var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
-
-                for (block.stmts.items) |parsed_stmt| {
-                    const sema_stmt = try self.analyzeStmt(parsed_stmt);
-                    try sema_stmts.append(sema_stmt);
-                }
-
-                return try SemaStmt.Kind.Block.create(self.allocator, sema_stmts, stmt.position);
-            },
             .assert => |assert| {
                 const expr = try self.analyzeExpr(assert.expr);
 
@@ -310,6 +300,21 @@ pub const Sema = struct {
                     eval_type,
                     expr.position,
                     right,
+                );
+            },
+            .block => |block| {
+                var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
+
+                for (block.stmts.items) |parser_stmt| {
+                    const sema_stmt = try self.analyzeStmt(parser_stmt);
+                    try sema_stmts.append(sema_stmt);
+                }
+
+                return try SemaExpr.Kind.Block.create(
+                    self.allocator,
+                    sema_stmts,
+                    .int, // todo: temp
+                    expr.position,
                 );
             },
         }
