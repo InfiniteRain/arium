@@ -235,6 +235,7 @@ pub const SemaExpr = struct {
             string,
         };
 
+        unit,
         int,
         float,
         bool,
@@ -243,6 +244,7 @@ pub const SemaExpr = struct {
 
         pub fn stringify(self: EvalType) []const u8 {
             return switch (self) {
+                .unit => "Unit",
                 .int => "Int",
                 .float => "Float",
                 .bool => "Bool",

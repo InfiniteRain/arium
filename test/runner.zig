@@ -533,6 +533,7 @@ pub const Runner = struct {
                 }
             },
 
+            .unit,
             .int,
             .float,
             .bool,

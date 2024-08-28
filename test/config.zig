@@ -347,6 +347,7 @@ pub const Config = struct {
                 try parseEnumVariant(ctx, SemaExpr.EvalType.ObjKind),
             ),
 
+            .unit,
             .int,
             .float,
             .bool,

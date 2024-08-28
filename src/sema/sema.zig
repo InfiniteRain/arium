@@ -186,12 +186,14 @@ pub const Sema = struct {
 
                         eval_type = .bool;
                         binary_kind = if (binary.kind == .equal) switch (left.eval_type) {
+                            .unit => unreachable, // todo: change to empty product type
                             .int => .equal_int,
                             .float => .equal_float,
                             .bool => .equal_bool,
                             .obj => .equal_obj,
                             .invalid => unreachable,
                         } else switch (left.eval_type) {
+                            .unit => unreachable, // todo: change to empty product type
                             .int => .not_equal_int,
                             .float => .not_equal_float,
                             .bool => .not_equal_bool,
@@ -313,7 +315,7 @@ pub const Sema = struct {
                 return try SemaExpr.Kind.Block.create(
                     self.allocator,
                     sema_stmts,
-                    .int, // todo: temp
+                    .unit, // todo: change to empty product type
                     expr.position,
                 );
             },

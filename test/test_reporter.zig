@@ -248,6 +248,7 @@ pub fn reportEvalType(
             writer.printf(" {s}", .{@tagName(kind)});
         },
 
+        .unit,
         .int,
         .float,
         .bool,

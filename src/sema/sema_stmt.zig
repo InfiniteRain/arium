@@ -11,30 +11,6 @@ pub const SemaStmt = struct {
     const Self = @This();
 
     pub const Kind = union(enum) {
-        // pub const Block = struct {
-        //     // todo: should be an expression
-        //     stmts: ArrayList(*Self),
-        //
-        //     pub fn create(
-        //         allocator: Allocator,
-        //         stmts: ArrayList(*Self),
-        //         position: Position,
-        //     ) !*Self {
-        //         const stmt = try allocator.create(Self);
-        //
-        //         stmt.* = .{
-        //             .kind = .{
-        //                 .block = .{
-        //                     .stmts = stmts,
-        //                 },
-        //             },
-        //             .position = position,
-        //         };
-        //
-        //         return stmt;
-        //     }
-        // };
-
         pub const Assert = struct {
             expr: *SemaExpr,
 
@@ -119,7 +95,6 @@ pub const SemaStmt = struct {
             }
         };
 
-        // block: Block,
         assert: Assert,
         print: Print,
         invalid: Invalid,
@@ -130,13 +105,6 @@ pub const SemaStmt = struct {
 
     pub fn destroy(self: *Self, allocator: Allocator) void {
         switch (self.kind) {
-            // .block => |*block| {
-            //     for (block.stmts.items) |stmt| {
-            //         stmt.destroy(allocator);
-            //     }
-            //
-            //     block.stmts.clearAndFree();
-            // },
             .assert => |assert| assert.expr.destroy(allocator),
             .print => |print| print.expr.destroy(allocator),
             .invalid => |*invalid| {
