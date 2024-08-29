@@ -23,6 +23,7 @@ pub const ParsedExpr = struct {
 
             kind: Literal.Kind,
 
+            // Takes ownership of heap data (string).
             pub fn create(
                 allocator: Allocator,
                 literal_kind: Literal.Kind,
@@ -160,7 +161,15 @@ pub const ParsedExpr = struct {
                 binary.left.destroy(allocator);
                 binary.right.destroy(allocator);
             },
-            .literal => {},
+            .literal => |literal| switch (literal.kind) {
+                .string => |string| allocator.free(string),
+
+                .unit,
+                .int,
+                .float,
+                .bool,
+                => {},
+            },
             .unary => |unary| {
                 unary.right.destroy(allocator);
             },

@@ -17,8 +17,9 @@ pub const SemaExpr = struct {
             int: i64,
             float: f64,
             bool: bool,
-            string: []const u8, // not owned by SemaExpr, but by tokenizer
+            string: []const u8,
 
+            // Takes ownership of heap data (string).
             pub fn create(allocator: Allocator, literal: Literal, position: Position) !*Self {
                 const expr = try allocator.create(Self);
 
@@ -268,7 +269,15 @@ pub const SemaExpr = struct {
 
     pub fn destroy(self: *Self, allocator: Allocator) void {
         switch (self.kind) {
-            .literal => {},
+            .literal => |literal| switch (literal) {
+                .string => |string| allocator.free(string),
+
+                .unit,
+                .int,
+                .float,
+                .bool,
+                => {},
+            },
             .binary => |binary| {
                 binary.left.destroy(allocator);
                 binary.right.destroy(allocator);

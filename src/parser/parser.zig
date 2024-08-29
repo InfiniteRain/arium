@@ -367,7 +367,9 @@ pub const Parser = struct {
 
         if (self.match(.string, ignore_new_line)) {
             const prev = self.previous();
-            const string = prev.lexeme[1 .. prev.lexeme.len - 1];
+
+            const string = try self.allocator.dupe(u8, prev.lexeme[1 .. prev.lexeme.len - 1]);
+            errdefer self.allocator.free(string);
             return try ParsedExpr.Kind.Literal.create(self.allocator, .{ .string = string }, prev.position);
         }
 

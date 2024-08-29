@@ -121,7 +121,12 @@ pub const Sema = struct {
                     .int => |int| .{ .int = int },
                     .float => |float| .{ .float = float },
                     .bool => |bool_| .{ .bool = bool_ },
-                    .string => |string| .{ .string = string },
+                    .string => |string| blk: {
+                        const duped_string = try self.allocator.dupe(u8, string);
+                        errdefer self.allocator.free(duped_string);
+
+                        break :blk .{ .string = duped_string };
+                    },
                 };
 
                 return SemaExpr.Kind.Literal.create(self.allocator, literal_variant, expr.position);
