@@ -110,6 +110,7 @@ pub const Compiler = struct {
         }
 
         try compiler.compileExpr(block, null);
+        try compiler.eraseOrPopEvalValue(block.position);
         try compiler.chunk.writeU8(.return_, .{ .line = 0, .column = 0 });
 
         vm_state.chunk = compiler.chunk;
@@ -121,7 +122,7 @@ pub const Compiler = struct {
     fn compileStmt(
         self: *Self,
         stmt: *const SemaStmt,
-        prevent_pop: bool,
+        is_last_statement: bool,
     ) Error!void {
         switch (stmt.kind) {
             .assert => |assert_stmt| {
@@ -135,8 +136,8 @@ pub const Compiler = struct {
             .expr => |expr| {
                 try self.compileExpr(expr.expr, null);
 
-                if (!prevent_pop) {
-                    try self.chunk.writeU8(.pop, stmt.position);
+                if (!is_last_statement) {
+                    try self.eraseOrPopEvalValue(stmt.position);
                 }
             },
             .invalid => @panic("invalid statement"),
@@ -261,7 +262,7 @@ pub const Compiler = struct {
                 for (block.stmts.items, 0..) |child_stmt, index| {
                     try self.compileStmt(
                         child_stmt,
-                        !block.no_eval and index == block.stmts.items.len - 1,
+                        index == block.stmts.items.len - 1,
                     );
                 }
             },
@@ -535,6 +536,32 @@ pub const Compiler = struct {
             },
             error.OutOfMemory => return error.OutOfMemory,
         };
+    }
+
+    fn eraseOrPopEvalValue(self: *Self, position: Position) Error!void {
+        switch (self.chunk.current_op_code) {
+            .constant,
+            .constant_unit,
+            .constant_bool_false,
+            .constant_bool_true,
+            .constant_int_n1,
+            .constant_int_0,
+            .constant_int_1,
+            .constant_int_2,
+            .constant_int_3,
+            .constant_int_4,
+            .constant_int_5,
+            .constant_float_0,
+            .constant_float_1,
+            .constant_float_2,
+            => {
+                try self.chunk.eraseLast();
+            },
+
+            else => {
+                try self.chunk.writeU8(.pop, position);
+            },
+        }
     }
 
     fn tooManyBranchJumps(self: *Self, offset: usize) Error {

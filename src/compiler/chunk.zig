@@ -9,6 +9,7 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const math = std.math;
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 const Writer = shared.Writer;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Value = value_mod.Value;
@@ -76,6 +77,8 @@ pub const Chunk = struct {
     code: ArrayList(u8),
     positions: ArrayList(Position), // todo: replace with RLE
     constants: ArrayList(Value),
+    last_code_len: usize = 0,
+    current_op_code: OpCode = undefined,
 
     pub fn init(allocator: Allocator) Self {
         return .{
@@ -93,12 +96,19 @@ pub const Chunk = struct {
     }
 
     pub fn writeU8(self: *Self, data: anytype, position: Position) Error!void {
-        try self.code.append(resolveU8(data));
+        const byte, const is_op_code = resolveU8(data);
+
+        if (is_op_code) {
+            self.last_code_len = self.code.items.len;
+            self.current_op_code = @enumFromInt(byte);
+        }
+
+        try self.code.append(byte);
         try self.positions.append(position);
     }
 
     pub fn updateU8(self: *Self, data: anytype, index: usize) Error!void {
-        self.code.items[index] = resolveU8(data);
+        self.code.items[index] = resolveU8(data)[0];
     }
 
     pub fn writeU16(self: *Self, data: u16, position: Position) Error!void {
@@ -145,6 +155,17 @@ pub const Chunk = struct {
         try self.writeU8(@as(u8, @intCast(index)), position);
     }
 
+    pub fn eraseLast(self: *Self) error{OutOfMemory}!void {
+        assert(self.code.items.len != self.last_code_len); // called twice in a row
+
+        if (self.current_op_code == .constant) {
+            _ = self.constants.pop();
+        }
+
+        try self.code.resize(self.last_code_len);
+        try self.positions.resize(self.last_code_len);
+    }
+
     pub fn readU8(self: *const Self, offset: usize) u8 {
         return self.code.items[offset];
     }
@@ -155,7 +176,7 @@ pub const Chunk = struct {
         return (left << 8) | right;
     }
 
-    fn resolveU8(data: anytype) u8 {
+    fn resolveU8(data: anytype) struct { u8, bool } {
         const ByteType = @TypeOf(data);
 
         switch (ByteType) {
@@ -164,10 +185,10 @@ pub const Chunk = struct {
                     @compileError("expected valid OpCode");
                 }
 
-                return @intFromEnum(@as(OpCode, data));
+                return .{ @intFromEnum(@as(OpCode, data)), true };
             },
             comptime_int, u8 => {
-                return data;
+                return .{ data, false };
             },
             else => {
                 @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType));

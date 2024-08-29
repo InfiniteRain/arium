@@ -124,12 +124,10 @@ pub const ParsedExpr = struct {
         // todo: try turning all references to const (expr/stmt)
         pub const Block = struct {
             stmts: ArrayList(*ParsedStmt),
-            no_eval: bool,
 
             pub fn create(
                 allocator: Allocator,
                 stmts: ArrayList(*ParsedStmt),
-                no_eval: bool,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -138,7 +136,6 @@ pub const ParsedExpr = struct {
                     .kind = .{
                         .block = .{
                             .stmts = stmts,
-                            .no_eval = no_eval,
                         },
                     },
                     .position = position,

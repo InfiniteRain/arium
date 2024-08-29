@@ -172,12 +172,10 @@ pub const SemaExpr = struct {
 
         pub const Block = struct {
             stmts: ArrayList(*SemaStmt),
-            no_eval: bool,
 
             pub fn create(
                 allocator: Allocator,
                 stmts: ArrayList(*SemaStmt),
-                no_eval: bool,
                 eval_type: EvalType,
                 position: Position,
             ) !*Self {
@@ -187,7 +185,6 @@ pub const SemaExpr = struct {
                     .kind = .{
                         .block = .{
                             .stmts = stmts,
-                            .no_eval = no_eval,
                         },
                     },
                     .eval_type = eval_type,

@@ -62,7 +62,7 @@ pub const Parser = struct {
         self.current_token = tokenizer.scanNonCommentToken();
         self.diagnostics = diagnostics;
 
-        return try self.parseBlock(.eof, true, .{ .line = 1, .column = 1 });
+        return try self.parseBlock(.eof, .{ .line = 1, .column = 1 });
     }
 
     fn parseStmt(self: *Self) Error!*ParsedStmt {
@@ -76,7 +76,7 @@ pub const Parser = struct {
             return try self.parsePrintStmt(self.previous().position);
         }
 
-        return try self.parseExprStmt(self.previous().position);
+        return try self.parseExprStmt(self.peek().position);
     }
 
     fn parseAssertStmt(self: *Self, position: Position) Error!*ParsedStmt {
@@ -161,12 +161,13 @@ pub const Parser = struct {
         while (self.match(.bang_equal, ignore_new_line) or
             self.match(.equal_equal, ignore_new_line))
         {
-            self.skipNewLines();
-
             const kind: BinaryKind = if (self.previous().kind == .bang_equal)
                 .not_equal
             else
                 .equal;
+
+            self.skipNewLines();
+
             const right = try self.parseComparison(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -193,8 +194,6 @@ pub const Parser = struct {
             self.match(.less, ignore_new_line) or
             self.match(.less_equal, ignore_new_line))
         {
-            self.skipNewLines();
-
             const kind: BinaryKind = switch (self.previous().kind) {
                 .greater => .greater,
                 .greater_equal => .greater_equal,
@@ -202,6 +201,9 @@ pub const Parser = struct {
                 .less_equal => .less_equal,
                 else => unreachable,
             };
+
+            self.skipNewLines();
+
             const right = try self.parseTerm(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -226,12 +228,13 @@ pub const Parser = struct {
         while (self.match(.minus, ignore_new_line) or
             self.match(.plus, ignore_new_line))
         {
-            self.skipNewLines();
-
             const kind: BinaryKind = if (self.previous().kind == .minus)
                 .subtract
             else
                 .add;
+
+            self.skipNewLines();
+
             const right = try self.parseFactor(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -256,12 +259,13 @@ pub const Parser = struct {
         while (self.match(.slash, ignore_new_line) or
             self.match(.star, ignore_new_line))
         {
-            self.skipNewLines();
-
             const kind: BinaryKind = if (self.previous().kind == .slash)
                 .divide
             else
                 .multiply;
+
+            self.skipNewLines();
+
             const right = try self.parseConcat(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -306,10 +310,11 @@ pub const Parser = struct {
         if (self.match(.minus, ignore_new_line) or
             self.match(.not, ignore_new_line))
         {
+            const token = self.previous();
+
             self.skipNewLines();
 
             const UnaryKind = ParsedExpr.Kind.Unary.Kind;
-            const token = self.previous();
             const kind: UnaryKind = if (token.kind == .minus)
                 .negate_num
             else
@@ -375,7 +380,7 @@ pub const Parser = struct {
         }
 
         if (self.match(.do, ignore_new_line)) {
-            return try self.parseBlock(.end, false, self.previous().position);
+            return try self.parseBlock(.end, self.previous().position);
         }
 
         if (self.match(.invalid, ignore_new_line)) {
@@ -391,7 +396,6 @@ pub const Parser = struct {
     fn parseBlock(
         self: *Self,
         end_token_kind: Token.Kind,
-        no_eval: bool,
         position: Position,
     ) Error!*ParsedExpr {
         var stmts = ArrayList(*ParsedStmt).init(self.allocator);
@@ -400,13 +404,12 @@ pub const Parser = struct {
         var block = try ParsedExpr.Kind.Block.create(
             self.allocator,
             stmts,
-            no_eval,
             position,
         );
         errdefer block.destroy(self.allocator);
 
         if (self.match(end_token_kind, true)) {
-            try self.addUniExprStmtToBlock(no_eval, &block.kind.block, position);
+            try self.addUniExprStmtToBlock(&block.kind.block, position);
             return block;
         }
 
@@ -448,7 +451,7 @@ pub const Parser = struct {
         }
 
         if (ends_with_semicolon or block.kind.block.stmts.getLast().kind != .expr) {
-            try self.addUniExprStmtToBlock(no_eval, &block.kind.block, position);
+            try self.addUniExprStmtToBlock(&block.kind.block, position);
         }
 
         return block;
@@ -456,14 +459,9 @@ pub const Parser = struct {
 
     fn addUniExprStmtToBlock(
         self: *Self,
-        no_eval: bool,
         block: *ParsedExpr.Kind.Block,
         position: Position,
     ) Error!void {
-        if (no_eval) {
-            return;
-        }
-
         const expr = try ParsedExpr.Kind.Literal.create(
             self.allocator,
             .unit,

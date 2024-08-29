@@ -318,15 +318,11 @@ pub const Sema = struct {
                 }
 
                 const last_stmt = sema_stmts.items[sema_stmts.items.len - 1];
-                const eval_type = if (block.no_eval)
-                    .unit
-                else
-                    last_stmt.kind.expr.expr.eval_type;
+                const eval_type = last_stmt.kind.expr.expr.eval_type;
 
                 return try SemaExpr.Kind.Block.create(
                     self.allocator,
                     sema_stmts,
-                    block.no_eval,
                     eval_type,
                     expr.position,
                 );
