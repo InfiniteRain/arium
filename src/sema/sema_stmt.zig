@@ -57,6 +57,29 @@ pub const SemaStmt = struct {
             }
         };
 
+        pub const Expr = struct {
+            expr: *SemaExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                expr: *SemaExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .expr = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
         pub const Invalid = struct {
             child_exprs: ArrayList(*SemaExpr),
             child_stmts: ArrayList(*Self),
@@ -97,6 +120,7 @@ pub const SemaStmt = struct {
 
         assert: Assert,
         print: Print,
+        expr: Expr,
         invalid: Invalid,
     };
 
@@ -107,6 +131,7 @@ pub const SemaStmt = struct {
         switch (self.kind) {
             .assert => |assert| assert.expr.destroy(allocator),
             .print => |print| print.expr.destroy(allocator),
+            .expr => |expr| expr.expr.destroy(allocator),
             .invalid => |*invalid| {
                 for (invalid.child_exprs.items) |child_expr| {
                     child_expr.destroy(allocator);

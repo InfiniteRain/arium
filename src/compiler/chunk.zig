@@ -16,6 +16,7 @@ const Position = tokenizer_mod.Position;
 
 pub const OpCode = enum(u8) {
     constant,
+    constant_unit,
     constant_bool_false,
     constant_bool_true,
     constant_int_n1,

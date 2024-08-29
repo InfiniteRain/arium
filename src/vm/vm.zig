@@ -103,6 +103,7 @@ pub const Vm = struct {
                     const index = self.readU8();
                     self.push(self.chunk().constants.items[index]);
                 },
+                .constant_unit => self.push(.unit),
                 .constant_bool_false => self.push(.{ .bool = false }),
                 .constant_bool_true => self.push(.{ .bool = true }),
                 .constant_int_n1 => self.push(.{ .int = -1 }),

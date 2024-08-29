@@ -162,7 +162,6 @@ pub fn reportParserDiags(
                 .{msg},
             ),
 
-            .expected_statement,
             .expected_expression,
             .expected_left_paren_before_expr,
             .expected_right_paren_after_expr,

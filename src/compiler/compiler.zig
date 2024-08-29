@@ -121,6 +121,7 @@ pub const Compiler = struct {
     fn compileStmt(
         self: *Self,
         stmt: *const SemaStmt,
+        prevent_pop: bool,
     ) Error!void {
         switch (stmt.kind) {
             .assert => |assert_stmt| {
@@ -130,6 +131,13 @@ pub const Compiler = struct {
             .print => |print| {
                 try self.compileExpr(print.expr, null);
                 try self.chunk.writeU8(.print, stmt.position);
+            },
+            .expr => |expr| {
+                try self.compileExpr(expr.expr, null);
+
+                if (!prevent_pop) {
+                    try self.chunk.writeU8(.pop, stmt.position);
+                }
             },
             .invalid => @panic("invalid statement"),
         }
@@ -158,6 +166,7 @@ pub const Compiler = struct {
         switch (expr.kind) {
             .literal => |literal| {
                 switch (literal) {
+                    .unit => try self.chunk.writeU8(.constant_unit, expr.position),
                     .int => |int| switch (int) {
                         -1 => try self.chunk.writeU8(.constant_int_n1, expr.position),
                         0 => try self.chunk.writeU8(.constant_int_0, expr.position),
@@ -249,8 +258,11 @@ pub const Compiler = struct {
                 );
             },
             .block => |block| {
-                for (block.stmts.items) |child_stmt| {
-                    try self.compileStmt(child_stmt);
+                for (block.stmts.items, 0..) |child_stmt, index| {
+                    try self.compileStmt(
+                        child_stmt,
+                        !block.no_eval and index == block.stmts.items.len - 1,
+                    );
                 }
             },
             .invalid => @panic("invalid expression"),

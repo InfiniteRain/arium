@@ -29,7 +29,6 @@ pub const Parser = struct {
         pub const Kind = union(enum) {
             expected_end_token: Token.Kind,
             invalid_token: []const u8,
-            expected_statement,
             expected_expression,
             expected_left_paren_before_expr,
             expected_right_paren_after_expr,
@@ -63,7 +62,7 @@ pub const Parser = struct {
         self.current_token = tokenizer.scanNonCommentToken();
         self.diagnostics = diagnostics;
 
-        return try self.parseBlock(.eof, .{ .line = 1, .column = 1 });
+        return try self.parseBlock(.eof, true, .{ .line = 1, .column = 1 });
     }
 
     fn parseStmt(self: *Self) Error!*ParsedStmt {
@@ -77,14 +76,7 @@ pub const Parser = struct {
             return try self.parsePrintStmt(self.previous().position);
         }
 
-        if (self.match(.invalid, false)) {
-            const prev = self.previous();
-            try self.parserError(.{ .invalid_token = prev.lexeme }, prev.position);
-        } else {
-            try self.parserError(.expected_statement, self.peek().position);
-        }
-
-        return error.ParseFailure;
+        return try self.parseExprStmt(self.previous().position);
     }
 
     fn parseAssertStmt(self: *Self, position: Position) Error!*ParsedStmt {
@@ -102,6 +94,12 @@ pub const Parser = struct {
         const expr = try self.parseExpr(false);
         errdefer expr.destroy(self.allocator);
         return try ParsedStmt.Kind.Print.create(self.allocator, expr, position);
+    }
+
+    fn parseExprStmt(self: *Self, position: Position) Error!*ParsedStmt {
+        const expr = try self.parseExpr(false);
+        errdefer expr.destroy(self.allocator);
+        return try ParsedStmt.Kind.Expr.create(self.allocator, expr, position);
     }
 
     fn parseExpr(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
@@ -376,6 +374,10 @@ pub const Parser = struct {
             return expr;
         }
 
+        if (self.match(.do, ignore_new_line)) {
+            return try self.parseBlock(.end, false, self.previous().position);
+        }
+
         if (self.match(.invalid, ignore_new_line)) {
             const prev = self.previous();
             try self.parserError(.{ .invalid_token = prev.lexeme }, prev.position);
@@ -389,6 +391,7 @@ pub const Parser = struct {
     fn parseBlock(
         self: *Self,
         end_token_kind: Token.Kind,
+        no_eval: bool,
         position: Position,
     ) Error!*ParsedExpr {
         var stmts = ArrayList(*ParsedStmt).init(self.allocator);
@@ -397,15 +400,18 @@ pub const Parser = struct {
         var block = try ParsedExpr.Kind.Block.create(
             self.allocator,
             stmts,
+            no_eval,
             position,
         );
         errdefer block.destroy(self.allocator);
 
         if (self.match(end_token_kind, true)) {
+            try self.addUniExprStmtToBlock(no_eval, &block.kind.block, position);
             return block;
         }
 
         const old_num_diags = if (self.diagnostics) |diags| diags.getLen() else 0;
+        var ends_with_semicolon = false;
 
         while (true) {
             const stmt = self.parseStmt() catch |err| switch (err) {
@@ -420,10 +426,14 @@ pub const Parser = struct {
                 },
                 else => return err,
             };
+            errdefer stmt.destroy(self.allocator);
 
             try block.kind.block.stmts.append(stmt);
 
-            if (!self.matchStmtTerminator() or self.check(end_token_kind)) {
+            const terminator = self.matchStmtTerminator();
+            ends_with_semicolon = terminator == .semicolon;
+
+            if (terminator == .none or self.check(end_token_kind)) {
                 break;
             }
         }
@@ -437,7 +447,38 @@ pub const Parser = struct {
             return error.ParseFailure;
         }
 
+        if (ends_with_semicolon or block.kind.block.stmts.getLast().kind != .expr) {
+            try self.addUniExprStmtToBlock(no_eval, &block.kind.block, position);
+        }
+
         return block;
+    }
+
+    fn addUniExprStmtToBlock(
+        self: *Self,
+        no_eval: bool,
+        block: *ParsedExpr.Kind.Block,
+        position: Position,
+    ) Error!void {
+        if (no_eval) {
+            return;
+        }
+
+        const expr = try ParsedExpr.Kind.Literal.create(
+            self.allocator,
+            .unit,
+            position,
+        );
+        errdefer expr.destroy(self.allocator);
+
+        const exprStmt = try ParsedStmt.Kind.Expr.create(
+            self.allocator,
+            expr,
+            position,
+        );
+        errdefer exprStmt.destroy(self.allocator);
+
+        try block.stmts.append(exprStmt);
     }
 
     fn match(self: *Self, kind: Token.Kind, ignore_new_line: bool) bool {
@@ -466,19 +507,19 @@ pub const Parser = struct {
         return error.ParseFailure;
     }
 
-    fn matchStmtTerminator(self: *Self) bool {
+    fn matchStmtTerminator(self: *Self) enum { new_line, semicolon, none } {
         if (self.check(.new_line)) {
             self.skipNewLines();
-            return true;
+            return .new_line;
         }
 
         if (self.check(.semicolon)) {
             _ = self.advance();
             self.skipNewLines();
-            return true;
+            return .semicolon;
         }
 
-        return false;
+        return .none;
     }
 
     fn check(self: *Self, kind: Token.Kind) bool {

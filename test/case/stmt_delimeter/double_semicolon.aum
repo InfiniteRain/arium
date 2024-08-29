@@ -2,5 +2,5 @@
 
 print("test")
 print("test");
-print("test");; /// err_parser 5 expected_statement
-print("test");; /// err_parser 6 expected_statement
+print("test");; /// err_parser 5 expected_expression
+print("test");; /// err_parser 6 expected_expression

@@ -103,6 +103,10 @@ pub const Sema = struct {
                 const expr = try self.analyzeExpr(print.expr);
                 return try SemaStmt.Kind.Print.create(self.allocator, expr, stmt.position);
             },
+            .expr => |expr| {
+                const inner_expr = try self.analyzeExpr(expr.expr);
+                return try SemaStmt.Kind.Expr.create(self.allocator, inner_expr, stmt.position);
+            },
         }
     }
 
@@ -113,6 +117,7 @@ pub const Sema = struct {
         switch (expr.kind) {
             .literal => |literal| {
                 const literal_variant: SemaExpr.Kind.Literal = switch (literal.kind) {
+                    .unit => .unit,
                     .int => |int| .{ .int = int },
                     .float => |float| .{ .float = float },
                     .bool => |bool_| .{ .bool = bool_ },
@@ -165,7 +170,7 @@ pub const Sema = struct {
                         };
                     },
                     .concat => {
-                        if (isString(eval_type) or !isString(right.eval_type)) {
+                        if (!isString(eval_type) or !isString(right.eval_type)) {
                             return try self.semaErrorWithInvalidExpr(
                                 expr.position,
                                 .{ .unexpected_concat_type = .{ left.eval_type, right.eval_type } },
@@ -312,10 +317,17 @@ pub const Sema = struct {
                     try sema_stmts.append(sema_stmt);
                 }
 
+                const last_stmt = sema_stmts.items[sema_stmts.items.len - 1];
+                const eval_type = if (block.no_eval)
+                    .unit
+                else
+                    last_stmt.kind.expr.expr.eval_type;
+
                 return try SemaExpr.Kind.Block.create(
                     self.allocator,
                     sema_stmts,
-                    .unit, // todo: change to empty product type
+                    block.no_eval,
+                    eval_type,
                     expr.position,
                 );
             },

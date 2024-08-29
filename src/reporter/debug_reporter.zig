@@ -102,6 +102,7 @@ pub fn reportInstruction(
     return switch (op_code) {
         .constant => reportConstantInstructionName(chunk, writer, offset),
 
+        .constant_unit,
         .constant_bool_false,
         .constant_bool_true,
         .constant_int_n1,

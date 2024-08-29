@@ -232,7 +232,6 @@ pub const Config = struct {
             .invalid_token,
             => meta.setUnionValue(&diag_kind, parseRestString(ctx)),
 
-            .expected_statement,
             .expected_expression,
             .expected_left_paren_before_expr,
             .expected_right_paren_after_expr,

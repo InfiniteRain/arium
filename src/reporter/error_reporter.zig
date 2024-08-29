@@ -43,9 +43,6 @@ pub fn reportParserDiag(
         .invalid_token,
         => |message| writer.print(message),
 
-        .expected_statement,
-        => writer.print("Expected statement."),
-
         .expected_expression,
         => writer.print("Expected expression."),
 
@@ -66,7 +63,39 @@ pub fn reportParserDiagTokenQuoted(
 ) void {
     switch (token_kind) {
         .eof => writer.print("end of file"),
-        else => @panic("token kind not implemented"),
+        .end => writer.print("'end'"),
+
+        .left_paren,
+        .right_paren,
+        .minus,
+        .plus,
+        .slash,
+        .star,
+        .plus_plus,
+        .bang_equal,
+        .equal,
+        .equal_equal,
+        .greater,
+        .greater_equal,
+        .less,
+        .less_equal,
+        .identifier,
+        .int,
+        .float,
+        .string,
+        .true_,
+        .false_,
+        .not,
+        .and_,
+        .or_,
+        .do,
+        .assert,
+        .print,
+        .new_line,
+        .semicolon,
+        .comment,
+        .invalid,
+        => @panic("token kind not implemented"),
     }
 }
 
