@@ -1,0 +1,6 @@
+/// run
+
+print(do
+  "hello"
+  "world";
+end) /// out unit

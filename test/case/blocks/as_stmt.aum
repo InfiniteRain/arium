@@ -1,0 +1,11 @@
+/// run
+
+print(1) /// out 1
+
+do
+  print(2) /// out 2
+  print(3) /// out 3
+  print(4) /// out 4
+end
+
+print(5) /// out 5

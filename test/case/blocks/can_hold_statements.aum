@@ -1,0 +1,9 @@
+/// run
+
+print(do
+  print("hello, world!") /// out hello, world!
+  
+  do 
+    "ending here"
+  end
+end) /// out ending here
