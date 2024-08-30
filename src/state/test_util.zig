@@ -33,7 +33,7 @@ pub const TestUtil = struct {
 
         const allocator = memory.allocator();
 
-        var chunk = Chunk.init(allocator);
+        var chunk = try Chunk.init(allocator);
         try chunk.writeU8(.return_, null);
 
         memory.vm_state = .{

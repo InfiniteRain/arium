@@ -33,7 +33,25 @@ pub const Parser = struct {
             expected_left_paren_before_expr,
             expected_right_paren_after_expr,
             int_literal_overflows,
+            expected_name,
+            expected_equal_after_name,
         };
+
+        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+            switch (self.kind) {
+                .invalid_token,
+                => |msg| allocator.free(msg),
+
+                .expected_end_token,
+                .expected_expression,
+                .expected_left_paren_before_expr,
+                .expected_right_paren_after_expr,
+                .int_literal_overflows,
+                .expected_name,
+                .expected_equal_after_name,
+                => {},
+            }
+        }
 
         kind: Kind,
         position: Position,
@@ -68,6 +86,10 @@ pub const Parser = struct {
     fn parseStmt(self: *Self) Error!*ParsedStmt {
         errdefer self.synchronize();
 
+        if (self.match(.let, false)) {
+            return try self.parseLetStmt(self.previous().position);
+        }
+
         if (self.match(.assert, false)) {
             return try self.parseAssertStmt(self.previous().position);
         }
@@ -77,6 +99,20 @@ pub const Parser = struct {
         }
 
         return try self.parseExprStmt(self.peek().position);
+    }
+
+    fn parseLetStmt(self: *Self, position: Position) Error!*ParsedStmt {
+        const name_token = try self.consume(.identifier, .expected_name);
+        _ = try self.consume(.equal, .expected_equal_after_name);
+        const expr = try self.parseExpr(false);
+        errdefer expr.destroy(self.allocator);
+
+        return try ParsedStmt.Kind.Let.create(
+            self.allocator,
+            name_token.lexeme,
+            expr,
+            position,
+        );
     }
 
     fn parseAssertStmt(self: *Self, position: Position) Error!*ParsedStmt {
@@ -362,7 +398,20 @@ pub const Parser = struct {
         if (self.match(.float, ignore_new_line)) {
             const prev = self.previous();
             const float = std.fmt.parseFloat(f64, prev.lexeme) catch unreachable;
-            return try ParsedExpr.Kind.Literal.create(self.allocator, .{ .float = float }, prev.position);
+            return try ParsedExpr.Kind.Literal.create(
+                self.allocator,
+                .{ .float = float },
+                prev.position,
+            );
+        }
+
+        if (self.match(.identifier, ignore_new_line)) {
+            const prev = self.previous();
+            return try ParsedExpr.Kind.Variable.create(
+                self.allocator,
+                prev.lexeme,
+                prev.position,
+            );
         }
 
         if (self.match(.string, ignore_new_line)) {
@@ -370,6 +419,7 @@ pub const Parser = struct {
 
             const string = try self.allocator.dupe(u8, prev.lexeme[1 .. prev.lexeme.len - 1]);
             errdefer self.allocator.free(string);
+
             return try ParsedExpr.Kind.Literal.create(self.allocator, .{ .string = string }, prev.position);
         }
 
@@ -584,7 +634,21 @@ pub const Parser = struct {
             // each test to detect memory leaks. that allocator then gets
             // deinited while diagnostics are owned by the tests.
             try diagnostics.add(.{
-                .kind = diagnostic_kind,
+                .kind = switch (diagnostic_kind) {
+                    .invalid_token,
+                    => |msg| .{
+                        .invalid_token = try diagnostics.allocator.dupe(u8, msg),
+                    },
+
+                    .expected_end_token,
+                    .expected_expression,
+                    .expected_left_paren_before_expr,
+                    .expected_right_paren_after_expr,
+                    .int_literal_overflows,
+                    .expected_name,
+                    .expected_equal_after_name,
+                    => diagnostic_kind,
+                },
                 .position = position,
             });
         }

@@ -31,6 +31,21 @@ pub fn reportInstructionName(
     return 1;
 }
 
+pub fn reportByteInstruction(
+    chunk: *const Chunk,
+    writer: *const Writer,
+    offset: usize,
+) usize {
+    const byte = chunk.readU8(offset);
+    const op_code: OpCode = @enumFromInt(byte);
+    const arg = chunk.readU8(offset + 1);
+
+    reportOpCode(op_code, writer);
+    writer.printf(" {: <4}\n", .{arg});
+
+    return 2;
+}
+
 pub fn reportConstantInstructionName(
     chunk: *const Chunk,
     writer: *const Writer,
@@ -147,6 +162,10 @@ pub fn reportInstruction(
         .if_false,
         .jump,
         => reportJumpInstructionName(chunk, writer, offset),
+
+        .store_local,
+        .load_local,
+        => reportByteInstruction(chunk, writer, offset),
 
         _ => @panic("unknown instruction"),
     };

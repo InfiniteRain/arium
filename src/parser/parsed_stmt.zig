@@ -80,9 +80,37 @@ pub const ParsedStmt = struct {
             }
         };
 
+        pub const Let = struct {
+            name: []const u8,
+            expr: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                name: []const u8,
+                expr: *ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+                errdefer allocator.destroy(stmt);
+
+                stmt.* = .{
+                    .kind = .{
+                        .let = .{
+                            .name = try allocator.dupe(u8, name),
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
         print: Print,
         assert: Assert,
         expr: Expr,
+        let: Let,
     };
 
     kind: Kind,
@@ -93,6 +121,10 @@ pub const ParsedStmt = struct {
             .assert => |assert| assert.expr.destroy(allocator),
             .print => |print| print.expr.destroy(allocator),
             .expr => |expr| expr.expr.destroy(allocator),
+            .let => |let| {
+                allocator.free(let.name);
+                let.expr.destroy(allocator);
+            },
         }
 
         allocator.destroy(self);

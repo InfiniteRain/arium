@@ -397,6 +397,8 @@ pub const Runner = struct {
                 .expected_left_paren_before_expr,
                 .expected_right_paren_after_expr,
                 .int_literal_overflows,
+                .expected_name,
+                .expected_equal_after_name,
                 => {},
             }
         }
@@ -456,6 +458,16 @@ pub const Runner = struct {
                         return false;
                     }
                 },
+
+                .value_not_found,
+                => |name| {
+                    if (!std.mem.eql(u8, name, actual_entry.kind.value_not_found)) {
+                        return false;
+                    }
+                },
+
+                .too_many_locals,
+                => {},
             }
         }
 

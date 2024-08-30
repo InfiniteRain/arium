@@ -31,6 +31,9 @@ pub const OpCode = enum(u8) {
     constant_float_1,
     constant_float_2,
 
+    store_local,
+    load_local,
+
     negate_bool,
     negate_int,
     negate_float,
@@ -73,19 +76,24 @@ pub const Chunk = struct {
         OutOfMemory,
     };
 
+    // todo: extract into limits.zig
+    const max_locals = 256;
+
     allocator: Allocator,
     code: ArrayList(u8),
     positions: ArrayList(Position), // todo: replace with RLE
     constants: ArrayList(Value),
+    locals: []Value,
     last_code_len: usize = 0,
     current_op_code: OpCode = undefined,
 
-    pub fn init(allocator: Allocator) Self {
+    pub fn init(allocator: Allocator) Error!Self {
         return .{
             .allocator = allocator,
             .code = ArrayList(u8).init(allocator),
             .positions = ArrayList(Position).init(allocator),
             .constants = ArrayList(Value).init(allocator),
+            .locals = try allocator.alloc(Value, max_locals),
         };
     }
 
@@ -93,6 +101,7 @@ pub const Chunk = struct {
         self.code.deinit();
         self.positions.deinit();
         self.constants.deinit();
+        self.allocator.free(self.locals);
     }
 
     pub fn writeU8(self: *Self, data: anytype, position: Position) Error!void {
@@ -200,7 +209,7 @@ pub const Chunk = struct {
 test "writeByte works for all supported types" {
     // GIVEN
     var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = Chunk.init(memory.allocator());
+    var chunk = try Chunk.init(memory.allocator());
     defer chunk.deinit();
 
     // WHEN
@@ -227,7 +236,7 @@ test "writeByte works for all supported types" {
 test "writeConstant should work" {
     // GIVEN
     var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = Chunk.init(memory.allocator());
+    var chunk = try Chunk.init(memory.allocator());
     defer chunk.deinit();
 
     // WHEN

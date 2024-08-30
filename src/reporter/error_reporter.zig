@@ -54,6 +54,12 @@ pub fn reportParserDiag(
 
         .int_literal_overflows,
         => writer.print("Integer literal value overflows."),
+
+        .expected_name,
+        => writer.print("Expected name after 'let'."),
+
+        .expected_equal_after_name,
+        => writer.print("Expected '=' after name."),
     }
 }
 
@@ -89,6 +95,7 @@ pub fn reportParserDiagTokenQuoted(
         .and_,
         .or_,
         .do,
+        .let,
         .assert,
         .print,
         .new_line,
@@ -172,6 +179,12 @@ pub fn reportSemaDiag(
             "Can't perform arithmetic negation on value of type {s}.",
             .{eval_type.stringify()},
         ),
+
+        .too_many_locals,
+        => writer.print("Too many locals declared in chunk."),
+
+        .value_not_found,
+        => |name| writer.printf("Can't find value '{s}' in this scope.", .{name}),
     }
 }
 

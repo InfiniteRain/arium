@@ -196,6 +196,31 @@ pub const SemaExpr = struct {
             }
         };
 
+        pub const Variable = struct {
+            index: usize,
+
+            pub fn create(
+                allocator: Allocator,
+                index: usize,
+                eval_type: EvalType,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .variable = .{
+                            .index = index,
+                        },
+                    },
+                    .position = position,
+                    .eval_type = eval_type,
+                };
+
+                return expr;
+            }
+        };
+
         pub const Invalid = struct {
             child_exprs: ArrayList(*Self),
 
@@ -228,6 +253,7 @@ pub const SemaExpr = struct {
         binary: Binary,
         unary: Unary,
         block: Block,
+        variable: Variable,
         invalid: Invalid,
     };
 
@@ -292,6 +318,7 @@ pub const SemaExpr = struct {
 
                 block.stmts.clearAndFree();
             },
+            .variable => {},
             .invalid => |*invalid| {
                 for (invalid.child_exprs.items) |child_expr| {
                     child_expr.destroy(allocator);

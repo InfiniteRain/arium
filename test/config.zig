@@ -230,12 +230,14 @@ pub const Config = struct {
             => meta.setUnionValue(&diag_kind, try parseEnumVariant(ctx, Token.Kind)),
 
             .invalid_token,
-            => meta.setUnionValue(&diag_kind, parseRestString(ctx)),
+            => meta.setUnionValue(&diag_kind, parseRestStr(ctx)),
 
             .expected_expression,
             .expected_left_paren_before_expr,
             .expected_right_paren_after_expr,
             .int_literal_overflows,
+            .expected_name,
+            .expected_equal_after_name,
             => {},
         }
 
@@ -274,6 +276,12 @@ pub const Config = struct {
             .unexpected_logical_negation_type,
             .unexpected_arithmetic_negation_type,
             => meta.setUnionValue(&diag_kind, try parseEvalKind(ctx)),
+
+            .value_not_found,
+            => meta.setUnionValue(&diag_kind, parseRestStr(ctx)),
+
+            .too_many_locals,
+            => {},
         }
 
         try parseEndOfLine(ctx);
@@ -330,7 +338,7 @@ pub const Config = struct {
             return illegalDirectiveFailure(ctx, .out);
         }
 
-        try ctx.expectations.out.appendSlice(parseRestString(ctx));
+        try ctx.expectations.out.appendSlice(parseRestStr(ctx));
         try ctx.expectations.out.append('\n');
     }
 
@@ -399,7 +407,7 @@ pub const Config = struct {
             return directiveParseFailure(ctx, msg, args);
     }
 
-    fn parseRestString(ctx: *DirectiveContext) []const u8 {
+    fn parseRestStr(ctx: *DirectiveContext) []const u8 {
         return std.mem.trim(u8, ctx.split_iter.rest(), " ");
     }
 

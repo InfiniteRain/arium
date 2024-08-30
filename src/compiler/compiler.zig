@@ -91,7 +91,7 @@ pub const Compiler = struct {
         var compiler = Self{
             .vm_state = &vm_state,
             .allocator = allocator,
-            .chunk = Chunk.init(allocator),
+            .chunk = try Chunk.init(allocator),
             .diagnostics = diagnostics,
         };
 
@@ -139,6 +139,13 @@ pub const Compiler = struct {
                 if (!is_last_statement) {
                     try self.eraseOrPopEvalValue(stmt.position);
                 }
+            },
+            .let => |let| {
+                const index: u8 = @intCast(let.index);
+
+                try self.compileExpr(let.expr, null);
+                try self.chunk.writeU8(.store_local, stmt.position);
+                try self.chunk.writeU8(index, stmt.position);
             },
             .invalid => @panic("invalid statement"),
         }
@@ -265,6 +272,12 @@ pub const Compiler = struct {
                         index == block.stmts.items.len - 1,
                     );
                 }
+            },
+            .variable => |variable| {
+                const index: u8 = @intCast(variable.index);
+
+                try self.chunk.writeU8(.load_local, expr.position);
+                try self.chunk.writeU8(index, expr.position);
             },
             .invalid => @panic("invalid expression"),
         }

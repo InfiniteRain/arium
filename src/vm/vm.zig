@@ -117,6 +117,19 @@ pub const Vm = struct {
                 .constant_float_1 => self.push(.{ .float = 1 }),
                 .constant_float_2 => self.push(.{ .float = 2 }),
 
+                .store_local => {
+                    const index = self.readU8();
+                    const a = self.pop();
+
+                    self.storeLocal(index, a);
+                },
+                .load_local => {
+                    const index = self.readU8();
+                    const value = self.loadLocal(index);
+
+                    self.push(value);
+                },
+
                 .negate_bool => self.push(.{ .bool = !self.pop().bool }),
                 .negate_int => self.push(.{ .int = -self.pop().int }),
                 .negate_float => self.push(.{ .float = -self.pop().float }),
@@ -343,6 +356,14 @@ pub const Vm = struct {
 
     fn pop(self: *Self) Value {
         return self.state.stack.pop();
+    }
+
+    fn storeLocal(self: *Self, index: usize, value: Value) void {
+        self.chunk().locals[index] = value;
+    }
+
+    fn loadLocal(self: *Self, index: usize) Value {
+        return self.chunk().locals[index];
     }
 
     fn chunk(self: *Self) *Chunk {

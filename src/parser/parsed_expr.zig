@@ -146,10 +146,35 @@ pub const ParsedExpr = struct {
             }
         };
 
+        pub const Variable = struct {
+            name: []const u8,
+
+            pub fn create(
+                allocator: Allocator,
+                name: []const u8,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+                errdefer allocator.destroy(expr);
+
+                expr.* = .{
+                    .kind = .{
+                        .variable = .{
+                            .name = try allocator.dupe(u8, name),
+                        },
+                    },
+                    .position = position,
+                };
+
+                return expr;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
         block: Block,
+        variable: Variable,
     };
 
     kind: Kind,
@@ -179,6 +204,9 @@ pub const ParsedExpr = struct {
                 }
 
                 block.stmts.clearAndFree();
+            },
+            .variable => |variable| {
+                allocator.free(variable.name);
             },
         }
 

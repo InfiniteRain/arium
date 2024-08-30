@@ -166,6 +166,8 @@ pub fn reportParserDiags(
             .expected_left_paren_before_expr,
             .expected_right_paren_after_expr,
             .int_literal_overflows,
+            .expected_name,
+            .expected_equal_after_name,
             => {},
         }
 
@@ -206,6 +208,14 @@ pub fn reportSemaDiags(
                 writer.print(" and ");
                 reportEvalType(right, writer);
             },
+
+            .value_not_found,
+            => |name| {
+                writer.printf(" with name {s}", .{name});
+            },
+
+            .too_many_locals,
+            => {},
         }
 
         writer.print(".\n");

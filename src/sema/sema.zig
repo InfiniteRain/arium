@@ -9,6 +9,7 @@ const parser_mod = @import("../parser/parser.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
 const meta = std.meta;
 const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
@@ -47,7 +48,28 @@ pub const Sema = struct {
             unexpected_logical_type: SemaExpr.EvalType,
             unexpected_logical_negation_type: SemaExpr.EvalType,
             unexpected_arithmetic_negation_type: SemaExpr.EvalType,
+            too_many_locals,
+            value_not_found: []const u8,
         };
+
+        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+            switch (self.kind) {
+                .value_not_found,
+                => |name| allocator.free(name),
+
+                .expected_expr_type,
+                .unexpected_arithmetic_type,
+                .unexpected_operand_type,
+                .unexpected_concat_type,
+                .unexpected_equality_type,
+                .unexpected_comparison_type,
+                .unexpected_logical_type,
+                .unexpected_logical_negation_type,
+                .unexpected_arithmetic_negation_type,
+                .too_many_locals,
+                => {},
+            }
+        }
 
         kind: Kind,
         position: Position,
@@ -55,9 +77,32 @@ pub const Sema = struct {
 
     pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
 
+    const LocalsMap = struct {
+        allocator: Allocator,
+        prev: ?*LocalsMap = null,
+        map: StringHashMap(usize),
+
+        fn init(allocator: Allocator, prev: ?*LocalsMap) LocalsMap {
+            return .{
+                .allocator = allocator,
+                .prev = prev,
+                .map = StringHashMap(usize).init(allocator),
+            };
+        }
+
+        fn deinit(self: *LocalsMap) void {
+            self.map.deinit();
+        }
+    };
+
+    const max_locals = 256;
+
     allocator: Allocator,
     diagnostics: ?*Diagnostics = null,
     had_error: bool = false,
+    locals: [max_locals]SemaExpr.EvalType = undefined,
+    locals_top: usize = 0,
+    locals_map: ?*LocalsMap = null,
 
     pub fn init(allocator: Allocator) Self {
         return .{
@@ -72,6 +117,8 @@ pub const Sema = struct {
     ) Error!*SemaExpr {
         self.diagnostics = diagnostics;
         self.had_error = false;
+        self.locals_top = 0;
+        self.locals_map = null;
 
         const sema_block = try self.analyzeExpr(block);
 
@@ -87,6 +134,7 @@ pub const Sema = struct {
         switch (stmt.kind) {
             .assert => |assert| {
                 const expr = try self.analyzeExpr(assert.expr);
+                errdefer expr.destroy(self.allocator);
 
                 if (expr.eval_type != .bool) {
                     return try self.semaErrorWithInvalidStmt(
@@ -101,11 +149,38 @@ pub const Sema = struct {
             },
             .print => |print| {
                 const expr = try self.analyzeExpr(print.expr);
+                errdefer expr.destroy(self.allocator);
+
                 return try SemaStmt.Kind.Print.create(self.allocator, expr, stmt.position);
             },
             .expr => |expr| {
                 const inner_expr = try self.analyzeExpr(expr.expr);
+                errdefer inner_expr.destroy(self.allocator);
+
                 return try SemaStmt.Kind.Expr.create(self.allocator, inner_expr, stmt.position);
+            },
+            .let => |let| {
+                const expr = try self.analyzeExpr(let.expr);
+                errdefer expr.destroy(self.allocator);
+
+                const index = self.declareVariable(let.name, expr.eval_type) catch |err| switch (err) {
+                    error.TooManyLocals => {
+                        return try self.semaErrorWithInvalidStmt(
+                            stmt.position,
+                            .too_many_locals,
+                            .{expr},
+                            .{},
+                        );
+                    },
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+
+                return try SemaStmt.Kind.Let.create(
+                    self.allocator,
+                    index,
+                    expr,
+                    stmt.position,
+                );
             },
         }
     }
@@ -133,13 +208,18 @@ pub const Sema = struct {
             },
             .binary => |binary| {
                 const BinaryKind = SemaExpr.Kind.Binary.Kind;
+
                 const left = try self.analyzeExpr(binary.left);
+                errdefer left.destroy(self.allocator);
+
                 const right = try self.analyzeExpr(binary.right);
+                errdefer right.destroy(self.allocator);
+
                 var binary_kind: BinaryKind = undefined;
                 var eval_type = left.eval_type;
 
                 if (left.kind == .invalid or right.kind == .invalid) {
-                    return self.createInvalidExpr(.{ left, right });
+                    return try self.createInvalidExpr(.{ left, right });
                 }
 
                 switch (binary.kind) {
@@ -280,7 +360,9 @@ pub const Sema = struct {
             },
             .unary => |unary| {
                 const UnaryKind = SemaExpr.Kind.Unary.Kind;
+
                 const right = try self.analyzeExpr(unary.right);
+                errdefer right.destroy(self.allocator);
 
                 if (right.kind == .invalid) {
                     return self.createInvalidExpr(.{right});
@@ -315,15 +397,34 @@ pub const Sema = struct {
                 );
             },
             .block => |block| {
+                var locals_map = LocalsMap.init(self.allocator, self.locals_map);
+                defer locals_map.deinit();
+
+                self.locals_map = &locals_map;
+
+                const old_locals_top = self.locals_top;
+
                 var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
+                errdefer {
+                    for (sema_stmts.items) |stmt| {
+                        stmt.destroy(self.allocator);
+                    }
+
+                    sema_stmts.clearAndFree();
+                }
 
                 for (block.stmts.items) |parser_stmt| {
                     const sema_stmt = try self.analyzeStmt(parser_stmt);
+                    errdefer sema_stmt.destroy(self.allocator);
+
                     try sema_stmts.append(sema_stmt);
                 }
 
                 const last_stmt = sema_stmts.items[sema_stmts.items.len - 1];
                 const eval_type = last_stmt.kind.expr.expr.eval_type;
+
+                self.locals_map = self.locals_map.?.prev;
+                self.locals_top = old_locals_top;
 
                 return try SemaExpr.Kind.Block.create(
                     self.allocator,
@@ -332,7 +433,56 @@ pub const Sema = struct {
                     expr.position,
                 );
             },
+            .variable => |variable| {
+                const index, const eval_type = self.getVariable(variable.name) orelse {
+                    return self.semaErrorWithInvalidExpr(
+                        expr.position,
+                        .{ .value_not_found = variable.name },
+                        .{},
+                    );
+                };
+
+                return try SemaExpr.Kind.Variable.create(
+                    self.allocator,
+                    index,
+                    eval_type,
+                    expr.position,
+                );
+            },
         }
+    }
+
+    fn declareVariable(
+        self: *Self,
+        name: []const u8,
+        eval_type: SemaExpr.EvalType,
+    ) error{ TooManyLocals, OutOfMemory }!usize {
+        if (self.locals_top == max_locals) {
+            return error.TooManyLocals;
+        }
+
+        self.locals[self.locals_top] = eval_type;
+        try self.locals_map.?.map.put(name, self.locals_top);
+        self.locals_top += 1;
+
+        return self.locals_top - 1;
+    }
+
+    fn getVariable(
+        self: *Self,
+        name: []const u8,
+    ) ?struct { usize, SemaExpr.EvalType } {
+        var current_map = self.locals_map;
+
+        while (current_map) |local_map| {
+            if (local_map.map.get(name)) |index| {
+                return .{ index, self.locals[index] };
+            }
+
+            current_map = local_map.prev;
+        }
+
+        return null;
     }
 
     fn createInvalidExpr(
@@ -340,10 +490,6 @@ pub const Sema = struct {
         child_exprs: anytype,
     ) Error!*SemaExpr {
         return try SemaExpr.Kind.Invalid.create(self.allocator, child_exprs);
-    }
-
-    fn isString(eval_type: SemaExpr.EvalType) bool {
-        return eval_type == .obj and eval_type.obj == .string;
     }
 
     fn semaErrorWithInvalidExpr(
@@ -385,10 +531,29 @@ pub const Sema = struct {
             // each test to detect memory leaks. that allocator then gets
             // deinited while diagnostics are owned by the tests.
             try diagnostics.add(.{
-                .kind = diagnostic_kind,
+                .kind = switch (diagnostic_kind) {
+                    .value_not_found,
+                    => |name| .{ .value_not_found = try diagnostics.allocator.dupe(u8, name) },
+
+                    .expected_expr_type,
+                    .unexpected_arithmetic_type,
+                    .unexpected_operand_type,
+                    .unexpected_concat_type,
+                    .unexpected_equality_type,
+                    .unexpected_comparison_type,
+                    .unexpected_logical_type,
+                    .unexpected_logical_negation_type,
+                    .unexpected_arithmetic_negation_type,
+                    .too_many_locals,
+                    => diagnostic_kind,
+                },
                 .position = position,
             });
         }
+    }
+
+    fn isString(eval_type: SemaExpr.EvalType) bool {
+        return eval_type == .obj and eval_type.obj == .string;
     }
 };
 
