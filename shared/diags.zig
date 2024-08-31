@@ -3,7 +3,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-pub fn Diagnostics(T: type) type {
+pub fn Diags(T: type) type {
     return struct {
         const Self = @This();
 

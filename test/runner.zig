@@ -16,7 +16,7 @@ const SemaExpr = arium.SemaExpr;
 const ManagedMemory = arium.ManagedMemory;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
-const SharedDiagnostics = shared.Diagnostics;
+const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
 const meta = shared.meta;
 const error_reporter = arium.error_reporter;
@@ -31,7 +31,7 @@ pub const Runner = struct {
         TestFailure,
     };
 
-    pub const DiagnosticEntry = struct {
+    pub const DiagEntry = struct {
         pub fn Mismatch(T: type) type {
             return struct {
                 expected: T,
@@ -40,22 +40,22 @@ pub const Runner = struct {
         }
 
         pub const FailureInfo = union(enum) {
-            parser: Parser.Diagnostics,
-            sema: Sema.Diagnostics,
-            compiler: Compiler.Diagnostics,
-            vm: Vm.Diagnostics,
+            parser: Parser.Diags,
+            sema: Sema.Diags,
+            compiler: Compiler.Diags,
+            vm: Vm.Diags,
             out_mismatch: Mismatch([]const u8),
-            err_parser_mismatch: Mismatch(Parser.Diagnostics),
-            err_sema_mismatch: Mismatch(Sema.Diagnostics),
-            err_compiler_mismatch: Mismatch(Compiler.Diagnostics),
-            err_vm_mismatch: Mismatch(Vm.Diagnostics),
+            err_parser_mismatch: Mismatch(Parser.Diags),
+            err_sema_mismatch: Mismatch(Sema.Diags),
+            err_compiler_mismatch: Mismatch(Compiler.Diags),
+            err_vm_mismatch: Mismatch(Vm.Diags),
             memory_leak,
         };
 
         path: []const u8,
         failures: ArrayList(FailureInfo),
 
-        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+        pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             for (self.failures.items) |*info| {
                 switch (info.*) {
                     .parser => |*diags| {
@@ -96,7 +96,7 @@ pub const Runner = struct {
         }
     };
 
-    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
+    pub const Diags = SharedDiags(DiagEntry);
 
     allocator: Allocator,
     tests: ArrayList(Config),
@@ -122,7 +122,7 @@ pub const Runner = struct {
         self: *Self,
         path: []const u8,
         source: []const u8,
-        config_diags: *Config.Diagnostics,
+        config_diags: *Config.Diags,
     ) !void {
         const config = try Config.initFromOwnedPathAndSource(
             self.allocator,
@@ -139,7 +139,7 @@ pub const Runner = struct {
         stdout_writer: *const Writer,
         stderr_writer: *const Writer,
     ) !void {
-        var diags = Diagnostics.init(allocator);
+        var diags = Diags.init(allocator);
         defer diags.deinit();
 
         var passed: u32 = 0;
@@ -174,21 +174,21 @@ pub const Runner = struct {
         );
 
         if (failed > 0) {
-            test_reporter.reportRunnerDiagnostics(&diags, stderr_writer);
+            test_reporter.reportRunnerDiags(&diags, stderr_writer);
             return error.TestFailure;
         }
     }
 
-    fn runTest(self: *Self, config: *Config, diags: *Diagnostics) Error!void {
+    fn runTest(self: *Self, config: *Config, diags: *Diags) Error!void {
         var stdout_test_writer = TestWriter.init(self.allocator);
         defer stdout_test_writer.deinit();
 
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         const test_allocator = gpa.allocator();
 
-        var diag_entry = DiagnosticEntry{
+        var diag_entry = DiagEntry{
             .path = config.path,
-            .failures = ArrayList(DiagnosticEntry.FailureInfo).init(self.allocator),
+            .failures = ArrayList(DiagEntry.FailureInfo).init(self.allocator),
         };
 
         var actual = Config.Expectations.init(self.allocator);
@@ -200,7 +200,7 @@ pub const Runner = struct {
 
             // allocate using Runner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
-            var parser_diags = Parser.Diagnostics.init(self.allocator);
+            var parser_diags = Parser.Diags.init(self.allocator);
 
             const parsed_block = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
                 error.ParseFailure => {
@@ -225,7 +225,7 @@ pub const Runner = struct {
 
             // allocate using Runner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
-            var sema_diags = Sema.Diagnostics.init(self.allocator);
+            var sema_diags = Sema.Diags.init(self.allocator);
 
             const sema_block = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
                 error.SemaFailure => {
@@ -249,7 +249,7 @@ pub const Runner = struct {
 
             // allocate using Runner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
-            var compiler_diags = Compiler.Diagnostics.init(self.allocator);
+            var compiler_diags = Compiler.Diags.init(self.allocator);
 
             Compiler.compile(&memory, sema_block, &compiler_diags) catch |err| switch (err) {
                 error.CompileFailure => {
@@ -272,7 +272,7 @@ pub const Runner = struct {
 
             // allocate using TestRunner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
-            var vm_diags = Vm.Diagnostics.init(self.allocator);
+            var vm_diags = Vm.Diags.init(self.allocator);
 
             Vm.interpret(&memory, &stdout_writer, &vm_diags, .{}) catch |err| switch (err) {
                 error.Panic => {
@@ -308,7 +308,7 @@ pub const Runner = struct {
         self: *Self,
         expectations: *const Config.Expectations,
         actuals: *const Config.Expectations,
-        diag_entry: *DiagnosticEntry,
+        diag_entry: *DiagEntry,
     ) !void {
         if (!verifyOut(&expectations.out, &actuals.out)) {
             try diag_entry.failures.append(.{
@@ -363,8 +363,8 @@ pub const Runner = struct {
     }
 
     fn verifyErrParser(
-        expected: *const Parser.Diagnostics,
-        actual: *const Parser.Diagnostics,
+        expected: *const Parser.Diags,
+        actual: *const Parser.Diags,
     ) bool {
         if (expected.getLen() != actual.getLen()) {
             return false;
@@ -407,8 +407,8 @@ pub const Runner = struct {
     }
 
     fn verifyErrSema(
-        expected: *const Sema.Diagnostics,
-        actual: *const Sema.Diagnostics,
+        expected: *const Sema.Diags,
+        actual: *const Sema.Diags,
     ) bool {
         if (expected.getLen() != actual.getLen()) {
             return false;
@@ -449,7 +449,7 @@ pub const Runner = struct {
                     const expected_left, const expected_right = eval_type;
                     const actual_left, const actual_right = meta.getUnionValue(
                         &actual_entry.kind,
-                        Sema.DiagnosticEntry.EvalTypeTuple,
+                        Sema.DiagEntry.EvalTypeTuple,
                     );
 
                     if (!verifyEvalType(expected_left, actual_left) or
@@ -475,8 +475,8 @@ pub const Runner = struct {
     }
 
     fn verifyErrCompiler(
-        expected: *const Compiler.Diagnostics,
-        actual: *const Compiler.Diagnostics,
+        expected: *const Compiler.Diags,
+        actual: *const Compiler.Diags,
     ) bool {
         if (expected.getLen() != actual.getLen()) {
             return false;
@@ -499,8 +499,8 @@ pub const Runner = struct {
     }
 
     fn verifyErrVm(
-        expected: *const Vm.Diagnostics,
-        actual: *const Vm.Diagnostics,
+        expected: *const Vm.Diags,
+        actual: *const Vm.Diags,
     ) bool {
         if (expected.getLen() != actual.getLen()) {
             return false;

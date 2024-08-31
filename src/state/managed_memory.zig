@@ -1,5 +1,4 @@
 const std = @import("std");
-const shared = @import("shared");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
@@ -10,7 +9,6 @@ const tokenizer_mod = @import("../parser/tokenizer.zig");
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
 const expect = std.testing.expect;
-const SharedDiagnostics = shared.Diagnostics;
 const Chunk = chunk_mod.Chunk;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;

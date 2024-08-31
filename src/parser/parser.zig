@@ -9,7 +9,7 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const expectError = std.testing.expectError;
 const allocPrint = std.fmt.allocPrint;
-const SharedDiagnostics = shared.Diagnostics;
+const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
@@ -25,7 +25,7 @@ pub const Parser = struct {
         ParseFailure,
     };
 
-    pub const DiagnosticEntry = struct {
+    pub const DiagEntry = struct {
         pub const Kind = union(enum) {
             expected_end_token: Token.Kind,
             invalid_token: []const u8,
@@ -37,7 +37,7 @@ pub const Parser = struct {
             expected_equal_after_name,
         };
 
-        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+        pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             switch (self.kind) {
                 .invalid_token,
                 => |msg| allocator.free(msg),
@@ -57,13 +57,13 @@ pub const Parser = struct {
         position: Position,
     };
 
-    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
+    pub const Diags = SharedDiags(DiagEntry);
 
     allocator: Allocator,
     tokenizer: *Tokenizer = undefined,
     previous_token: Token = undefined,
     current_token: Token = undefined,
-    diagnostics: ?*Diagnostics = null,
+    diags: ?*Diags = null,
 
     pub fn init(allocator: Allocator) Self {
         return .{
@@ -74,11 +74,11 @@ pub const Parser = struct {
     pub fn parse(
         self: *Self,
         tokenizer: *Tokenizer,
-        diagnostics: ?*Diagnostics,
+        diags: ?*Diags,
     ) Error!*ParsedExpr {
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanNonCommentToken();
-        self.diagnostics = diagnostics;
+        self.diags = diags;
 
         return try self.parseBlock(.eof, .{ .line = 1, .column = 1 });
     }
@@ -465,7 +465,7 @@ pub const Parser = struct {
             return block;
         }
 
-        const old_num_diags = if (self.diagnostics) |diags| diags.getLen() else 0;
+        const old_num_diags = if (self.diags) |diags| diags.getLen() else 0;
         var ends_with_semicolon = false;
 
         while (true) {
@@ -498,7 +498,7 @@ pub const Parser = struct {
             .{ .expected_end_token = end_token_kind },
         );
 
-        if (self.diagnostics != null and self.diagnostics.?.getLen() > old_num_diags) {
+        if (self.diags != null and self.diags.?.getLen() > old_num_diags) {
             return error.ParseFailure;
         }
 
@@ -547,13 +547,13 @@ pub const Parser = struct {
     fn consume(
         self: *Self,
         token_kind: Token.Kind,
-        diagnostic_kind: DiagnosticEntry.Kind,
+        diag_kind: DiagEntry.Kind,
     ) Error!Token {
         if (self.check(token_kind)) {
             return self.advance();
         }
 
-        try self.parserError(diagnostic_kind, self.peek().position);
+        try self.parserError(diag_kind, self.peek().position);
         return error.ParseFailure;
     }
 
@@ -624,20 +624,20 @@ pub const Parser = struct {
 
     fn parserError(
         self: *Self,
-        diagnostic_kind: DiagnosticEntry.Kind,
+        diag_kind: DiagEntry.Kind,
         position: Position,
     ) Error!void {
-        if (self.diagnostics) |diagnostics| {
+        if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to
-            // use diagnostics.allocator instead of self.allocator. this is
+            // use diags.allocator instead of self.allocator. this is
             // necessary for lang-tests where a new allocator is created for
             // each test to detect memory leaks. that allocator then gets
-            // deinited while diagnostics are owned by the tests.
-            try diagnostics.add(.{
-                .kind = switch (diagnostic_kind) {
+            // deinited while diags are owned by the tests.
+            try diags.add(.{
+                .kind = switch (diag_kind) {
                     .invalid_token,
                     => |msg| .{
-                        .invalid_token = try diagnostics.allocator.dupe(u8, msg),
+                        .invalid_token = try diags.allocator.dupe(u8, msg),
                     },
 
                     .expected_end_token,
@@ -647,7 +647,7 @@ pub const Parser = struct {
                     .int_literal_overflows,
                     .expected_name,
                     .expected_equal_after_name,
-                    => diagnostic_kind,
+                    => diag_kind,
                 },
                 .position = position,
             });

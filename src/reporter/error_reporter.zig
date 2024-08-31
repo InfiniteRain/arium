@@ -14,7 +14,7 @@ const Compiler = compiler_mod.Compiler;
 const Vm = vm_mod.Vm;
 
 pub fn reportParserDiags(
-    diags: *const Parser.Diagnostics,
+    diags: *const Parser.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
@@ -24,7 +24,7 @@ pub fn reportParserDiags(
 }
 
 pub fn reportParserDiag(
-    diag: *const Parser.DiagnosticEntry,
+    diag: *const Parser.DiagEntry,
     writer: *const Writer,
 ) void {
     writer.printf("Error at {}:{}: ", .{
@@ -107,7 +107,7 @@ pub fn reportParserDiagTokenQuoted(
 }
 
 pub fn reportSemaDiags(
-    diags: *const Sema.Diagnostics,
+    diags: *const Sema.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
@@ -117,7 +117,7 @@ pub fn reportSemaDiags(
 }
 
 pub fn reportSemaDiag(
-    diag: *const Sema.DiagnosticEntry,
+    diag: *const Sema.DiagEntry,
     writer: *const Writer,
 ) void {
     writer.printf("Error at {}:{}: ", .{
@@ -189,7 +189,7 @@ pub fn reportSemaDiag(
 }
 
 pub fn reportCompilerDiags(
-    diags: *const Compiler.Diagnostics,
+    diags: *const Compiler.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
@@ -199,7 +199,7 @@ pub fn reportCompilerDiags(
 }
 
 pub fn reportCompilerDiag(
-    diag: *const Compiler.DiagnosticEntry,
+    diag: *const Compiler.DiagEntry,
     writer: *const Writer,
 ) void {
     writer.printf("Error at {}:{}: ", .{
@@ -220,7 +220,7 @@ pub fn reportCompilerDiag(
 }
 
 pub fn reportVmDiags(
-    diags: *const Vm.Diagnostics,
+    diags: *const Vm.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
@@ -230,7 +230,7 @@ pub fn reportVmDiags(
 }
 
 pub fn reportVmDiag(
-    diag: *const Vm.DiagnosticEntry,
+    diag: *const Vm.DiagEntry,
     writer: *const Writer,
 ) void {
     writer.printf("Panic at {}:{}: ", .{

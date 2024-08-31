@@ -13,7 +13,7 @@ const StringHashMap = std.StringHashMap;
 const meta = std.meta;
 const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
-const SharedDiagnostics = shared.Diagnostics;
+const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
 const ParsedExpr = parsed_expr_mod.ParsedExpr;
 const ParsedStmt = parsed_stmt_mod.ParsedStmt;
@@ -32,7 +32,7 @@ pub const Sema = struct {
         SemaFailure,
     };
 
-    pub const DiagnosticEntry = struct {
+    pub const DiagEntry = struct {
         pub const EvalTypeTuple = struct {
             SemaExpr.EvalType,
             SemaExpr.EvalType,
@@ -52,7 +52,7 @@ pub const Sema = struct {
             value_not_found: []const u8,
         };
 
-        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+        pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             switch (self.kind) {
                 .value_not_found,
                 => |name| allocator.free(name),
@@ -75,7 +75,7 @@ pub const Sema = struct {
         position: Position,
     };
 
-    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
+    pub const Diags = SharedDiags(DiagEntry);
 
     const LocalsMap = struct {
         allocator: Allocator,
@@ -98,7 +98,7 @@ pub const Sema = struct {
     const max_locals = 256;
 
     allocator: Allocator,
-    diagnostics: ?*Diagnostics = null,
+    diags: ?*Diags = null,
     had_error: bool = false,
     locals: [max_locals]SemaExpr.EvalType = undefined,
     locals_top: usize = 0,
@@ -113,9 +113,9 @@ pub const Sema = struct {
     pub fn analyze(
         self: *Self,
         block: *ParsedExpr,
-        diagnostics: ?*Diagnostics,
+        diags: ?*Diags,
     ) Error!*SemaExpr {
-        self.diagnostics = diagnostics;
+        self.diags = diags;
         self.had_error = false;
         self.locals_top = 0;
         self.locals_map = null;
@@ -495,21 +495,21 @@ pub const Sema = struct {
     fn semaErrorWithInvalidExpr(
         self: *Self,
         position: Position,
-        diagnostic_kind: DiagnosticEntry.Kind,
+        diag_kind: DiagEntry.Kind,
         child_exprs: anytype,
     ) Error!*SemaExpr {
-        try self.semaError(position, diagnostic_kind);
+        try self.semaError(position, diag_kind);
         return try self.createInvalidExpr(child_exprs);
     }
 
     fn semaErrorWithInvalidStmt(
         self: *Self,
         position: Position,
-        diagnostic_kind: DiagnosticEntry.Kind,
+        diag_kind: DiagEntry.Kind,
         child_exprs: anytype,
         child_stmts: anytype,
     ) Error!*SemaStmt {
-        try self.semaError(position, diagnostic_kind);
+        try self.semaError(position, diag_kind);
         return try SemaStmt.Kind.Invalid.create(
             self.allocator,
             child_exprs,
@@ -520,20 +520,20 @@ pub const Sema = struct {
     fn semaError(
         self: *Self,
         position: Position,
-        diagnostic_kind: DiagnosticEntry.Kind,
+        diag_kind: DiagEntry.Kind,
     ) Error!void {
         self.had_error = true;
 
-        if (self.diagnostics) |diagnostics| {
+        if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to
-            // use diagnostics.allocator instead of self.allocator. this is
+            // use diags.allocator instead of self.allocator. this is
             // necessary for lang-tests where a new allocator is created for
             // each test to detect memory leaks. that allocator then gets
-            // deinited while diagnostics are owned by the tests.
-            try diagnostics.add(.{
-                .kind = switch (diagnostic_kind) {
+            // deinited while diags are owned by the tests.
+            try diags.add(.{
+                .kind = switch (diag_kind) {
                     .value_not_found,
-                    => |name| .{ .value_not_found = try diagnostics.allocator.dupe(u8, name) },
+                    => |name| .{ .value_not_found = try diags.allocator.dupe(u8, name) },
 
                     .expected_expr_type,
                     .unexpected_arithmetic_type,
@@ -545,7 +545,7 @@ pub const Sema = struct {
                     .unexpected_logical_negation_type,
                     .unexpected_arithmetic_negation_type,
                     .too_many_locals,
-                    => diagnostic_kind,
+                    => diag_kind,
                 },
                 .position = position,
             });

@@ -87,7 +87,7 @@ fn runFile(
     var tokenizer = Tokenizer.init(source);
 
     var parser = Parser.init(allocator);
-    var parser_diags = Parser.Diagnostics.init(allocator);
+    var parser_diags = Parser.Diags.init(allocator);
     defer parser_diags.deinit();
 
     const sema_expr = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
@@ -100,7 +100,7 @@ fn runFile(
     defer sema_expr.destroy(allocator);
 
     var sema = Sema.init(allocator);
-    var sema_diags = Sema.Diagnostics.init(allocator);
+    var sema_diags = Sema.Diags.init(allocator);
     defer sema_diags.deinit();
 
     var sema_block = sema.analyze(sema_expr, &sema_diags) catch |err| switch (err) {
@@ -115,7 +115,7 @@ fn runFile(
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();
 
-    var compiler_diags = Compiler.Diagnostics.init(allocator);
+    var compiler_diags = Compiler.Diags.init(allocator);
     defer compiler_diags.deinit();
 
     Compiler.compile(&memory, sema_block, &compiler_diags) catch |err| switch (err) {
@@ -131,7 +131,7 @@ fn runFile(
         debug_reporter.reportChunk(&memory.vm_state.?.chunk, out_writer);
     }
 
-    var vm_diags = Vm.Diagnostics.init(allocator);
+    var vm_diags = Vm.Diags.init(allocator);
     defer vm_diags.deinit();
 
     if (args.@"dtrace-execution" > 0) {

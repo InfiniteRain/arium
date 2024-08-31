@@ -11,7 +11,7 @@ const debug_reporter = @import("../reporter/debug_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
-const SharedDiagnostics = shared.Diagnostics;
+const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
@@ -31,7 +31,7 @@ pub const Vm = struct {
         Panic,
     };
 
-    pub const DiagnosticEntry = struct {
+    pub const DiagEntry = struct {
         pub const Kind = enum {
             assertion_fail,
         };
@@ -40,7 +40,7 @@ pub const Vm = struct {
         position: Position,
     };
 
-    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
+    pub const Diags = SharedDiags(DiagEntry);
 
     pub const Config = struct {
         debug_writer: ?*const Writer = null,
@@ -57,12 +57,12 @@ pub const Vm = struct {
     out_writer: *const Writer,
     allocator: Allocator,
     state: *VmState,
-    diagnostics: ?*Diagnostics,
+    diags: ?*Diags,
 
     pub fn interpret(
         memory: *ManagedMemory,
         out_writer: *const Writer,
-        diagnostics: ?*Diagnostics,
+        diags: ?*Diags,
         config: Config,
     ) Error!void {
         const allocator = memory.allocator();
@@ -73,7 +73,7 @@ pub const Vm = struct {
             .out_writer = out_writer,
             .state = &memory.vm_state.?,
             .config = config,
-            .diagnostics = diagnostics,
+            .diags = diags,
         };
 
         try vm.run();
@@ -380,18 +380,18 @@ pub const Vm = struct {
 
     fn panic(
         self: *Self,
-        diagnostic_kind: DiagnosticEntry.Kind,
+        diag_kind: DiagEntry.Kind,
         position: Position,
     ) Error!void {
-        if (self.diagnostics) |diagnostics| {
+        if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to
-            // use diagnostics.allocator instead of self.allocator. this is
+            // use diags.allocator instead of self.allocator. this is
             // necessary for lang-tests where a new allocator is created for
             // each test to detect memory leaks. that allocator then gets
-            // deinited while diagnostics are owned by the tests.
-            try diagnostics.add(.{
+            // deinited while diags are owned by the tests.
+            try diags.add(.{
                 .position = position,
-                .kind = diagnostic_kind,
+                .kind = diag_kind,
             });
         }
     }

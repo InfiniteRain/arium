@@ -13,23 +13,23 @@ const Vm = arium.Vm;
 const error_reporter = arium.error_reporter;
 const Config = config_mod.Config;
 
-pub fn reportConfigDiagnostics(
+pub fn reportConfigDiags(
     path: []const u8,
-    diags: *const Config.Diagnostics,
+    diags: *const Config.Diags,
     writer: *const Writer,
 ) void {
-    writer.printf("Test configuration diagnostics for '{s}':\n", .{path});
+    writer.printf("Test configuration diags for '{s}':\n", .{path});
 
     for (diags.getEntries()) |*diag| {
-        reportConfigDiagnostic(diag, writer);
+        reportConfigDiag(diag, writer);
         writer.print("\n");
     }
 
     writer.print("\n");
 }
 
-pub fn reportConfigDiagnostic(
-    diag: *const Config.DiagnosticEntry,
+pub fn reportConfigDiag(
+    diag: *const Config.DiagEntry,
     writer: *const Writer,
 ) void {
     writer.printf("Line {}: {s}", .{
@@ -38,21 +38,21 @@ pub fn reportConfigDiagnostic(
     });
 }
 
-pub fn reportRunnerDiagnostics(
-    diags: *const Runner.Diagnostics,
+pub fn reportRunnerDiags(
+    diags: *const Runner.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
-        writer.printf("\nDiagnostics for '{s}':\n", .{
+        writer.printf("\nDiags for '{s}':\n", .{
             diag.path,
         });
-        reportRunnerDiagnostic(diag, writer);
+        reportRunnerDiag(diag, writer);
     }
     writer.print("\n");
 }
 
-pub fn reportRunnerDiagnostic(
-    diag: *const Runner.DiagnosticEntry,
+pub fn reportRunnerDiag(
+    diag: *const Runner.DiagEntry,
     writer: *const Writer,
 ) void {
     for (diag.failures.items) |info| {
@@ -92,7 +92,7 @@ pub fn reportRunnerDiagnostic(
 }
 
 pub fn reportErrParserMismatch(
-    mismatch: *const Runner.DiagnosticEntry.Mismatch(Parser.Diagnostics),
+    mismatch: *const Runner.DiagEntry.Mismatch(Parser.Diags),
     writer: *const Writer,
 ) void {
     writer.print("Unexpected parser error(s).\nExpected:\n");
@@ -102,7 +102,7 @@ pub fn reportErrParserMismatch(
 }
 
 pub fn reportErrSemaMismatch(
-    mismatch: *const Runner.DiagnosticEntry.Mismatch(Sema.Diagnostics),
+    mismatch: *const Runner.DiagEntry.Mismatch(Sema.Diags),
     writer: *const Writer,
 ) void {
     writer.print("Unexpected sema error(s).\nExpected:\n");
@@ -112,7 +112,7 @@ pub fn reportErrSemaMismatch(
 }
 
 pub fn reportErrCompilerMismatch(
-    mismatch: *const Runner.DiagnosticEntry.Mismatch(Compiler.Diagnostics),
+    mismatch: *const Runner.DiagEntry.Mismatch(Compiler.Diags),
     writer: *const Writer,
 ) void {
     writer.print("Unexpected compiler error.\nExpected:\n");
@@ -122,7 +122,7 @@ pub fn reportErrCompilerMismatch(
 }
 
 pub fn reportErrVmMismatch(
-    mismatch: *const Runner.DiagnosticEntry.Mismatch(Vm.Diagnostics),
+    mismatch: *const Runner.DiagEntry.Mismatch(Vm.Diags),
     writer: *const Writer,
 ) void {
     writer.print("Unexpected vm error.\nExpected:\n");
@@ -132,7 +132,7 @@ pub fn reportErrVmMismatch(
 }
 
 pub fn reportOutMismatch(
-    mismatch: *const Runner.DiagnosticEntry.Mismatch([]const u8),
+    mismatch: *const Runner.DiagEntry.Mismatch([]const u8),
     writer: *const Writer,
 ) void {
     writer.printf("Unexpected stdout.\nExpected:\n{s}\nActual:\n{s}", .{
@@ -142,7 +142,7 @@ pub fn reportOutMismatch(
 }
 
 pub fn reportParserDiags(
-    diags: *const Parser.Diagnostics,
+    diags: *const Parser.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |entry| {
@@ -176,7 +176,7 @@ pub fn reportParserDiags(
 }
 
 pub fn reportSemaDiags(
-    diags: *const Sema.Diagnostics,
+    diags: *const Sema.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |entry| {
@@ -223,7 +223,7 @@ pub fn reportSemaDiags(
 }
 
 pub fn reportCompilerDiags(
-    diags: *const Compiler.Diagnostics,
+    diags: *const Compiler.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |entry| {
@@ -235,7 +235,7 @@ pub fn reportCompilerDiags(
 }
 
 pub fn reportVmDiags(
-    diags: *const Vm.Diagnostics,
+    diags: *const Vm.Diags,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |entry| {

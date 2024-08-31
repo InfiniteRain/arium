@@ -12,7 +12,7 @@ const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
-const SharedDiagnostics = shared.Diagnostics;
+const SharedDiags = shared.Diags;
 const meta = shared.meta;
 
 pub const Config = struct {
@@ -28,16 +28,16 @@ pub const Config = struct {
         DirectiveParseFailure,
     };
 
-    pub const DiagnosticEntry = struct {
+    pub const DiagEntry = struct {
         message: []const u8,
         position: Position,
 
-        pub fn deinit(self: *DiagnosticEntry, allocator: Allocator) void {
+        pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             allocator.free(self.message);
         }
     };
 
-    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
+    pub const Diags = SharedDiags(DiagEntry);
 
     pub const Kind = enum {
         parse,
@@ -57,19 +57,19 @@ pub const Config = struct {
     pub const Expectations = struct {
         allocator: Allocator,
         out: ArrayList(u8),
-        err_parser: Parser.Diagnostics,
-        err_sema: Sema.Diagnostics,
-        err_compiler: Compiler.Diagnostics,
-        err_vm: Vm.Diagnostics,
+        err_parser: Parser.Diags,
+        err_sema: Sema.Diags,
+        err_compiler: Compiler.Diags,
+        err_vm: Vm.Diags,
 
         pub fn init(allocator: Allocator) Expectations {
             return .{
                 .allocator = allocator,
                 .out = ArrayList(u8).init(allocator),
-                .err_parser = Parser.Diagnostics.init(allocator),
-                .err_sema = Sema.Diagnostics.init(allocator),
-                .err_compiler = Compiler.Diagnostics.init(allocator),
-                .err_vm = Vm.Diagnostics.init(allocator),
+                .err_parser = Parser.Diags.init(allocator),
+                .err_sema = Sema.Diags.init(allocator),
+                .err_compiler = Compiler.Diags.init(allocator),
+                .err_vm = Vm.Diags.init(allocator),
             };
         }
 
@@ -85,7 +85,7 @@ pub const Config = struct {
     const DirectiveContext = struct {
         allocator: Allocator,
         kind: Kind,
-        diags: *Diagnostics,
+        diags: *Diags,
         position: Position,
         split_iter: *SplitIter,
         expectations: *Expectations,
@@ -104,7 +104,7 @@ pub const Config = struct {
         allocator: Allocator,
         path: []const u8,
         source: []const u8,
-        diags: *Diagnostics,
+        diags: *Diags,
     ) Error!Self {
         errdefer allocator.free(path);
         errdefer allocator.free(source);
@@ -122,7 +122,7 @@ pub const Config = struct {
         allocator: Allocator,
         path: []const u8,
         source: []const u8,
-        diags: *Diagnostics,
+        diags: *Diags,
     ) Error!Self {
         var tokenizer = Tokenizer.init(source);
         const first_token = tokenizer.scanToken();
@@ -223,7 +223,7 @@ pub const Config = struct {
 
     fn parseErrParserDirective(ctx: *DirectiveContext) DirectiveError!void {
         const line = try parseInt(ctx, u64);
-        var diag_kind = try parseUnionVariant(ctx, Parser.DiagnosticEntry.Kind);
+        var diag_kind = try parseUnionVariant(ctx, Parser.DiagEntry.Kind);
 
         switch (diag_kind) {
             .expected_end_token,
@@ -258,13 +258,13 @@ pub const Config = struct {
         }
 
         const line = try parseInt(ctx, u64);
-        var diag_kind = try parseUnionVariant(ctx, Sema.DiagnosticEntry.Kind);
+        var diag_kind = try parseUnionVariant(ctx, Sema.DiagEntry.Kind);
 
         switch (diag_kind) {
             .unexpected_operand_type,
             .unexpected_concat_type,
             .unexpected_equality_type,
-            => meta.setUnionValue(&diag_kind, Sema.DiagnosticEntry.EvalTypeTuple{
+            => meta.setUnionValue(&diag_kind, Sema.DiagEntry.EvalTypeTuple{
                 try parseEvalKind(ctx),
                 try parseEvalKind(ctx),
             }),
@@ -301,7 +301,7 @@ pub const Config = struct {
         }
 
         const line = try parseInt(ctx, u64);
-        const diag_kind = try parseEnumVariant(ctx, Compiler.DiagnosticEntry.Kind);
+        const diag_kind = try parseEnumVariant(ctx, Compiler.DiagEntry.Kind);
 
         try parseEndOfLine(ctx);
 
@@ -320,7 +320,7 @@ pub const Config = struct {
         }
 
         const line = try parseInt(ctx, u64);
-        const diag_kind = try parseEnumVariant(ctx, Vm.DiagnosticEntry.Kind);
+        const diag_kind = try parseEnumVariant(ctx, Vm.DiagEntry.Kind);
 
         try parseEndOfLine(ctx);
 
@@ -418,7 +418,7 @@ pub const Config = struct {
     }
 
     fn addDiag(
-        diags: *Diagnostics,
+        diags: *Diags,
         position: Position,
         comptime fmt: []const u8,
         args: anytype,
@@ -440,7 +440,7 @@ pub const Config = struct {
     }
 
     fn configParseFailure(
-        diags: *Diagnostics,
+        diags: *Diags,
         position: Position,
         comptime fmt: []const u8,
         args: anytype,

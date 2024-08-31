@@ -54,14 +54,14 @@ pub fn main() !void {
             @memcpy(path, entry.path);
             const source = try readFileAlloc(allocator, entry.path);
 
-            var diags = Config.Diagnostics.init(allocator);
+            var diags = Config.Diags.init(allocator);
             defer diags.deinit();
 
             test_runner.addTest(path, source, &diags) catch |err| {
                 has_config_errors = true;
                 switch (err) {
                     error.ConfigParseFailure => {
-                        test_reporter.reportConfigDiagnostics(
+                        test_reporter.reportConfigDiags(
                             entry.path,
                             &diags,
                             &stderr_writer,

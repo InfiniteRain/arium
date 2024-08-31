@@ -15,7 +15,7 @@ const Allocator = mem.Allocator;
 const BoundedArray = std.BoundedArray;
 const assert = std.debug.assert;
 const meta = shared.meta;
-const SharedDiagnostics = shared.Diagnostics;
+const SharedDiags = shared.Diags;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const VmState = managed_memory_mod.VmState;
 const Chunk = chunk_mod.Chunk;
@@ -57,7 +57,7 @@ pub const Compiler = struct {
         CompileFailure,
     };
 
-    pub const DiagnosticEntry = struct {
+    pub const DiagEntry = struct {
         pub const Kind = enum {
             too_many_constants,
             too_many_branch_jumps,
@@ -68,17 +68,17 @@ pub const Compiler = struct {
         position: Position,
     };
 
-    pub const Diagnostics = SharedDiagnostics(DiagnosticEntry);
+    pub const Diags = SharedDiags(DiagEntry);
 
     vm_state: *VmState,
     allocator: Allocator,
     chunk: Chunk,
-    diagnostics: ?*Diagnostics,
+    diags: ?*Diags,
 
     pub fn compile(
         memory: *ManagedMemory,
         block: *const SemaExpr,
-        diagnostics: ?*Diagnostics,
+        diags: ?*Diags,
     ) Error!void {
         const allocator = memory.allocator();
 
@@ -92,7 +92,7 @@ pub const Compiler = struct {
             .vm_state = &vm_state,
             .allocator = allocator,
             .chunk = try Chunk.init(allocator),
-            .diagnostics = diagnostics,
+            .diags = diags,
         };
 
         errdefer {
@@ -584,17 +584,17 @@ pub const Compiler = struct {
 
     fn compilerError(
         self: *Self,
-        diagnostic_kind: DiagnosticEntry.Kind,
+        diag_kind: DiagEntry.Kind,
         position: Position,
     ) Error!void {
-        if (self.diagnostics) |diagnostics| {
+        if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to
-            // use diagnostics.allocator instead of self.allocator. this is
+            // use diags.allocator instead of self.allocator. this is
             // necessary for lang-tests where a new allocator is created for
             // each test to detect memory leaks. that allocator then gets
-            // deinited while diagnostics are owned by the tests.
-            try diagnostics.add(.{
-                .kind = diagnostic_kind,
+            // deinited while diags are owned by the tests.
+            try diags.add(.{
+                .kind = diag_kind,
                 .position = position,
             });
         }
