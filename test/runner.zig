@@ -142,6 +142,7 @@ pub const Runner = struct {
         var diags = Diags.init(allocator);
         defer diags.deinit();
 
+        const start_ms = std.time.milliTimestamp();
         var passed: u32 = 0;
         var failed: u32 = 0;
 
@@ -165,11 +166,12 @@ pub const Runner = struct {
         }
 
         stdout_writer.printf(
-            "\nTests ran: {}\nTests passed: {}\nTests failed: {}\n",
+            "\nTests ran: {}\nTests passed: {}\nTests failed: {}\nTime elapsed (ms): {}\n",
             .{
                 passed + failed,
                 passed,
                 failed,
+                std.time.milliTimestamp() - start_ms,
             },
         );
 
