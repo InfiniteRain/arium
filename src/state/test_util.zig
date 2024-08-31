@@ -34,7 +34,10 @@ pub const TestUtil = struct {
         const allocator = memory.allocator();
 
         var chunk = try Chunk.init(allocator);
-        try chunk.writeU8(.return_, null);
+        try chunk.writeU8(.return_, .{
+            .line = 0,
+            .column = 0,
+        });
 
         memory.vm_state = .{
             .chunk = chunk,
