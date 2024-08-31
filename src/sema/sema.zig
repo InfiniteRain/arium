@@ -82,21 +82,23 @@ pub const Sema = struct {
         fail: DiagEntry.Kind,
     };
 
-    const LocalsMap = struct {
+    const Scope = struct {
         allocator: Allocator,
-        prev: ?*LocalsMap = null,
-        map: StringHashMap(usize),
+        prev: ?*Scope = null,
+        locals_map: StringHashMap(usize),
+        locals_top: usize,
 
-        fn init(allocator: Allocator, prev: ?*LocalsMap) LocalsMap {
+        fn init(allocator: Allocator, prev_opt: ?*Scope) Scope {
             return .{
                 .allocator = allocator,
-                .prev = prev,
-                .map = StringHashMap(usize).init(allocator),
+                .prev = prev_opt,
+                .locals_map = StringHashMap(usize).init(allocator),
+                .locals_top = if (prev_opt) |prev| prev.locals_top else 0,
             };
         }
 
-        fn deinit(self: *LocalsMap) void {
-            self.map.deinit();
+        fn deinit(self: *Scope) void {
+            self.locals_map.deinit();
         }
     };
 
@@ -106,8 +108,7 @@ pub const Sema = struct {
     diags: ?*Diags = null,
     had_error: bool = false,
     locals: [max_locals]SemaExpr.EvalType = undefined,
-    locals_top: usize = 0,
-    locals_map: ?*LocalsMap = null,
+    current_scope: ?*Scope = null,
 
     pub fn init(allocator: Allocator) Self {
         return .{
@@ -122,8 +123,7 @@ pub const Sema = struct {
     ) Error!*SemaExpr {
         self.diags = diags;
         self.had_error = false;
-        self.locals_top = 0;
-        self.locals_map = null;
+        self.current_scope = null;
 
         const sema_block = try self.analyzeExpr(block);
 
@@ -433,12 +433,10 @@ pub const Sema = struct {
         block: *ParsedExpr.Kind.Block,
         position: Position,
     ) Error!*SemaExpr {
-        var locals_map = LocalsMap.init(self.allocator, self.locals_map);
-        defer locals_map.deinit();
+        var scope = Scope.init(self.allocator, self.current_scope);
+        defer scope.deinit();
 
-        self.locals_map = &locals_map;
-
-        const old_locals_top = self.locals_top;
+        self.current_scope = &scope;
 
         var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
         errdefer {
@@ -459,8 +457,7 @@ pub const Sema = struct {
         const last_stmt = sema_stmts.items[sema_stmts.items.len - 1];
         const eval_type = last_stmt.kind.expr.expr.eval_type;
 
-        self.locals_map = self.locals_map.?.prev;
-        self.locals_top = old_locals_top;
+        self.current_scope = self.current_scope.?.prev;
 
         return try SemaExpr.Kind.Block.create(
             self.allocator,
@@ -496,25 +493,27 @@ pub const Sema = struct {
         name: []const u8,
         eval_type: SemaExpr.EvalType,
     ) error{ TooManyLocals, OutOfMemory }!usize {
-        if (self.locals_top == max_locals) {
+        const scope = self.current_scope orelse @panic("unitialized scope");
+
+        if (scope.locals_top == max_locals) {
             return error.TooManyLocals;
         }
 
-        self.locals[self.locals_top] = eval_type;
-        try self.locals_map.?.map.put(name, self.locals_top);
-        self.locals_top += 1;
+        self.locals[scope.locals_top] = eval_type;
+        try self.current_scope.?.locals_map.put(name, scope.locals_top);
+        scope.locals_top += 1;
 
-        return self.locals_top - 1;
+        return scope.locals_top - 1;
     }
 
     fn getVariable(
         self: *Self,
         name: []const u8,
     ) ?struct { usize, SemaExpr.EvalType } {
-        var current_map = self.locals_map;
+        var current_map = self.current_scope;
 
         while (current_map) |local_map| {
-            if (local_map.map.get(name)) |index| {
+            if (local_map.locals_map.get(name)) |index| {
                 return .{ index, self.locals[index] };
             }
 
