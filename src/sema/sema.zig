@@ -77,6 +77,11 @@ pub const Sema = struct {
 
     pub const Diags = SharedDiags(DiagEntry);
 
+    const AnalyzeExprResult = union(enum) {
+        ok: SemaExpr.EvalType,
+        fail: DiagEntry.Kind,
+    };
+
     const LocalsMap = struct {
         allocator: Allocator,
         prev: ?*LocalsMap = null,
@@ -131,325 +136,359 @@ pub const Sema = struct {
     }
 
     fn analyzeStmt(self: *Self, stmt: *ParsedStmt) Error!*SemaStmt {
-        switch (stmt.kind) {
-            .assert => |assert| {
-                const expr = try self.analyzeExpr(assert.expr);
-                errdefer expr.destroy(self.allocator);
+        return switch (stmt.kind) {
+            .assert => |*assert| try self.analyzeAssertStmt(assert, stmt.position),
+            .print => |*print| try self.analyzePrintStmt(print, stmt.position),
+            .expr => |*expr| try self.analyzeExprStmt(expr, stmt.position),
+            .let => |*let| try self.analyzeLetStmt(let, stmt.position),
+        };
+    }
 
-                if (expr.eval_type != .bool) {
-                    return try self.semaErrorWithInvalidStmt(
-                        stmt.position,
-                        .{ .expected_expr_type = .bool },
-                        .{expr},
-                        .{},
-                    );
-                }
+    fn analyzeAssertStmt(
+        self: *Self,
+        assert: *ParsedStmt.Kind.Assert,
+        position: Position,
+    ) Error!*SemaStmt {
+        const expr = try self.analyzeExpr(assert.expr);
+        errdefer expr.destroy(self.allocator);
 
-                return try SemaStmt.Kind.Assert.create(self.allocator, expr, stmt.position);
-            },
-            .print => |print| {
-                const expr = try self.analyzeExpr(print.expr);
-                errdefer expr.destroy(self.allocator);
+        if (expr.eval_type != .bool) {
+            return try self.semaErrorWithInvalidStmt(
+                position,
+                .{ .expected_expr_type = .bool },
+                .{expr},
+                .{},
+            );
+        }
 
-                return try SemaStmt.Kind.Print.create(self.allocator, expr, stmt.position);
-            },
-            .expr => |expr| {
-                const inner_expr = try self.analyzeExpr(expr.expr);
-                errdefer inner_expr.destroy(self.allocator);
+        return try SemaStmt.Kind.Assert.create(self.allocator, expr, position);
+    }
 
-                return try SemaStmt.Kind.Expr.create(self.allocator, inner_expr, stmt.position);
-            },
-            .let => |let| {
-                const expr = try self.analyzeExpr(let.expr);
-                errdefer expr.destroy(self.allocator);
+    fn analyzePrintStmt(
+        self: *Self,
+        print: *ParsedStmt.Kind.Print,
+        position: Position,
+    ) Error!*SemaStmt {
+        const expr = try self.analyzeExpr(print.expr);
+        errdefer expr.destroy(self.allocator);
 
-                const index = self.declareVariable(let.name, expr.eval_type) catch |err| switch (err) {
-                    error.TooManyLocals => {
-                        return try self.semaErrorWithInvalidStmt(
-                            stmt.position,
-                            .too_many_locals,
-                            .{expr},
-                            .{},
-                        );
-                    },
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
+        return try SemaStmt.Kind.Print.create(self.allocator, expr, position);
+    }
 
-                return try SemaStmt.Kind.Let.create(
-                    self.allocator,
-                    index,
-                    expr,
-                    stmt.position,
+    fn analyzeExprStmt(
+        self: *Self,
+        expr: *ParsedStmt.Kind.Expr,
+        position: Position,
+    ) Error!*SemaStmt {
+        const inner_expr = try self.analyzeExpr(expr.expr);
+        errdefer inner_expr.destroy(self.allocator);
+
+        return try SemaStmt.Kind.Expr.create(
+            self.allocator,
+            inner_expr,
+            position,
+        );
+    }
+
+    fn analyzeLetStmt(
+        self: *Self,
+        let: *ParsedStmt.Kind.Let,
+        position: Position,
+    ) Error!*SemaStmt {
+        const expr = try self.analyzeExpr(let.expr);
+        errdefer expr.destroy(self.allocator);
+
+        const index = self.declareVariable(let.name, expr.eval_type) catch |err| switch (err) {
+            error.TooManyLocals => {
+                return try self.semaErrorWithInvalidStmt(
+                    position,
+                    .too_many_locals,
+                    .{expr},
+                    .{},
                 );
             },
-        }
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+
+        return try SemaStmt.Kind.Let.create(
+            self.allocator,
+            index,
+            expr,
+            position,
+        );
     }
 
     fn analyzeExpr(
         self: *Self,
         expr: *ParsedExpr,
     ) Error!*SemaExpr {
-        switch (expr.kind) {
-            .literal => |literal| {
-                const literal_variant: SemaExpr.Kind.Literal = switch (literal.kind) {
-                    .unit => .unit,
-                    .int => |int| .{ .int = int },
-                    .float => |float| .{ .float = float },
-                    .bool => |bool_| .{ .bool = bool_ },
-                    .string => |string| blk: {
-                        const duped_string = try self.allocator.dupe(u8, string);
-                        errdefer self.allocator.free(duped_string);
+        return switch (expr.kind) {
+            .literal => |*literal| try self.analyzeLiteralExpr(literal, expr.position),
+            .binary => |*binary| try self.analyzeBinaryExpr(binary, expr.position),
+            .unary => |*unary| try self.analyzeUnaryExpr(unary, expr.position),
+            .block => |*block| try self.analyzeBlockExpr(block, expr.position),
+            .variable => |*variable| try self.analyzeVariableExpr(variable, expr.position),
+        };
+    }
 
-                        break :blk .{ .string = duped_string };
-                    },
-                };
+    fn analyzeLiteralExpr(
+        self: *Self,
+        literal: *ParsedExpr.Kind.Literal,
+        position: Position,
+    ) Error!*SemaExpr {
+        const literal_variant: SemaExpr.Kind.Literal = switch (literal.kind) {
+            .unit => .unit,
+            .int => |int| .{ .int = int },
+            .float => |float| .{ .float = float },
+            .bool => |bool_| .{ .bool = bool_ },
+            .string => |string| blk: {
+                const duped_string = try self.allocator.dupe(u8, string);
+                errdefer self.allocator.free(duped_string);
 
-                return SemaExpr.Kind.Literal.create(self.allocator, literal_variant, expr.position);
+                break :blk .{ .string = duped_string };
             },
-            .binary => |binary| {
-                const BinaryKind = SemaExpr.Kind.Binary.Kind;
+        };
 
-                const left = try self.analyzeExpr(binary.left);
-                errdefer left.destroy(self.allocator);
+        return SemaExpr.Kind.Literal.create(self.allocator, literal_variant, position);
+    }
 
-                const right = try self.analyzeExpr(binary.right);
-                errdefer right.destroy(self.allocator);
+    fn analyzeBinaryExpr(
+        self: *Self,
+        binary: *ParsedExpr.Kind.Binary,
+        position: Position,
+    ) Error!*SemaExpr {
+        const left = try self.analyzeExpr(binary.left);
+        errdefer left.destroy(self.allocator);
 
-                var binary_kind: BinaryKind = undefined;
-                var eval_type = left.eval_type;
+        const right = try self.analyzeExpr(binary.right);
+        errdefer right.destroy(self.allocator);
 
-                if (left.kind == .invalid or right.kind == .invalid) {
-                    return try self.createInvalidExpr(.{ left, right });
-                }
-
-                switch (binary.kind) {
-                    .add, .subtract, .divide, .multiply => {
-                        if (left.eval_type != .int and left.eval_type != .float) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_arithmetic_type = left.eval_type },
-                                .{ left, right },
-                            );
-                        }
-
-                        if (left.eval_type.tag() != right.eval_type.tag()) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
-                                .{ left, right },
-                            );
-                        }
-
-                        binary_kind = if (left.eval_type == .int) switch (binary.kind) {
-                            .add => .add_int,
-                            .subtract => .subtract_int,
-                            .multiply => .multiply_int,
-                            .divide => .divide_int,
-                            else => unreachable,
-                        } else switch (binary.kind) {
-                            .add => .add_float,
-                            .subtract => .subtract_float,
-                            .multiply => .multiply_float,
-                            .divide => .divide_float,
-                            else => unreachable,
-                        };
-                    },
-                    .concat => {
-                        if (!isString(eval_type) or !isString(right.eval_type)) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_concat_type = .{ left.eval_type, right.eval_type } },
-                                .{ left, right },
-                            );
-                        }
-
-                        binary_kind = .concat;
-                    },
-                    .equal, .not_equal => {
-                        if (left.eval_type.tag() != right.eval_type.tag()) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_equality_type = .{ left.eval_type, right.eval_type } },
-                                .{ left, right },
-                            );
-                        }
-
-                        eval_type = .bool;
-                        binary_kind = if (binary.kind == .equal) switch (left.eval_type) {
-                            .unit => unreachable, // todo: change to empty product type
-                            .int => .equal_int,
-                            .float => .equal_float,
-                            .bool => .equal_bool,
-                            .obj => .equal_obj,
-                            .invalid => unreachable,
-                        } else switch (left.eval_type) {
-                            .unit => unreachable, // todo: change to empty product type
-                            .int => .not_equal_int,
-                            .float => .not_equal_float,
-                            .bool => .not_equal_bool,
-                            .obj => .not_equal_obj,
-                            .invalid => unreachable,
-                        };
-                    },
-                    .greater, .greater_equal, .less, .less_equal => {
-                        if (left.eval_type != .int and left.eval_type != .float) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_comparison_type = left.eval_type },
-                                .{ left, right },
-                            );
-                        }
-
-                        if (left.eval_type.tag() != right.eval_type.tag()) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
-                                .{ left, right },
-                            );
-                        }
-
-                        eval_type = .bool;
-                        binary_kind = switch (left.eval_type) {
-                            .int => switch (binary.kind) {
-                                .greater => .greater_int,
-                                .greater_equal => .greater_equal_int,
-                                .less => .less_int,
-                                .less_equal => .less_equal_int,
-                                else => unreachable,
-                            },
-                            .float => switch (binary.kind) {
-                                .greater => .greater_float,
-                                .greater_equal => .greater_equal_float,
-                                .less => .less_float,
-                                .less_equal => .less_equal_float,
-                                else => unreachable,
-                            },
-                            else => unreachable,
-                        };
-                    },
-                    .or_, .and_ => {
-                        if (left.eval_type != .bool) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_logical_type = left.eval_type },
-                                .{ left, right },
-                            );
-                        }
-
-                        if (left.eval_type.tag() != right.eval_type.tag()) {
-                            return try self.semaErrorWithInvalidExpr(
-                                expr.position,
-                                .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } },
-                                .{ left, right },
-                            );
-                        }
-
-                        eval_type = .bool;
-                        binary_kind = if (binary.kind == .and_) .and_ else .or_;
-                    },
-                }
-
-                return SemaExpr.Kind.Binary.create(
-                    self.allocator,
-                    binary_kind,
-                    eval_type,
-                    expr.position,
-                    left,
-                    right,
-                );
-            },
-            .unary => |unary| {
-                const UnaryKind = SemaExpr.Kind.Unary.Kind;
-
-                const right = try self.analyzeExpr(unary.right);
-                errdefer right.destroy(self.allocator);
-
-                if (right.kind == .invalid) {
-                    return self.createInvalidExpr(.{right});
-                }
-
-                const eval_type = right.eval_type;
-                const unary_kind: UnaryKind = if (unary.kind == .negate_bool)
-                    switch (right.eval_type) {
-                        .bool => .negate_bool,
-                        else => return try self.semaErrorWithInvalidExpr(
-                            expr.position,
-                            .{ .unexpected_logical_negation_type = eval_type },
-                            .{right},
-                        ),
-                    }
-                else switch (right.eval_type) {
-                    .int => .negate_int,
-                    .float => .negate_float,
-                    else => return try self.semaErrorWithInvalidExpr(
-                        expr.position,
-                        .{ .unexpected_arithmetic_negation_type = eval_type },
-                        .{right},
-                    ),
-                };
-
-                return SemaExpr.Kind.Unary.create(
-                    self.allocator,
-                    unary_kind,
-                    eval_type,
-                    expr.position,
-                    right,
-                );
-            },
-            .block => |block| {
-                var locals_map = LocalsMap.init(self.allocator, self.locals_map);
-                defer locals_map.deinit();
-
-                self.locals_map = &locals_map;
-
-                const old_locals_top = self.locals_top;
-
-                var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
-                errdefer {
-                    for (sema_stmts.items) |stmt| {
-                        stmt.destroy(self.allocator);
-                    }
-
-                    sema_stmts.clearAndFree();
-                }
-
-                for (block.stmts.items) |parser_stmt| {
-                    const sema_stmt = try self.analyzeStmt(parser_stmt);
-                    errdefer sema_stmt.destroy(self.allocator);
-
-                    try sema_stmts.append(sema_stmt);
-                }
-
-                const last_stmt = sema_stmts.items[sema_stmts.items.len - 1];
-                const eval_type = last_stmt.kind.expr.expr.eval_type;
-
-                self.locals_map = self.locals_map.?.prev;
-                self.locals_top = old_locals_top;
-
-                return try SemaExpr.Kind.Block.create(
-                    self.allocator,
-                    sema_stmts,
-                    eval_type,
-                    expr.position,
-                );
-            },
-            .variable => |variable| {
-                const index, const eval_type = self.getVariable(variable.name) orelse {
-                    return self.semaErrorWithInvalidExpr(
-                        expr.position,
-                        .{ .value_not_found = variable.name },
-                        .{},
-                    );
-                };
-
-                return try SemaExpr.Kind.Variable.create(
-                    self.allocator,
-                    index,
-                    eval_type,
-                    expr.position,
-                );
-            },
+        if (left.kind == .invalid or right.kind == .invalid) {
+            return try self.createInvalidExpr(.{ left, right });
         }
+
+        const result = switch (binary.kind) {
+            .add,
+            .subtract,
+            .divide,
+            .multiply,
+            => analyzeArithmeticBinaryExpr(left, right),
+
+            .concat,
+            => analyzeConcatBinaryExpr(left, right),
+
+            .equal,
+            .not_equal,
+            => analyzeEqualBinaryExpr(left, right),
+
+            .greater,
+            .greater_equal,
+            .less,
+            .less_equal,
+            => analyzeComparisonBinaryExpr(left, right),
+
+            .or_,
+            .and_,
+            => analyzeLogicalBinaryExpr(left, right),
+        };
+
+        return switch (result) {
+            .ok => |eval_type| try SemaExpr.Kind.Binary.create(
+                self.allocator,
+                translateBinaryKind(left.eval_type, binary.kind),
+                eval_type,
+                position,
+                left,
+                right,
+            ),
+            .fail => |diag| try self.semaErrorWithInvalidExpr(
+                position,
+                diag,
+                .{ left, right },
+            ),
+        };
+    }
+
+    fn analyzeArithmeticBinaryExpr(
+        left: *SemaExpr,
+        right: *SemaExpr,
+    ) AnalyzeExprResult {
+        if (left.eval_type != .int and left.eval_type != .float) {
+            return .{ .fail = .{ .unexpected_arithmetic_type = left.eval_type } };
+        }
+
+        if (left.eval_type.tag() != right.eval_type.tag()) {
+            return .{ .fail = .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } } };
+        }
+
+        return .{ .ok = left.eval_type };
+    }
+
+    fn analyzeConcatBinaryExpr(
+        left: *SemaExpr,
+        right: *SemaExpr,
+    ) AnalyzeExprResult {
+        if (!isString(left.eval_type) or !isString(right.eval_type)) {
+            return .{ .fail = .{ .unexpected_concat_type = .{ left.eval_type, right.eval_type } } };
+        }
+
+        return .{ .ok = left.eval_type };
+    }
+
+    fn analyzeEqualBinaryExpr(
+        left: *SemaExpr,
+        right: *SemaExpr,
+    ) AnalyzeExprResult {
+        if (left.eval_type.tag() != right.eval_type.tag()) {
+            return .{ .fail = .{ .unexpected_equality_type = .{ left.eval_type, right.eval_type } } };
+        }
+
+        return .{ .ok = .bool };
+    }
+
+    fn analyzeComparisonBinaryExpr(
+        left: *SemaExpr,
+        right: *SemaExpr,
+    ) AnalyzeExprResult {
+        if (left.eval_type != .int and left.eval_type != .float) {
+            return .{ .fail = .{ .unexpected_comparison_type = left.eval_type } };
+        }
+
+        if (left.eval_type.tag() != right.eval_type.tag()) {
+            return .{ .fail = .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } } };
+        }
+
+        return .{ .ok = .bool };
+    }
+
+    fn analyzeLogicalBinaryExpr(
+        left: *SemaExpr,
+        right: *SemaExpr,
+    ) AnalyzeExprResult {
+        if (left.eval_type != .bool) {
+            return .{ .fail = .{ .unexpected_logical_type = left.eval_type } };
+        }
+
+        if (left.eval_type.tag() != right.eval_type.tag()) {
+            return .{ .fail = .{ .unexpected_operand_type = .{ left.eval_type, right.eval_type } } };
+        }
+
+        return .{ .ok = .bool };
+    }
+
+    fn analyzeUnaryExpr(
+        self: *Self,
+        unary: *ParsedExpr.Kind.Unary,
+        position: Position,
+    ) Error!*SemaExpr {
+        const right = try self.analyzeExpr(unary.right);
+        errdefer right.destroy(self.allocator);
+
+        if (right.kind == .invalid) {
+            return try self.createInvalidExpr(.{right});
+        }
+
+        const result = switch (unary.kind) {
+            .negate_bool,
+            => analyzeNegateBoolUnaryExpr(right),
+
+            .negate_num,
+            => analyzeNegateNumUnaryExpr(right),
+        };
+
+        return switch (result) {
+            .ok => |eval_type| try SemaExpr.Kind.Unary.create(
+                self.allocator,
+                translateUnaryKind(right.eval_type, unary.kind),
+                eval_type,
+                position,
+                right,
+            ),
+            .fail => |diag| try self.semaErrorWithInvalidExpr(
+                position,
+                diag,
+                .{right},
+            ),
+        };
+    }
+
+    fn analyzeNegateBoolUnaryExpr(right: *SemaExpr) AnalyzeExprResult {
+        if (right.eval_type != .bool) {
+            return .{ .fail = .{ .unexpected_logical_negation_type = right.eval_type } };
+        }
+
+        return .{ .ok = right.eval_type };
+    }
+
+    fn analyzeNegateNumUnaryExpr(right: *SemaExpr) AnalyzeExprResult {
+        if (right.eval_type != .int or right.eval_type != .float) {
+            return .{ .fail = .{ .unexpected_arithmetic_negation_type = right.eval_type } };
+        }
+
+        return .{ .ok = right.eval_type };
+    }
+
+    fn analyzeBlockExpr(
+        self: *Self,
+        block: *ParsedExpr.Kind.Block,
+        position: Position,
+    ) Error!*SemaExpr {
+        var locals_map = LocalsMap.init(self.allocator, self.locals_map);
+        defer locals_map.deinit();
+
+        self.locals_map = &locals_map;
+
+        const old_locals_top = self.locals_top;
+
+        var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
+        errdefer {
+            for (sema_stmts.items) |stmt| {
+                stmt.destroy(self.allocator);
+            }
+
+            sema_stmts.clearAndFree();
+        }
+
+        for (block.stmts.items) |parser_stmt| {
+            const sema_stmt = try self.analyzeStmt(parser_stmt);
+            errdefer sema_stmt.destroy(self.allocator);
+
+            try sema_stmts.append(sema_stmt);
+        }
+
+        const last_stmt = sema_stmts.items[sema_stmts.items.len - 1];
+        const eval_type = last_stmt.kind.expr.expr.eval_type;
+
+        self.locals_map = self.locals_map.?.prev;
+        self.locals_top = old_locals_top;
+
+        return try SemaExpr.Kind.Block.create(
+            self.allocator,
+            sema_stmts,
+            eval_type,
+            position,
+        );
+    }
+
+    fn analyzeVariableExpr(
+        self: *Self,
+        variable: *ParsedExpr.Kind.Variable,
+        position: Position,
+    ) Error!*SemaExpr {
+        const index, const eval_type = self.getVariable(variable.name) orelse {
+            return self.semaErrorWithInvalidExpr(
+                position,
+                .{ .value_not_found = variable.name },
+                .{},
+            );
+        };
+
+        return try SemaExpr.Kind.Variable.create(
+            self.allocator,
+            index,
+            eval_type,
+            position,
+        );
     }
 
     fn declareVariable(
@@ -550,6 +589,120 @@ pub const Sema = struct {
                 .position = position,
             });
         }
+    }
+
+    fn translateBinaryKind(
+        eval_type: SemaExpr.EvalType,
+        binary_kind: ParsedExpr.Kind.Binary.Kind,
+    ) SemaExpr.Kind.Binary.Kind {
+        return switch (eval_type) {
+            .int => switch (binary_kind) {
+                .add => .add_int,
+                .subtract => .subtract_int,
+                .divide => .divide_int,
+                .multiply => .multiply_int,
+                .equal => .equal_int,
+                .not_equal => .not_equal_int,
+                .greater => .greater_int,
+                .greater_equal => .greater_equal_int,
+                .less => .less_int,
+                .less_equal => .less_equal_int,
+
+                .concat,
+                .and_,
+                .or_,
+                => unreachable,
+            },
+            .float => switch (binary_kind) {
+                .add => .add_float,
+                .subtract => .subtract_float,
+                .divide => .divide_float,
+                .multiply => .multiply_float,
+                .equal => .equal_float,
+                .not_equal => .not_equal_float,
+                .greater => .greater_float,
+                .greater_equal => .greater_equal_float,
+                .less => .less_float,
+                .less_equal => .less_equal_float,
+
+                .concat,
+                .and_,
+                .or_,
+                => unreachable,
+            },
+            .bool => switch (binary_kind) {
+                .equal => .equal_bool,
+                .not_equal => .not_equal_bool,
+                .and_ => .and_,
+                .or_ => .or_,
+
+                .add,
+                .subtract,
+                .divide,
+                .multiply,
+                .concat,
+                .greater,
+                .greater_equal,
+                .less,
+                .less_equal,
+                => unreachable,
+            },
+            .obj => switch (binary_kind) {
+                .concat => .concat,
+                .equal => .equal_obj,
+                .not_equal => .not_equal_obj,
+
+                .add,
+                .subtract,
+                .divide,
+                .multiply,
+                .greater,
+                .greater_equal,
+                .less,
+                .less_equal,
+                .and_,
+                .or_,
+                => unreachable,
+            },
+
+            .unit,
+            .invalid,
+            => unreachable,
+        };
+    }
+
+    fn translateUnaryKind(
+        eval_type: SemaExpr.EvalType,
+        unary_kind: ParsedExpr.Kind.Unary.Kind,
+    ) SemaExpr.Kind.Unary.Kind {
+        return switch (eval_type) {
+            .int => switch (unary_kind) {
+                .negate_num,
+                => .negate_int,
+
+                .negate_bool,
+                => unreachable,
+            },
+            .float => switch (unary_kind) {
+                .negate_num,
+                => .negate_float,
+
+                .negate_bool,
+                => unreachable,
+            },
+            .bool => switch (unary_kind) {
+                .negate_bool,
+                => .negate_bool,
+
+                .negate_num,
+                => unreachable,
+            },
+
+            .obj,
+            .unit,
+            .invalid,
+            => unreachable,
+        };
     }
 
     fn isString(eval_type: SemaExpr.EvalType) bool {
