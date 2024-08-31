@@ -41,7 +41,7 @@ const ExprContext = struct {
 
     is_child_to_logical: bool = false,
     current_logical: ?LogicalOperation = null,
-    previous_logical: ?LogicalOperation = null,
+    prev_logical: ?LogicalOperation = null,
     last_jump: *?JumpInfo,
     else_branch_offsets: *BranchOffsets,
     then_branch_offsets: *BranchOffsets,
@@ -343,7 +343,7 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprContext,
     ) Error!void {
-        const previous_logical = ctx.current_logical;
+        const prev_logical = ctx.current_logical;
         const current_logical: LogicalOperation =
             if (expr.kind == .or_) .or_ else if (expr.kind == .and_) .and_ else unreachable;
 
@@ -362,7 +362,7 @@ pub const Compiler = struct {
 
         const left_ctx = meta.spread(ctx, .{
             .is_child_to_logical = true,
-            .previous_logical = previous_logical,
+            .prev_logical = prev_logical,
             .current_logical = current_logical,
             .else_branch_offsets = else_branch_offsets,
             .then_branch_offsets = then_branch_offsets,
@@ -391,7 +391,7 @@ pub const Compiler = struct {
 
         try self.compileExpr(expr.right, right_ctx);
 
-        if (previous_logical == null) {
+        if (prev_logical == null) {
             // if the deepest branch condition was inverted, invert it back
             // as it is the end of the logical expression
             if (ctx.last_jump.* != null and ctx.last_jump.*.?.is_inverted) {
@@ -419,7 +419,7 @@ pub const Compiler = struct {
         const new_ctx = meta.spread(ctx, .{
             .is_child_to_logical = false,
             .current_logical = ctx.current_logical,
-            .previous_logical = ctx.previous_logical,
+            .prev_logical = ctx.prev_logical,
             .else_branch_offsets = ctx.else_branch_offsets,
             .then_branch_offsets = ctx.then_branch_offsets,
         });

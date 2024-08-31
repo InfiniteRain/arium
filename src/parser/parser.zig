@@ -61,7 +61,7 @@ pub const Parser = struct {
 
     allocator: Allocator,
     tokenizer: *Tokenizer = undefined,
-    previous_token: Token = undefined,
+    prev_token: Token = undefined,
     current_token: Token = undefined,
     diags: ?*Diags = null,
 
@@ -87,15 +87,15 @@ pub const Parser = struct {
         errdefer self.synchronize();
 
         if (self.match(.let, false)) {
-            return try self.parseLetStmt(self.previous().position);
+            return try self.parseLetStmt(self.prev().position);
         }
 
         if (self.match(.assert, false)) {
-            return try self.parseAssertStmt(self.previous().position);
+            return try self.parseAssertStmt(self.prev().position);
         }
 
         if (self.match(.print, false)) {
-            return try self.parsePrintStmt(self.previous().position);
+            return try self.parsePrintStmt(self.prev().position);
         }
 
         return try self.parseExprStmt(self.peek().position);
@@ -197,7 +197,7 @@ pub const Parser = struct {
         while (self.match(.bang_equal, ignore_new_line) or
             self.match(.equal_equal, ignore_new_line))
         {
-            const kind: BinaryKind = if (self.previous().kind == .bang_equal)
+            const kind: BinaryKind = if (self.prev().kind == .bang_equal)
                 .not_equal
             else
                 .equal;
@@ -230,7 +230,7 @@ pub const Parser = struct {
             self.match(.less, ignore_new_line) or
             self.match(.less_equal, ignore_new_line))
         {
-            const kind: BinaryKind = switch (self.previous().kind) {
+            const kind: BinaryKind = switch (self.prev().kind) {
                 .greater => .greater,
                 .greater_equal => .greater_equal,
                 .less => .less,
@@ -264,7 +264,7 @@ pub const Parser = struct {
         while (self.match(.minus, ignore_new_line) or
             self.match(.plus, ignore_new_line))
         {
-            const kind: BinaryKind = if (self.previous().kind == .minus)
+            const kind: BinaryKind = if (self.prev().kind == .minus)
                 .subtract
             else
                 .add;
@@ -295,7 +295,7 @@ pub const Parser = struct {
         while (self.match(.slash, ignore_new_line) or
             self.match(.star, ignore_new_line))
         {
-            const kind: BinaryKind = if (self.previous().kind == .slash)
+            const kind: BinaryKind = if (self.prev().kind == .slash)
                 .divide
             else
                 .multiply;
@@ -346,7 +346,7 @@ pub const Parser = struct {
         if (self.match(.minus, ignore_new_line) or
             self.match(.not, ignore_new_line))
         {
-            const token = self.previous();
+            const token = self.prev();
 
             self.skipNewLines();
 
@@ -371,19 +371,19 @@ pub const Parser = struct {
 
     fn parsePrimary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         if (self.match(.true_, ignore_new_line) or self.match(.false_, ignore_new_line)) {
-            const prev = self.previous();
+            const prev_token = self.prev();
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
-                .{ .bool = prev.lexeme.len == 4 },
-                prev.position,
+                .{ .bool = prev_token.lexeme.len == 4 },
+                prev_token.position,
             );
         }
 
         if (self.match(.int, ignore_new_line)) {
-            const prev = self.previous();
-            const int = std.fmt.parseInt(i64, prev.lexeme, 10) catch |err| switch (err) {
+            const prev_token = self.prev();
+            const int = std.fmt.parseInt(i64, prev_token.lexeme, 10) catch |err| switch (err) {
                 error.Overflow => blk: {
-                    try self.parserError(.int_literal_overflows, prev.position);
+                    try self.parserError(.int_literal_overflows, prev_token.position);
                     break :blk 0;
                 },
                 else => unreachable,
@@ -391,36 +391,36 @@ pub const Parser = struct {
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .int = int },
-                prev.position,
+                prev_token.position,
             );
         }
 
         if (self.match(.float, ignore_new_line)) {
-            const prev = self.previous();
-            const float = std.fmt.parseFloat(f64, prev.lexeme) catch unreachable;
+            const prev_token = self.prev();
+            const float = std.fmt.parseFloat(f64, prev_token.lexeme) catch unreachable;
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .float = float },
-                prev.position,
+                prev_token.position,
             );
         }
 
         if (self.match(.identifier, ignore_new_line)) {
-            const prev = self.previous();
+            const prev_token = self.prev();
             return try ParsedExpr.Kind.Variable.create(
                 self.allocator,
-                prev.lexeme,
-                prev.position,
+                prev_token.lexeme,
+                prev_token.position,
             );
         }
 
         if (self.match(.string, ignore_new_line)) {
-            const prev = self.previous();
+            const prev_token = self.prev();
 
-            const string = try self.allocator.dupe(u8, prev.lexeme[1 .. prev.lexeme.len - 1]);
+            const string = try self.allocator.dupe(u8, prev_token.lexeme[1 .. prev_token.lexeme.len - 1]);
             errdefer self.allocator.free(string);
 
-            return try ParsedExpr.Kind.Literal.create(self.allocator, .{ .string = string }, prev.position);
+            return try ParsedExpr.Kind.Literal.create(self.allocator, .{ .string = string }, prev_token.position);
         }
 
         if (self.match(.left_paren, ignore_new_line)) {
@@ -432,12 +432,12 @@ pub const Parser = struct {
         }
 
         if (self.match(.do, ignore_new_line)) {
-            return try self.parseBlock(.end, self.previous().position);
+            return try self.parseBlock(.end, self.prev().position);
         }
 
         if (self.match(.invalid, ignore_new_line)) {
-            const prev = self.previous();
-            try self.parserError(.{ .invalid_token = prev.lexeme }, prev.position);
+            const prev_token = self.prev();
+            try self.parserError(.{ .invalid_token = prev_token.lexeme }, prev_token.position);
         } else {
             try self.parserError(.expected_expression, self.peek().position);
         }
@@ -584,8 +584,8 @@ pub const Parser = struct {
         return self.current_token;
     }
 
-    fn previous(self: *Self) Token {
-        return self.previous_token;
+    fn prev(self: *Self) Token {
+        return self.prev_token;
     }
 
     fn advance(self: *Self) Token {
@@ -593,10 +593,10 @@ pub const Parser = struct {
             return self.current_token;
         }
 
-        self.previous_token = self.current_token;
+        self.prev_token = self.current_token;
         self.current_token = self.tokenizer.scanNonCommentToken();
 
-        return self.previous_token;
+        return self.prev_token;
     }
 
     fn skipNewLines(self: *Self) void {
@@ -607,7 +607,7 @@ pub const Parser = struct {
 
     fn synchronize(self: *Self) void {
         while (self.peek().kind != .eof) {
-            if (self.previous().kind == .semicolon and !self.check(.semicolon)) {
+            if (self.prev().kind == .semicolon and !self.check(.semicolon)) {
                 self.skipNewLines();
                 return;
             }
