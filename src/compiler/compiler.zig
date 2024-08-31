@@ -28,27 +28,6 @@ const Obj = obj_mod.Obj;
 const HashTable = hash_table_mod.HashTable;
 const Position = tokenizer_mod.Position;
 
-const LogicalOperation = enum {
-    or_,
-    and_,
-};
-
-const ExprContext = struct {
-    const JumpInfo = struct {
-        index: usize,
-        is_inverted: bool,
-    };
-
-    is_child_to_logical: bool = false,
-    current_logical: ?LogicalOperation = null,
-    prev_logical: ?LogicalOperation = null,
-    last_jump: *?JumpInfo,
-    else_branch_offsets: *BranchOffsets,
-    then_branch_offsets: *BranchOffsets,
-};
-
-const BranchOffsets = BoundedArray(usize, 128);
-
 pub const Compiler = struct {
     const Self = @This();
 
@@ -69,6 +48,27 @@ pub const Compiler = struct {
     };
 
     pub const Diags = SharedDiags(DiagEntry);
+
+    const ExprContext = struct {
+        const JumpInfo = struct {
+            index: usize,
+            is_inverted: bool,
+        };
+
+        const BranchOffsets = BoundedArray(usize, 128);
+
+        const LogicalOperation = enum {
+            or_,
+            and_,
+        };
+
+        is_child_to_logical: bool = false,
+        current_logical: ?LogicalOperation = null,
+        prev_logical: ?LogicalOperation = null,
+        last_jump: *?JumpInfo,
+        else_branch_offsets: *BranchOffsets,
+        then_branch_offsets: *BranchOffsets,
+    };
 
     vm_state: *VmState,
     allocator: Allocator,
@@ -125,30 +125,55 @@ pub const Compiler = struct {
         is_last_statement: bool,
     ) Error!void {
         switch (stmt.kind) {
-            .assert => |assert_stmt| {
-                try self.compileExpr(assert_stmt.expr, null);
-                try self.chunk.writeU8(.assert, stmt.position);
-            },
-            .print => |print| {
-                try self.compileExpr(print.expr, null);
-                try self.chunk.writeU8(.print, stmt.position);
-            },
-            .expr => |expr| {
-                try self.compileExpr(expr.expr, null);
-
-                if (!is_last_statement) {
-                    try self.eraseOrPopEvalValue(stmt.position);
-                }
-            },
-            .let => |let| {
-                const index: u8 = @intCast(let.index);
-
-                try self.compileExpr(let.expr, null);
-                try self.chunk.writeU8(.store_local, stmt.position);
-                try self.chunk.writeU8(index, stmt.position);
-            },
+            .assert => |*assert_stmt| try self.compileAssertStmt(assert_stmt, stmt.position),
+            .print => |*print| try self.compilePrintStmt(print, stmt.position),
+            .expr => |*expr| try self.compileExprStmt(expr, is_last_statement, stmt.position),
+            .let => |*let| try self.compileLetStmt(let, stmt.position),
             .invalid => @panic("invalid statement"),
         }
+    }
+
+    fn compileAssertStmt(
+        self: *Self,
+        assert_stmt: *const SemaStmt.Kind.Assert,
+        position: Position,
+    ) Error!void {
+        try self.compileExpr(assert_stmt.expr, null);
+        try self.chunk.writeU8(.assert, position);
+    }
+
+    fn compilePrintStmt(
+        self: *Self,
+        print: *const SemaStmt.Kind.Print,
+        position: Position,
+    ) Error!void {
+        try self.compileExpr(print.expr, null);
+        try self.chunk.writeU8(.print, position);
+    }
+
+    fn compileExprStmt(
+        self: *Self,
+        expr: *const SemaStmt.Kind.Expr,
+        is_last_statement: bool,
+        position: Position,
+    ) Error!void {
+        try self.compileExpr(expr.expr, null);
+
+        if (!is_last_statement) {
+            try self.eraseOrPopEvalValue(position);
+        }
+    }
+
+    fn compileLetStmt(
+        self: *Self,
+        let: *const SemaStmt.Kind.Let,
+        position: Position,
+    ) Error!void {
+        const index: u8 = @intCast(let.index);
+
+        try self.compileExpr(let.expr, null);
+        try self.chunk.writeU8(.store_local, position);
+        try self.chunk.writeU8(index, position);
     }
 
     fn compileExpr(
@@ -158,11 +183,11 @@ pub const Compiler = struct {
     ) Error!void {
         var is_branching = false;
         var last_jump: ?ExprContext.JumpInfo = null;
-        var else_branch_offsets: BranchOffsets = undefined;
-        var then_branch_offsets: BranchOffsets = undefined;
+        var else_branch_offsets: ExprContext.BranchOffsets = undefined;
+        var then_branch_offsets: ExprContext.BranchOffsets = undefined;
         const ctx = if (ctx_opt) |passed_ctx| passed_ctx else blk: {
-            else_branch_offsets = BranchOffsets.init(0) catch unreachable;
-            then_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
+            then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
 
             break :blk ExprContext{
                 .last_jump = &last_jump,
@@ -172,113 +197,13 @@ pub const Compiler = struct {
         };
 
         switch (expr.kind) {
-            .literal => |literal| {
-                switch (literal) {
-                    .unit => try self.chunk.writeU8(.constant_unit, expr.position),
-                    .int => |int| switch (int) {
-                        -1 => try self.chunk.writeU8(.constant_int_n1, expr.position),
-                        0 => try self.chunk.writeU8(.constant_int_0, expr.position),
-                        1 => try self.chunk.writeU8(.constant_int_1, expr.position),
-                        2 => try self.chunk.writeU8(.constant_int_2, expr.position),
-                        3 => try self.chunk.writeU8(.constant_int_3, expr.position),
-                        4 => try self.chunk.writeU8(.constant_int_4, expr.position),
-                        5 => try self.chunk.writeU8(.constant_int_5, expr.position),
-                        else => try self.writeConstant(.{ .int = int }, expr.position),
-                    },
-                    .float => |float| {
-                        if (float == 0) {
-                            try self.chunk.writeU8(.constant_float_0, expr.position);
-                        } else if (float == 1) {
-                            try self.chunk.writeU8(.constant_float_1, expr.position);
-                        } else if (float == 2) {
-                            try self.chunk.writeU8(.constant_float_2, expr.position);
-                        } else {
-                            try self.writeConstant(.{ .float = float }, expr.position);
-                        }
-                    },
-                    .bool => |bool_| switch (bool_) {
-                        true => try self.chunk.writeU8(.constant_bool_true, expr.position),
-                        false => try self.chunk.writeU8(.constant_bool_false, expr.position),
-                    },
-                    .string => |string| try self.writeConstant(
-                        .{
-                            .obj = &(try Obj.String.createFromCopied(
-                                self.allocator,
-                                self.vm_state,
-                                string,
-                            )).obj,
-                        },
-                        expr.position,
-                    ),
-                }
+            .literal => |*literal| try self.compileLiteralExpr(literal, expr.position),
+            .binary => |*binary| {
+                is_branching = try self.compileBinaryExpr(binary, ctx, expr.position);
             },
-            .binary => |binary| {
-                switch (binary.kind) {
-                    .add_int,
-                    .add_float,
-                    .subtract_int,
-                    .subtract_float,
-                    .multiply_int,
-                    .multiply_float,
-                    .divide_int,
-                    .divide_float,
-                    .concat,
-                    => try self.arithmetic(&binary, expr.position, ctx),
-
-                    .equal_int,
-                    .equal_float,
-                    .equal_bool,
-                    .equal_obj,
-                    .not_equal_int,
-                    .not_equal_float,
-                    .not_equal_bool,
-                    .not_equal_obj,
-                    .greater_int,
-                    .greater_float,
-                    .greater_equal_int,
-                    .greater_equal_float,
-                    .less_int,
-                    .less_float,
-                    .less_equal_int,
-                    .less_equal_float,
-                    => {
-                        is_branching = true;
-                        try self.comparison(&binary, expr.position, ctx);
-                    },
-
-                    .or_,
-                    .and_,
-                    => {
-                        is_branching = true;
-                        try self.logical(&binary, expr.position, ctx);
-                    },
-                }
-            },
-            .unary => |unary| {
-                try self.compileExpr(unary.right, null);
-                try self.chunk.writeU8(
-                    switch (unary.kind) {
-                        .negate_bool => OpCode.negate_bool,
-                        .negate_int => OpCode.negate_int,
-                        .negate_float => OpCode.negate_float,
-                    },
-                    expr.position,
-                );
-            },
-            .block => |block| {
-                for (block.stmts.items, 0..) |child_stmt, index| {
-                    try self.compileStmt(
-                        child_stmt,
-                        index == block.stmts.items.len - 1,
-                    );
-                }
-            },
-            .variable => |variable| {
-                const index: u8 = @intCast(variable.index);
-
-                try self.chunk.writeU8(.load_local, expr.position);
-                try self.chunk.writeU8(index, expr.position);
-            },
+            .unary => |*unary| try self.compileUnaryExpr(unary, expr.position),
+            .block => |*block| try self.compileBlockExpr(block),
+            .variable => |*variable| try self.compileVariableExpr(variable, expr.position),
             .invalid => @panic("invalid expression"),
         }
 
@@ -304,7 +229,103 @@ pub const Compiler = struct {
         }
     }
 
-    fn comparison(
+    fn compileLiteralExpr(
+        self: *Self,
+        literal: *const SemaExpr.Kind.Literal,
+        position: Position,
+    ) Error!void {
+        switch (literal.*) {
+            .unit => try self.chunk.writeU8(.constant_unit, position),
+            .int => |int| switch (int) {
+                -1 => try self.chunk.writeU8(.constant_int_n1, position),
+                0 => try self.chunk.writeU8(.constant_int_0, position),
+                1 => try self.chunk.writeU8(.constant_int_1, position),
+                2 => try self.chunk.writeU8(.constant_int_2, position),
+                3 => try self.chunk.writeU8(.constant_int_3, position),
+                4 => try self.chunk.writeU8(.constant_int_4, position),
+                5 => try self.chunk.writeU8(.constant_int_5, position),
+                else => try self.writeConstant(.{ .int = int }, position),
+            },
+            .float => |float| {
+                if (float == 0) {
+                    try self.chunk.writeU8(.constant_float_0, position);
+                } else if (float == 1) {
+                    try self.chunk.writeU8(.constant_float_1, position);
+                } else if (float == 2) {
+                    try self.chunk.writeU8(.constant_float_2, position);
+                } else {
+                    try self.writeConstant(.{ .float = float }, position);
+                }
+            },
+            .bool => |bool_| switch (bool_) {
+                true => try self.chunk.writeU8(.constant_bool_true, position),
+                false => try self.chunk.writeU8(.constant_bool_false, position),
+            },
+            .string => |string| try self.writeConstant(
+                .{
+                    .obj = &(try Obj.String.createFromCopied(
+                        self.allocator,
+                        self.vm_state,
+                        string,
+                    )).obj,
+                },
+                position,
+            ),
+        }
+    }
+
+    fn compileBinaryExpr(
+        self: *Self,
+        binary: *const SemaExpr.Kind.Binary,
+        ctx: ExprContext,
+        position: Position,
+    ) Error!bool {
+        switch (binary.kind) {
+            .add_int,
+            .add_float,
+            .subtract_int,
+            .subtract_float,
+            .multiply_int,
+            .multiply_float,
+            .divide_int,
+            .divide_float,
+            .concat,
+            => {
+                try self.compileArithmeticBinaryExpr(binary, position, ctx);
+                return false;
+            },
+
+            .equal_int,
+            .equal_float,
+            .equal_bool,
+            .equal_obj,
+            .not_equal_int,
+            .not_equal_float,
+            .not_equal_bool,
+            .not_equal_obj,
+            .greater_int,
+            .greater_float,
+            .greater_equal_int,
+            .greater_equal_float,
+            .less_int,
+            .less_float,
+            .less_equal_int,
+            .less_equal_float,
+            => {
+                try self.compileComparisonBinaryExpr(binary, position, ctx);
+                return true;
+            },
+
+            .or_,
+            .and_,
+            => {
+                try self.compileLogicalBinaryExpr(binary, position, ctx);
+                return true;
+            },
+        }
+    }
+
+    fn compileComparisonBinaryExpr(
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
@@ -337,26 +358,26 @@ pub const Compiler = struct {
         }
     }
 
-    fn logical(
+    fn compileLogicalBinaryExpr(
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
         ctx: ExprContext,
     ) Error!void {
         const prev_logical = ctx.current_logical;
-        const current_logical: LogicalOperation =
+        const current_logical: ExprContext.LogicalOperation =
             if (expr.kind == .or_) .or_ else if (expr.kind == .and_) .and_ else unreachable;
 
-        var new_else_branch_offsets: BranchOffsets = undefined;
-        var new_then_branch_offsets: BranchOffsets = undefined;
+        var new_else_branch_offsets: ExprContext.BranchOffsets = undefined;
+        var new_then_branch_offsets: ExprContext.BranchOffsets = undefined;
         var else_branch_offsets = ctx.else_branch_offsets;
         var then_branch_offsets = ctx.then_branch_offsets;
 
         if (expr.kind == .or_) {
-            new_else_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            new_else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
             else_branch_offsets = &new_else_branch_offsets;
         } else {
-            new_then_branch_offsets = BranchOffsets.init(0) catch unreachable;
+            new_then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
             then_branch_offsets = &new_then_branch_offsets;
         }
 
@@ -410,7 +431,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn arithmetic(
+    fn compileArithmeticBinaryExpr(
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
@@ -441,6 +462,45 @@ pub const Compiler = struct {
         };
 
         try self.chunk.writeU8(op_code, position);
+    }
+
+    fn compileUnaryExpr(
+        self: *Self,
+        unary: *const SemaExpr.Kind.Unary,
+        position: Position,
+    ) Error!void {
+        try self.compileExpr(unary.right, null);
+        try self.chunk.writeU8(
+            switch (unary.kind) {
+                .negate_bool => OpCode.negate_bool,
+                .negate_int => OpCode.negate_int,
+                .negate_float => OpCode.negate_float,
+            },
+            position,
+        );
+    }
+
+    fn compileBlockExpr(
+        self: *Self,
+        block: *const SemaExpr.Kind.Block,
+    ) Error!void {
+        for (block.stmts.items, 0..) |child_stmt, index| {
+            try self.compileStmt(
+                child_stmt,
+                index == block.stmts.items.len - 1,
+            );
+        }
+    }
+
+    fn compileVariableExpr(
+        self: *Self,
+        variable: *const SemaExpr.Kind.Variable,
+        position: Position,
+    ) Error!void {
+        const index: u8 = @intCast(variable.index);
+
+        try self.chunk.writeU8(.load_local, position);
+        try self.chunk.writeU8(index, position);
     }
 
     fn branchOff(
@@ -526,7 +586,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn patchJumps(self: *Self, jumps: *BranchOffsets) Error!void {
+    fn patchJumps(self: *Self, jumps: *ExprContext.BranchOffsets) Error!void {
         while (jumps.popOrNull()) |jump| {
             try self.patchJump(jump);
         }
