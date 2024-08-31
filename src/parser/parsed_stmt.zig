@@ -91,7 +91,6 @@ pub const ParsedStmt = struct {
                 position: Position,
             ) !*Self {
                 const stmt = try allocator.create(Self);
-                errdefer allocator.destroy(stmt);
 
                 stmt.* = .{
                     .kind = .{
@@ -115,18 +114,4 @@ pub const ParsedStmt = struct {
 
     kind: Kind,
     position: Position,
-
-    pub fn destroy(self: *Self, allocator: Allocator) void {
-        switch (self.kind) {
-            .assert => |assert| assert.expr.destroy(allocator),
-            .print => |print| print.expr.destroy(allocator),
-            .expr => |expr| expr.expr.destroy(allocator),
-            .let => |let| {
-                allocator.free(let.name);
-                let.expr.destroy(allocator);
-            },
-        }
-
-        allocator.destroy(self);
-    }
 };

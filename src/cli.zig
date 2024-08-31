@@ -11,6 +11,7 @@ const error_reporter = @import("reporter/error_reporter.zig");
 const debug_reporter = @import("reporter/debug_reporter.zig");
 
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const Writer = shared.Writer;
 const Tokenizer = tokenizer_mod.Tokenizer;
@@ -82,11 +83,15 @@ fn runFile(
     file_path: []const u8,
     args: anytype,
 ) !void {
+    var arena_allocator = ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
+
     const source = try readFileAlloc(allocator, file_path, out_writer);
+    defer allocator.free(source);
 
     var tokenizer = Tokenizer.init(source);
 
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(&arena_allocator);
     var parser_diags = Parser.Diags.init(allocator);
     defer parser_diags.deinit();
 
@@ -97,20 +102,18 @@ fn runFile(
         },
         else => return err,
     };
-    defer sema_expr.destroy(allocator);
 
-    var sema = Sema.init(allocator);
+    var sema = Sema.init(&arena_allocator);
     var sema_diags = Sema.Diags.init(allocator);
     defer sema_diags.deinit();
 
-    var sema_block = sema.analyze(sema_expr, &sema_diags) catch |err| switch (err) {
+    const sema_block = sema.analyze(sema_expr, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
             error_reporter.reportSemaDiags(&sema_diags, err_writer);
             std.posix.exit(65);
         },
         else => return err,
     };
-    defer sema_block.destroy(allocator);
 
     var memory = ManagedMemory.init(allocator);
     defer memory.deinit();

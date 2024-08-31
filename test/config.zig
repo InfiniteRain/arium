@@ -173,8 +173,8 @@ pub const Config = struct {
             };
 
             parseDirective(&ctx) catch |err| switch (err) {
+                error.DirectiveParseFailure => {},
                 error.OutOfMemory => return error.OutOfMemory,
-                else => {},
             };
         }
 

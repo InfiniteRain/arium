@@ -6,6 +6,7 @@ const config_mod = @import("config.zig");
 const test_reporter = @import("test_reporter.zig");
 
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const Tokenizer = arium.Tokenizer;
@@ -197,8 +198,11 @@ pub const Runner = struct {
         defer actual.deinit();
 
         blk: {
+            var arena_allocator = ArenaAllocator.init(test_allocator);
+            defer arena_allocator.deinit();
+
             var tokenizer = Tokenizer.init(config.source);
-            var parser = Parser.init(test_allocator);
+            var parser = Parser.init(&arena_allocator);
 
             // allocate using Runner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
@@ -217,13 +221,12 @@ pub const Runner = struct {
                 },
                 error.OutOfMemory => return error.OutOfMemory,
             };
-            defer parsed_block.destroy(test_allocator);
 
             if (config.kind == .parse) {
                 break :blk;
             }
 
-            var sema = Sema.init(test_allocator);
+            var sema = Sema.init(&arena_allocator);
 
             // allocate using Runner's allocator to prevent segfaults on dealloc.
             // diags are owned by the test runner, not the tests.
@@ -240,7 +243,6 @@ pub const Runner = struct {
                 },
                 error.OutOfMemory => return error.OutOfMemory,
             };
-            defer sema_block.destroy(test_allocator);
 
             if (config.kind == .sema) {
                 break :blk;

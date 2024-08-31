@@ -155,7 +155,6 @@ pub const ParsedExpr = struct {
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
-                errdefer allocator.destroy(expr);
 
                 expr.* = .{
                     .kind = .{
@@ -179,37 +178,4 @@ pub const ParsedExpr = struct {
 
     kind: Kind,
     position: Position,
-
-    pub fn destroy(self: *Self, allocator: Allocator) void {
-        switch (self.kind) {
-            .binary => |binary| {
-                binary.left.destroy(allocator);
-                binary.right.destroy(allocator);
-            },
-            .literal => |literal| switch (literal.kind) {
-                .string => |string| allocator.free(string),
-
-                .unit,
-                .int,
-                .float,
-                .bool,
-                => {},
-            },
-            .unary => |unary| {
-                unary.right.destroy(allocator);
-            },
-            .block => |*block| {
-                for (block.stmts.items) |stmt| {
-                    stmt.destroy(allocator);
-                }
-
-                block.stmts.clearAndFree();
-            },
-            .variable => |variable| {
-                allocator.free(variable.name);
-            },
-        }
-
-        allocator.destroy(self);
-    }
 };

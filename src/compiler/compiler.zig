@@ -129,7 +129,6 @@ pub const Compiler = struct {
             .print => |*print| try self.compilePrintStmt(print, stmt.position),
             .expr => |*expr| try self.compileExprStmt(expr, is_last_statement, stmt.position),
             .let => |*let| try self.compileLetStmt(let, stmt.position),
-            .invalid => @panic("invalid statement"),
         }
     }
 
@@ -204,7 +203,6 @@ pub const Compiler = struct {
             .unary => |*unary| try self.compileUnaryExpr(unary, expr.position),
             .block => |*block| try self.compileBlockExpr(block),
             .variable => |*variable| try self.compileVariableExpr(variable, expr.position),
-            .invalid => @panic("invalid expression"),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
@@ -271,6 +269,7 @@ pub const Compiler = struct {
                 },
                 position,
             ),
+            .invalid => @panic("invalid expr"),
         }
     }
 
@@ -595,7 +594,7 @@ pub const Compiler = struct {
     fn patchJump(self: *Self, offset: usize) Error!void {
         self.chunk.patchJump(offset) catch |err| switch (err) {
             error.JumpTooBig => {
-                try self.compilerError(.jump_too_big, self.chunk.positions.items[offset]);
+                try self.addDiag(.jump_too_big, self.chunk.positions.items[offset]);
                 return error.CompileFailure;
             },
         };
@@ -604,7 +603,7 @@ pub const Compiler = struct {
     fn writeConstant(self: *Self, value: Value, position: Position) Error!void {
         self.chunk.writeConstant(value, position) catch |err| switch (err) {
             error.TooManyConstants => {
-                try self.compilerError(.too_many_constants, position);
+                try self.addDiag(.too_many_constants, position);
                 return error.CompileFailure;
             },
             error.OutOfMemory => return error.OutOfMemory,
@@ -638,11 +637,11 @@ pub const Compiler = struct {
     }
 
     fn tooManyBranchJumps(self: *Self, offset: usize) Error {
-        try self.compilerError(.too_many_branch_jumps, self.chunk.positions.items[offset]);
+        try self.addDiag(.too_many_branch_jumps, self.chunk.positions.items[offset]);
         return error.CompileFailure;
     }
 
-    fn compilerError(
+    fn addDiag(
         self: *Self,
         diag_kind: DiagEntry.Kind,
         position: Position,

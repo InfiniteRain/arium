@@ -106,61 +106,12 @@ pub const SemaStmt = struct {
             }
         };
 
-        pub const Invalid = struct {
-            child_exprs: ArrayList(*SemaExpr),
-
-            pub fn create(
-                allocator: Allocator,
-                child_exprs_struct: anytype,
-            ) !*Self {
-                const stmt = try allocator.create(Self);
-                var child_exprs = ArrayList(*SemaExpr).init(allocator);
-
-                inline for (child_exprs_struct) |child_expr| {
-                    try child_exprs.append(child_expr);
-                }
-
-                stmt.* = .{
-                    .kind = .{
-                        .invalid = .{
-                            .child_exprs = child_exprs,
-                        },
-                    },
-                    .position = .{
-                        .line = 0,
-                        .column = 0,
-                    },
-                };
-
-                return stmt;
-            }
-        };
-
         assert: Assert,
         print: Print,
         expr: Expr,
         let: Let,
-        invalid: Invalid,
     };
 
     kind: Kind,
     position: Position,
-
-    pub fn destroy(self: *Self, allocator: Allocator) void {
-        switch (self.kind) {
-            .assert => |assert| assert.expr.destroy(allocator),
-            .print => |print| print.expr.destroy(allocator),
-            .expr => |expr| expr.expr.destroy(allocator),
-            .let => |let| let.expr.destroy(allocator),
-            .invalid => |*invalid| {
-                for (invalid.child_exprs.items) |child_expr| {
-                    child_expr.destroy(allocator);
-                }
-
-                invalid.child_exprs.clearAndFree();
-            },
-        }
-
-        allocator.destroy(self);
-    }
 };

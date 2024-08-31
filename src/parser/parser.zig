@@ -5,6 +5,7 @@ const parsed_expr_mod = @import("parsed_expr.zig");
 const parsed_stmt_mod = @import("parsed_stmt.zig");
 
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const expectError = std.testing.expectError;
@@ -65,9 +66,9 @@ pub const Parser = struct {
     current_token: Token = undefined,
     diags: ?*Diags = null,
 
-    pub fn init(allocator: Allocator) Self {
+    pub fn init(arena_allocator: *ArenaAllocator) Self {
         return .{
-            .allocator = allocator,
+            .allocator = arena_allocator.allocator(),
         };
     }
 
@@ -104,7 +105,6 @@ pub const Parser = struct {
         const name_token = try self.consume(.identifier, .expected_name);
         _ = try self.consume(.equal, .expected_equal_after_name);
         const expr = try self.parseExpr(false);
-        errdefer expr.destroy(self.allocator);
 
         return try ParsedStmt.Kind.Let.create(
             self.allocator,
@@ -118,7 +118,6 @@ pub const Parser = struct {
         _ = try self.consume(.left_paren, .expected_left_paren_before_expr);
 
         const expr = try self.parseExpr(false);
-        errdefer expr.destroy(self.allocator);
 
         _ = try self.consume(.right_paren, .expected_right_paren_after_expr);
 
@@ -127,13 +126,11 @@ pub const Parser = struct {
 
     fn parsePrintStmt(self: *Self, position: Position) Error!*ParsedStmt {
         const expr = try self.parseExpr(false);
-        errdefer expr.destroy(self.allocator);
         return try ParsedStmt.Kind.Print.create(self.allocator, expr, position);
     }
 
     fn parseExprStmt(self: *Self, position: Position) Error!*ParsedStmt {
         const expr = try self.parseExpr(false);
-        errdefer expr.destroy(self.allocator);
         return try ParsedStmt.Kind.Expr.create(self.allocator, expr, position);
     }
 
@@ -144,13 +141,11 @@ pub const Parser = struct {
     fn parseOr(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         const position = self.peek().position;
         var expr = try self.parseAnd(ignore_new_line);
-        errdefer expr.destroy(self.allocator);
 
         while (self.match(.or_, ignore_new_line) != null) {
             self.skipNewLines();
 
             const right = try self.parseAnd(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
@@ -167,13 +162,11 @@ pub const Parser = struct {
     fn parseAnd(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         const position = self.peek().position;
         var expr = try self.parseEquality(ignore_new_line);
-        errdefer expr.destroy(self.allocator);
 
         while (self.match(.and_, ignore_new_line) != null) {
             self.skipNewLines();
 
             const right = try self.parseEquality(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
@@ -191,7 +184,6 @@ pub const Parser = struct {
         const position = self.peek().position;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseComparison(ignore_new_line);
-        errdefer expr.destroy(self.allocator);
 
         while (self.match(.{ .bang_equal, .equal_equal }, ignore_new_line)) |token| {
             self.skipNewLines();
@@ -201,7 +193,6 @@ pub const Parser = struct {
             else
                 .equal;
             const right = try self.parseComparison(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
@@ -219,7 +210,6 @@ pub const Parser = struct {
         const position = self.peek().position;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseTerm(ignore_new_line);
-        errdefer expr.destroy(self.allocator);
 
         while (self.match(.{
             .greater,
@@ -237,7 +227,6 @@ pub const Parser = struct {
                 else => unreachable,
             };
             const right = try self.parseTerm(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
@@ -255,7 +244,6 @@ pub const Parser = struct {
         const position = self.peek().position;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseFactor(ignore_new_line);
-        errdefer expr.destroy(self.allocator);
 
         while (self.match(.{ .minus, .plus }, ignore_new_line)) |token| {
             self.skipNewLines();
@@ -265,7 +253,6 @@ pub const Parser = struct {
             else
                 .add;
             const right = try self.parseFactor(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
@@ -283,7 +270,6 @@ pub const Parser = struct {
         const position = self.peek().position;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseConcat(ignore_new_line);
-        errdefer expr.destroy(self.allocator);
 
         while (self.match(.{ .slash, .star }, ignore_new_line)) |token| {
             self.skipNewLines();
@@ -293,7 +279,6 @@ pub const Parser = struct {
             else
                 .multiply;
             const right = try self.parseConcat(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
@@ -311,14 +296,12 @@ pub const Parser = struct {
         const position = self.peek().position;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseUnary(ignore_new_line);
-        errdefer expr.destroy(self.allocator);
 
         while (self.match(.plus_plus, ignore_new_line) != null) {
             self.skipNewLines();
 
             const kind = BinaryKind.concat;
             const right = try self.parseUnary(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
@@ -342,7 +325,6 @@ pub const Parser = struct {
             else
                 .negate_bool;
             const right = try self.parseUnary(ignore_new_line);
-            errdefer right.destroy(self.allocator);
 
             return try ParsedExpr.Kind.Unary.create(
                 self.allocator,
@@ -367,7 +349,7 @@ pub const Parser = struct {
         if (self.match(.int, ignore_new_line)) |token| {
             const int = std.fmt.parseInt(i64, token.lexeme, 10) catch |err| switch (err) {
                 error.Overflow => blk: {
-                    try self.parserError(.int_literal_overflows, token.position);
+                    try self.addDiag(.int_literal_overflows, token.position);
                     break :blk 0;
                 },
                 else => unreachable,
@@ -401,7 +383,6 @@ pub const Parser = struct {
                 u8,
                 token.lexeme[1 .. token.lexeme.len - 1],
             );
-            errdefer self.allocator.free(string);
 
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
@@ -412,7 +393,6 @@ pub const Parser = struct {
 
         if (self.match(.left_paren, ignore_new_line) != null) {
             const expr = try self.parseExpr(true);
-            errdefer expr.destroy(self.allocator);
 
             _ = try self.consume(.right_paren, .expected_right_paren_after_expr);
             return expr;
@@ -423,9 +403,9 @@ pub const Parser = struct {
         }
 
         if (self.match(.invalid, ignore_new_line)) |token| {
-            try self.parserError(.{ .invalid_token = token.lexeme }, token.position);
+            try self.addDiag(.{ .invalid_token = token.lexeme }, token.position);
         } else {
-            try self.parserError(.expected_expression, self.peek().position);
+            try self.addDiag(.expected_expression, self.peek().position);
         }
 
         return error.ParseFailure;
@@ -436,15 +416,13 @@ pub const Parser = struct {
         end_token_kind: Token.Kind,
         position: Position,
     ) Error!*ParsedExpr {
-        var stmts = ArrayList(*ParsedStmt).init(self.allocator);
-        errdefer stmts.clearAndFree();
+        const stmts = ArrayList(*ParsedStmt).init(self.allocator);
 
         var block = try ParsedExpr.Kind.Block.create(
             self.allocator,
             stmts,
             position,
         );
-        errdefer block.destroy(self.allocator);
 
         if (self.match(end_token_kind, true) != null) {
             try self.addUniExprStmtToBlock(&block.kind.block, position);
@@ -456,18 +434,24 @@ pub const Parser = struct {
 
         while (true) {
             const stmt = self.parseStmt() catch |err| switch (err) {
-                error.ParseFailure => {
+                error.ParseFailure => blk: {
                     // todo: perhaps add semicolon error message here
-
                     if (self.check(.eof)) {
                         break;
                     }
 
-                    continue;
+                    break :blk try ParsedStmt.Kind.Expr.create(
+                        self.allocator,
+                        try ParsedExpr.Kind.Literal.create(
+                            self.allocator,
+                            .unit, // literal kind doesn't matter here
+                            position,
+                        ),
+                        position,
+                    );
                 },
                 else => return err,
             };
-            errdefer stmt.destroy(self.allocator);
 
             try block.kind.block.stmts.append(stmt);
 
@@ -505,14 +489,12 @@ pub const Parser = struct {
             .unit,
             position,
         );
-        errdefer expr.destroy(self.allocator);
 
         const exprStmt = try ParsedStmt.Kind.Expr.create(
             self.allocator,
             expr,
             position,
         );
-        errdefer exprStmt.destroy(self.allocator);
 
         try block.stmts.append(exprStmt);
     }
@@ -550,7 +532,7 @@ pub const Parser = struct {
             return self.advance();
         }
 
-        try self.parserError(diag_kind, self.peek().position);
+        try self.addDiag(diag_kind, self.peek().position);
         return error.ParseFailure;
     }
 
@@ -604,7 +586,7 @@ pub const Parser = struct {
 
     fn synchronize(self: *Self) void {
         while (self.peek().kind != .eof) {
-            if (self.prev().kind == .semicolon and !self.check(.semicolon)) {
+            if (self.prev().kind == .semicolon) {
                 self.skipNewLines();
                 return;
             }
@@ -612,6 +594,7 @@ pub const Parser = struct {
             switch (self.peek().kind) {
                 .print,
                 .assert,
+                .let,
                 => return,
 
                 else => _ = self.advance(),
@@ -619,7 +602,7 @@ pub const Parser = struct {
         }
     }
 
-    fn parserError(
+    fn addDiag(
         self: *Self,
         diag_kind: DiagEntry.Kind,
         position: Position,
@@ -656,25 +639,29 @@ test "should free all memory on successful parse" {
     // GIVEN
     const allocator = std.testing.allocator;
 
+    var arena_allocator = ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
+
     const source = "print (2 + 2) * -2";
     var tokenizer = Tokenizer.init(source);
 
     // WHEN - THEN
-    var parser = Parser.init(allocator);
-
-    const expr = try parser.parse(&tokenizer, null);
-    defer expr.destroy(allocator);
+    var parser = Parser.init(&arena_allocator);
+    _ = try parser.parse(&tokenizer, null);
 }
 
 test "should free all memory on unsuccessful parse" {
     // GIVEN
     const allocator = std.testing.allocator;
 
+    var arena_allocator = ArenaAllocator.init(allocator);
+    defer arena_allocator.deinit();
+
     const source = "print (2 + 2) print -2 + 2)";
     var tokenizer = Tokenizer.init(source);
 
     // WHEN - THEN
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(&arena_allocator);
 
     const result = parser.parse(&tokenizer, null);
     try expectError(Parser.Error.ParseFailure, result);

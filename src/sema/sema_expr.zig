@@ -18,6 +18,7 @@ pub const SemaExpr = struct {
             float: f64,
             bool: bool,
             string: []const u8,
+            invalid,
 
             // Takes ownership of heap data (string).
             pub fn create(allocator: Allocator, literal: Literal, position: Position) !*Self {
@@ -31,6 +32,7 @@ pub const SemaExpr = struct {
                         .float => .float,
                         .bool => .bool,
                         .string => .{ .obj = .string },
+                        .invalid => .invalid,
                     },
                     .position = position,
                 };
@@ -101,39 +103,6 @@ pub const SemaExpr = struct {
                 };
 
                 return expr;
-            }
-
-            pub fn isComparison(self: *const SemaExpr.Kind.Binary) bool {
-                return switch (self.kind) {
-                    .equal_int,
-                    .equal_float,
-                    .equal_bool,
-                    .equal_obj,
-                    .not_equal_int,
-                    .not_equal_float,
-                    .not_equal_bool,
-                    .not_equal_obj,
-
-                    .greater_int,
-                    .greater_float,
-                    .greater_equal_int,
-                    .greater_equal_float,
-                    .less_int,
-                    .less_float,
-                    .less_equal_int,
-                    .less_equal_float,
-                    => true,
-                    else => false,
-                };
-            }
-
-            pub fn isLogical(self: *const SemaExpr.Kind.Binary) bool {
-                return switch (self.kind) {
-                    .or_,
-                    .and_,
-                    => true,
-                    else => false,
-                };
             }
         };
 
@@ -221,40 +190,11 @@ pub const SemaExpr = struct {
             }
         };
 
-        pub const Invalid = struct {
-            child_exprs: ArrayList(*Self),
-
-            pub fn create(allocator: Allocator, child_exprs_struct: anytype) !*Self {
-                const expr = try allocator.create(Self);
-                var child_exprs = ArrayList(*Self).init(allocator);
-
-                inline for (child_exprs_struct) |child_expr| {
-                    try child_exprs.append(child_expr);
-                }
-
-                expr.* = .{
-                    .kind = .{
-                        .invalid = .{
-                            .child_exprs = child_exprs,
-                        },
-                    },
-                    .eval_type = .invalid,
-                    .position = .{
-                        .line = 0,
-                        .column = 0,
-                    },
-                };
-
-                return expr;
-            }
-        };
-
         literal: Literal,
         binary: Binary,
         unary: Unary,
         block: Block,
         variable: Variable,
-        invalid: Invalid,
     };
 
     pub const EvalType = union(enum) {
@@ -292,41 +232,4 @@ pub const SemaExpr = struct {
     kind: Kind,
     eval_type: EvalType,
     position: Position,
-
-    pub fn destroy(self: *Self, allocator: Allocator) void {
-        switch (self.kind) {
-            .literal => |literal| switch (literal) {
-                .string => |string| allocator.free(string),
-
-                .unit,
-                .int,
-                .float,
-                .bool,
-                => {},
-            },
-            .binary => |binary| {
-                binary.left.destroy(allocator);
-                binary.right.destroy(allocator);
-            },
-            .unary => |unary| {
-                unary.right.destroy(allocator);
-            },
-            .block => |*block| {
-                for (block.stmts.items) |stmt| {
-                    stmt.destroy(allocator);
-                }
-
-                block.stmts.clearAndFree();
-            },
-            .variable => {},
-            .invalid => |*invalid| {
-                for (invalid.child_exprs.items) |child_expr| {
-                    child_expr.destroy(allocator);
-                }
-
-                invalid.child_exprs.clearAndFree();
-            },
-        }
-        allocator.destroy(self);
-    }
 };
