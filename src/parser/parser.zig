@@ -79,23 +79,22 @@ pub const Parser = struct {
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanNonCommentToken();
         self.diags = diags;
-
         return try self.parseBlock(.eof, .{ .line = 1, .column = 1 });
     }
 
     fn parseStmt(self: *Self) Error!*ParsedStmt {
         errdefer self.synchronize();
 
-        if (self.match(.let, false)) {
-            return try self.parseLetStmt(self.prev().position);
+        if (self.match(.let, false)) |token| {
+            return try self.parseLetStmt(token.position);
         }
 
-        if (self.match(.assert, false)) {
-            return try self.parseAssertStmt(self.prev().position);
+        if (self.match(.assert, false)) |token| {
+            return try self.parseAssertStmt(token.position);
         }
 
-        if (self.match(.print, false)) {
-            return try self.parsePrintStmt(self.prev().position);
+        if (self.match(.print, false)) |token| {
+            return try self.parsePrintStmt(token.position);
         }
 
         return try self.parseExprStmt(self.peek().position);
@@ -147,7 +146,7 @@ pub const Parser = struct {
         var expr = try self.parseAnd(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.or_, ignore_new_line)) {
+        while (self.match(.or_, ignore_new_line) != null) {
             self.skipNewLines();
 
             const right = try self.parseAnd(ignore_new_line);
@@ -170,7 +169,7 @@ pub const Parser = struct {
         var expr = try self.parseEquality(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.and_, ignore_new_line)) {
+        while (self.match(.and_, ignore_new_line) != null) {
             self.skipNewLines();
 
             const right = try self.parseEquality(ignore_new_line);
@@ -194,16 +193,13 @@ pub const Parser = struct {
         var expr = try self.parseComparison(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.bang_equal, ignore_new_line) or
-            self.match(.equal_equal, ignore_new_line))
-        {
-            const kind: BinaryKind = if (self.prev().kind == .bang_equal)
+        while (self.match(.{ .bang_equal, .equal_equal }, ignore_new_line)) |token| {
+            self.skipNewLines();
+
+            const kind: BinaryKind = if (token.kind == .bang_equal)
                 .not_equal
             else
                 .equal;
-
-            self.skipNewLines();
-
             const right = try self.parseComparison(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -225,21 +221,21 @@ pub const Parser = struct {
         var expr = try self.parseTerm(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.greater, ignore_new_line) or
-            self.match(.greater_equal, ignore_new_line) or
-            self.match(.less, ignore_new_line) or
-            self.match(.less_equal, ignore_new_line))
-        {
-            const kind: BinaryKind = switch (self.prev().kind) {
+        while (self.match(.{
+            .greater,
+            .greater_equal,
+            .less,
+            .less_equal,
+        }, ignore_new_line)) |token| {
+            self.skipNewLines();
+
+            const kind: BinaryKind = switch (token.kind) {
                 .greater => .greater,
                 .greater_equal => .greater_equal,
                 .less => .less,
                 .less_equal => .less_equal,
                 else => unreachable,
             };
-
-            self.skipNewLines();
-
             const right = try self.parseTerm(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -261,16 +257,13 @@ pub const Parser = struct {
         var expr = try self.parseFactor(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.minus, ignore_new_line) or
-            self.match(.plus, ignore_new_line))
-        {
-            const kind: BinaryKind = if (self.prev().kind == .minus)
+        while (self.match(.{ .minus, .plus }, ignore_new_line)) |token| {
+            self.skipNewLines();
+
+            const kind: BinaryKind = if (token.kind == .minus)
                 .subtract
             else
                 .add;
-
-            self.skipNewLines();
-
             const right = try self.parseFactor(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -292,16 +285,13 @@ pub const Parser = struct {
         var expr = try self.parseConcat(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.slash, ignore_new_line) or
-            self.match(.star, ignore_new_line))
-        {
-            const kind: BinaryKind = if (self.prev().kind == .slash)
+        while (self.match(.{ .slash, .star }, ignore_new_line)) |token| {
+            self.skipNewLines();
+
+            const kind: BinaryKind = if (token.kind == .slash)
                 .divide
             else
                 .multiply;
-
-            self.skipNewLines();
-
             const right = try self.parseConcat(ignore_new_line);
             errdefer right.destroy(self.allocator);
 
@@ -323,7 +313,7 @@ pub const Parser = struct {
         var expr = try self.parseUnary(ignore_new_line);
         errdefer expr.destroy(self.allocator);
 
-        while (self.match(.plus_plus, ignore_new_line)) {
+        while (self.match(.plus_plus, ignore_new_line) != null) {
             self.skipNewLines();
 
             const kind = BinaryKind.concat;
@@ -343,11 +333,7 @@ pub const Parser = struct {
     }
 
     fn parseUnary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        if (self.match(.minus, ignore_new_line) or
-            self.match(.not, ignore_new_line))
-        {
-            const token = self.prev();
-
+        if (self.match(.{ .minus, .not }, ignore_new_line)) |token| {
             self.skipNewLines();
 
             const UnaryKind = ParsedExpr.Kind.Unary.Kind;
@@ -370,20 +356,18 @@ pub const Parser = struct {
     }
 
     fn parsePrimary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        if (self.match(.true_, ignore_new_line) or self.match(.false_, ignore_new_line)) {
-            const prev_token = self.prev();
+        if (self.match(.{ .true_, .false_ }, ignore_new_line)) |token| {
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
-                .{ .bool = prev_token.lexeme.len == 4 },
-                prev_token.position,
+                .{ .bool = token.lexeme.len == 4 },
+                token.position,
             );
         }
 
-        if (self.match(.int, ignore_new_line)) {
-            const prev_token = self.prev();
-            const int = std.fmt.parseInt(i64, prev_token.lexeme, 10) catch |err| switch (err) {
+        if (self.match(.int, ignore_new_line)) |token| {
+            const int = std.fmt.parseInt(i64, token.lexeme, 10) catch |err| switch (err) {
                 error.Overflow => blk: {
-                    try self.parserError(.int_literal_overflows, prev_token.position);
+                    try self.parserError(.int_literal_overflows, token.position);
                     break :blk 0;
                 },
                 else => unreachable,
@@ -391,39 +375,42 @@ pub const Parser = struct {
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .int = int },
-                prev_token.position,
+                token.position,
             );
         }
 
-        if (self.match(.float, ignore_new_line)) {
-            const prev_token = self.prev();
-            const float = std.fmt.parseFloat(f64, prev_token.lexeme) catch unreachable;
+        if (self.match(.float, ignore_new_line)) |token| {
+            const float = std.fmt.parseFloat(f64, token.lexeme) catch unreachable;
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .float = float },
-                prev_token.position,
+                token.position,
             );
         }
 
-        if (self.match(.identifier, ignore_new_line)) {
-            const prev_token = self.prev();
+        if (self.match(.identifier, ignore_new_line)) |token| {
             return try ParsedExpr.Kind.Variable.create(
                 self.allocator,
-                prev_token.lexeme,
-                prev_token.position,
+                token.lexeme,
+                token.position,
             );
         }
 
-        if (self.match(.string, ignore_new_line)) {
-            const prev_token = self.prev();
-
-            const string = try self.allocator.dupe(u8, prev_token.lexeme[1 .. prev_token.lexeme.len - 1]);
+        if (self.match(.string, ignore_new_line)) |token| {
+            const string = try self.allocator.dupe(
+                u8,
+                token.lexeme[1 .. token.lexeme.len - 1],
+            );
             errdefer self.allocator.free(string);
 
-            return try ParsedExpr.Kind.Literal.create(self.allocator, .{ .string = string }, prev_token.position);
+            return try ParsedExpr.Kind.Literal.create(
+                self.allocator,
+                .{ .string = string },
+                token.position,
+            );
         }
 
-        if (self.match(.left_paren, ignore_new_line)) {
+        if (self.match(.left_paren, ignore_new_line) != null) {
             const expr = try self.parseExpr(true);
             errdefer expr.destroy(self.allocator);
 
@@ -431,13 +418,12 @@ pub const Parser = struct {
             return expr;
         }
 
-        if (self.match(.do, ignore_new_line)) {
-            return try self.parseBlock(.end, self.prev().position);
+        if (self.match(.do, ignore_new_line)) |token| {
+            return try self.parseBlock(.end, token.position);
         }
 
-        if (self.match(.invalid, ignore_new_line)) {
-            const prev_token = self.prev();
-            try self.parserError(.{ .invalid_token = prev_token.lexeme }, prev_token.position);
+        if (self.match(.invalid, ignore_new_line)) |token| {
+            try self.parserError(.{ .invalid_token = token.lexeme }, token.position);
         } else {
             try self.parserError(.expected_expression, self.peek().position);
         }
@@ -460,7 +446,7 @@ pub const Parser = struct {
         );
         errdefer block.destroy(self.allocator);
 
-        if (self.match(end_token_kind, true)) {
+        if (self.match(end_token_kind, true) != null) {
             try self.addUniExprStmtToBlock(&block.kind.block, position);
             return block;
         }
@@ -531,17 +517,28 @@ pub const Parser = struct {
         try block.stmts.append(exprStmt);
     }
 
-    fn match(self: *Self, kind: Token.Kind, ignore_new_line: bool) bool {
+    fn match(self: *Self, arg: anytype, ignore_new_line: bool) ?Token {
         if (ignore_new_line) {
             self.skipNewLines();
         }
 
-        if (self.check(kind)) {
-            _ = self.advance();
-            return true;
+        const ArgType = @TypeOf(arg);
+        const arg_type_info = @typeInfo(ArgType);
+        const token_stuct = if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Kind)
+            .{arg}
+        else if (arg_type_info == .Struct and arg_type_info.Struct.is_tuple)
+            arg
+        else {
+            @compileError("expected arg to be of type Token.Kind or a tuple of Token.Kind");
+        };
+
+        inline for (@typeInfo(@TypeOf(token_stuct)).Struct.fields) |field| {
+            if (self.check(@field(token_stuct, field.name))) {
+                return self.advance();
+            }
         }
 
-        return false;
+        return null;
     }
 
     fn consume(
