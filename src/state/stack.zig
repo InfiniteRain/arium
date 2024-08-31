@@ -1,20 +1,19 @@
 const std = @import("std");
 const value_mod = @import("value.zig");
+const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
 const Value = value_mod.Value;
 
 pub const Stack = struct {
     const Self = @This();
-    const max_frames = 64;
-    const max_stack = max_frames * 256;
 
     allocator: Allocator,
     items: []Value,
     top: [*]Value,
 
     pub fn init(allocator: Allocator) !Self {
-        const items = try allocator.alloc(Value, max_stack);
+        const items = try allocator.alloc(Value, limits.max_stack);
 
         return .{
             .allocator = allocator,

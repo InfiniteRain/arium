@@ -4,6 +4,7 @@ const managed_memory_mod = @import("../state/managed_memory.zig");
 const value_mod = @import("../state/value.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const value_reporter = @import("../reporter/value_reporter.zig");
+const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -76,9 +77,6 @@ pub const Chunk = struct {
         OutOfMemory,
     };
 
-    // todo: extract into limits.zig
-    const max_locals = 256;
-
     allocator: Allocator,
     code: ArrayList(u8),
     positions: ArrayList(Position), // todo: replace with RLE
@@ -93,7 +91,7 @@ pub const Chunk = struct {
             .code = ArrayList(u8).init(allocator),
             .positions = ArrayList(Position).init(allocator),
             .constants = ArrayList(Value).init(allocator),
-            .locals = try allocator.alloc(Value, max_locals),
+            .locals = try allocator.alloc(Value, limits.max_locals),
         };
     }
 
@@ -153,7 +151,7 @@ pub const Chunk = struct {
         TooManyConstants,
         OutOfMemory,
     }!void {
-        if (self.constants.items.len == 256) {
+        if (self.constants.items.len == limits.max_constants) {
             return error.TooManyConstants;
         }
 

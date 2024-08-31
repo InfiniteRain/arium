@@ -3,6 +3,7 @@ const obj_mod = @import("obj.zig");
 const value_mod = @import("value.zig");
 const managed_memory_mod = @import("managed_memory.zig");
 const test_util_mod = @import("test_util.zig");
+const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
@@ -19,7 +20,6 @@ pub const Entry = struct {
 
 pub const HashTable = struct {
     const Self = @This();
-    const max_load = 0.75;
 
     pub const Error = error{
         OutOfMemory,
@@ -42,7 +42,7 @@ pub const HashTable = struct {
 
     pub fn set(self: *Self, key: *Obj.String, value: Value) Error!bool {
         const flen: f64 = @floatFromInt(self.entries.len);
-        const threshold: usize = @intFromFloat(flen * max_load);
+        const threshold: usize = @intFromFloat(flen * limits.max_hash_table_load);
 
         if (self.count + 1 > threshold) {
             try self.growCapacity();

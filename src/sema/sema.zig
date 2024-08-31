@@ -6,6 +6,7 @@ const sema_expr_mod = @import("sema_expr.zig");
 const sema_stmt_mod = @import("sema_stmt.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const parser_mod = @import("../parser/parser.zig");
+const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -102,12 +103,10 @@ pub const Sema = struct {
         }
     };
 
-    const max_locals = 256;
-
     allocator: Allocator,
     diags: ?*Diags = null,
     had_error: bool = false,
-    locals: [max_locals]SemaExpr.EvalType = undefined,
+    locals: [limits.max_locals]SemaExpr.EvalType = undefined,
     current_scope: ?*Scope = null,
 
     pub fn init(allocator: Allocator) Self {
@@ -493,7 +492,7 @@ pub const Sema = struct {
     ) error{ TooManyLocals, OutOfMemory }!usize {
         const scope = self.current_scope orelse @panic("unitialized scope");
 
-        if (scope.locals_top == max_locals) {
+        if (scope.locals_top == limits.max_locals) {
             return error.TooManyLocals;
         }
 
