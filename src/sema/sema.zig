@@ -157,7 +157,6 @@ pub const Sema = struct {
                 position,
                 .{ .expected_expr_type = .bool },
                 .{expr},
-                .{},
             );
         }
 
@@ -204,7 +203,6 @@ pub const Sema = struct {
                     position,
                     .too_many_locals,
                     .{expr},
-                    .{},
                 );
             },
             error.OutOfMemory => return error.OutOfMemory,
@@ -545,13 +543,11 @@ pub const Sema = struct {
         position: Position,
         diag_kind: DiagEntry.Kind,
         child_exprs: anytype,
-        child_stmts: anytype,
     ) Error!*SemaStmt {
         try self.semaError(position, diag_kind);
         return try SemaStmt.Kind.Invalid.create(
             self.allocator,
             child_exprs,
-            child_stmts,
         );
     }
 
