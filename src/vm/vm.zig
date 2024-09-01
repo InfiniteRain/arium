@@ -123,12 +123,22 @@ pub const Vm = struct {
 
                     self.storeLocal(index, a);
                 },
+                .store_local_0 => self.storeLocal(0, self.pop()),
+                .store_local_1 => self.storeLocal(1, self.pop()),
+                .store_local_2 => self.storeLocal(2, self.pop()),
+                .store_local_3 => self.storeLocal(3, self.pop()),
+                .store_local_4 => self.storeLocal(4, self.pop()),
                 .load_local => {
                     const index = self.readU8();
                     const value = self.loadLocal(index);
 
                     self.push(value);
                 },
+                .load_local_0 => self.push(self.loadLocal(0)),
+                .load_local_1 => self.push(self.loadLocal(1)),
+                .load_local_2 => self.push(self.loadLocal(2)),
+                .load_local_3 => self.push(self.loadLocal(3)),
+                .load_local_4 => self.push(self.loadLocal(4)),
 
                 .negate_bool => self.push(.{ .bool = !self.pop().bool }),
                 .negate_int => self.push(.{ .int = -self.pop().int }),

@@ -33,7 +33,17 @@ pub const OpCode = enum(u8) {
     constant_float_2,
 
     store_local,
+    store_local_0,
+    store_local_1,
+    store_local_2,
+    store_local_3,
+    store_local_4,
     load_local,
+    load_local_0,
+    load_local_1,
+    load_local_2,
+    load_local_3,
+    load_local_4,
 
     negate_bool,
     negate_int,

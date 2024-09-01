@@ -171,8 +171,18 @@ pub const Compiler = struct {
         const index: u8 = @intCast(let.index);
 
         try self.compileExpr(let.expr, null);
-        try self.chunk.writeU8(.store_local, position);
-        try self.chunk.writeU8(index, position);
+
+        switch (index) {
+            0 => try self.chunk.writeU8(.store_local_0, position),
+            1 => try self.chunk.writeU8(.store_local_1, position),
+            2 => try self.chunk.writeU8(.store_local_2, position),
+            3 => try self.chunk.writeU8(.store_local_3, position),
+            4 => try self.chunk.writeU8(.store_local_4, position),
+            else => {
+                try self.chunk.writeU8(.store_local, position);
+                try self.chunk.writeU8(index, position);
+            },
+        }
     }
 
     fn compileExpr(
@@ -498,8 +508,17 @@ pub const Compiler = struct {
     ) Error!void {
         const index: u8 = @intCast(variable.index);
 
-        try self.chunk.writeU8(.load_local, position);
-        try self.chunk.writeU8(index, position);
+        switch (index) {
+            0 => try self.chunk.writeU8(.load_local_0, position),
+            1 => try self.chunk.writeU8(.load_local_1, position),
+            2 => try self.chunk.writeU8(.load_local_2, position),
+            3 => try self.chunk.writeU8(.load_local_3, position),
+            4 => try self.chunk.writeU8(.load_local_4, position),
+            else => {
+                try self.chunk.writeU8(.load_local, position);
+                try self.chunk.writeU8(index, position);
+            },
+        }
     }
 
     fn branchOff(
