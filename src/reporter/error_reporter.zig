@@ -63,6 +63,15 @@ pub fn reportParserDiag(
 
         .invalid_assignment_target,
         => writer.print("Invalid assignment target."),
+
+        .expected_type,
+        => writer.print("Expected type."),
+
+        .variable_name_not_lower_case,
+        => |name| writer.printf(
+            "Expected variable '{s}' to start with a lower-case letter.",
+            .{name},
+        ),
     }
 }
 
@@ -132,57 +141,57 @@ pub fn reportSemaDiag(
 
     switch (diag.kind) {
         .expected_expr_type,
-        => |eval_type| writer.printf(
+        => |sema_type| writer.printf(
             "Expected expression to be {s}.",
-            .{eval_type.stringify()},
+            .{sema_type.stringify()},
         ),
 
         .unexpected_arithmetic_type,
-        => |eval_type| writer.printf(
+        => |sema_type| writer.printf(
             "Can't perform arithmetic operation on {s}.",
-            .{eval_type.stringify()},
+            .{sema_type.stringify()},
         ),
 
         .unexpected_operand_type,
-        => |eval_types| writer.printf(
+        => |sema_types| writer.printf(
             "Operand is expected to be of type {s}, got {s}.",
-            .{ eval_types[0].stringify(), eval_types[1].stringify() },
+            .{ sema_types[0].stringify(), sema_types[1].stringify() },
         ),
 
         .unexpected_concat_type,
-        => |eval_types| writer.printf(
+        => |sema_types| writer.printf(
             "Can't perform concatenation on values of types {s} and {s}.",
-            .{ eval_types[0].stringify(), eval_types[1].stringify() },
+            .{ sema_types[0].stringify(), sema_types[1].stringify() },
         ),
 
         .unexpected_equality_type,
-        => |eval_types| writer.printf(
+        => |sema_types| writer.printf(
             "Can't perform equality between values of types {s} and {s}.",
-            .{ eval_types[0].stringify(), eval_types[1].stringify() },
+            .{ sema_types[0].stringify(), sema_types[1].stringify() },
         ),
 
         .unexpected_comparison_type,
-        => |eval_type| writer.printf(
+        => |sema_type| writer.printf(
             "Can't perform comparison operation on value of type {s}.",
-            .{eval_type.stringify()},
+            .{sema_type.stringify()},
         ),
 
         .unexpected_logical_type,
-        => |eval_type| writer.printf(
+        => |sema_type| writer.printf(
             "Can't perform logical operation on value of type {s}.",
-            .{eval_type.stringify()},
+            .{sema_type.stringify()},
         ),
 
         .unexpected_logical_negation_type,
-        => |eval_type| writer.printf(
+        => |sema_type| writer.printf(
             "Can't perform logical negation on value of type {s}.",
-            .{eval_type.stringify()},
+            .{sema_type.stringify()},
         ),
 
         .unexpected_arithmetic_negation_type,
-        => |eval_type| writer.printf(
+        => |sema_type| writer.printf(
             "Can't perform arithmetic negation on value of type {s}.",
-            .{eval_type.stringify()},
+            .{sema_type.stringify()},
         ),
 
         .too_many_locals,
@@ -192,13 +201,19 @@ pub fn reportSemaDiag(
         => |name| writer.printf("Can't find value '{s}' in this scope.", .{name}),
 
         .unexpected_assignment_type,
-        => |eval_types| writer.printf(
+        => |sema_types| writer.printf(
             "Can't assign value of type {s} to variable of type {s}.",
-            .{ eval_types[1].stringify(), eval_types[0].stringify() },
+            .{ sema_types[1].stringify(), sema_types[0].stringify() },
         ),
 
         .immutable_mutation,
         => |name| writer.printf("Can't assign twice to immutable variable '{s}'.", .{name}),
+
+        .type_not_found,
+        => |name| writer.printf("Can't find type '{s}' in this scope.", .{name}),
+
+        .value_not_assigned,
+        => |name| writer.printf("Can't use variable '{s}' before assigning it a value.", .{name}),
     }
 }
 

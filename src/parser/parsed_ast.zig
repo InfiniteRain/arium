@@ -281,13 +281,15 @@ pub const ParsedStmt = struct {
         pub const Let = struct {
             is_mutable: bool,
             name: []const u8,
-            expr: *ParsedExpr,
+            parsed_type: ?*ParsedType,
+            expr: ?*ParsedExpr,
 
             pub fn create(
                 allocator: Allocator,
                 is_mutable: bool,
                 name: []const u8,
-                expr: *ParsedExpr,
+                parsed_type: ?*ParsedType,
+                expr: ?*ParsedExpr,
                 position: Position,
             ) !*Self {
                 const stmt = try allocator.create(Self);
@@ -297,6 +299,7 @@ pub const ParsedStmt = struct {
                         .let = .{
                             .is_mutable = is_mutable,
                             .name = try allocator.dupe(u8, name),
+                            .parsed_type = parsed_type,
                             .expr = expr,
                         },
                     },
@@ -311,6 +314,40 @@ pub const ParsedStmt = struct {
         assert: Assert,
         expr: Expr,
         let: Let,
+    };
+
+    kind: Kind,
+    position: Position,
+};
+
+pub const ParsedType = struct {
+    const Self = @This();
+
+    pub const Kind = union(enum) {
+        pub const Identifier = struct {
+            name: []const u8,
+
+            pub fn create(
+                allocator: Allocator,
+                name: []const u8,
+                position: Position,
+            ) !*Self {
+                const parsed_type = try allocator.create(Self);
+
+                parsed_type.* = .{
+                    .kind = .{
+                        .identifier = .{
+                            .name = try allocator.dupe(u8, name),
+                        },
+                    },
+                    .position = position,
+                };
+
+                return parsed_type;
+            }
+        };
+
+        identifier: Identifier,
     };
 
     kind: Kind,

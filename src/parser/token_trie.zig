@@ -37,6 +37,10 @@ fn TokenTrie(comptime memory_size: usize) type {
             var current_node = &self.memory[0];
 
             for (word) |char| {
+                if (char < 'a' or char > 'z') {
+                    return error.NotFound;
+                }
+
                 if (current_node.children[char - 'a']) |index| {
                     current_node = &self.memory[index];
                 } else {

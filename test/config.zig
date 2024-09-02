@@ -10,7 +10,7 @@ const Position = arium.Position;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
-const EvalType = arium.EvalType;
+const SemaType = arium.SemaType;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const SharedDiags = shared.Diags;
@@ -243,6 +243,7 @@ pub const Config = struct {
             .expected_name,
             .expected_equal_after_name,
             .invalid_assignment_target,
+            .expected_type,
             => {},
         }
 
@@ -270,9 +271,9 @@ pub const Config = struct {
             .unexpected_concat_type,
             .unexpected_equality_type,
             .unexpected_assignment_type,
-            => meta.setUnionValue(&diag_kind, Sema.DiagEntry.EvalTypeTuple{
-                try parseEvalType(ctx),
-                try parseEvalType(ctx),
+            => meta.setUnionValue(&diag_kind, Sema.DiagEntry.SemaTypeTuple{
+                try parseSemaType(ctx),
+                try parseSemaType(ctx),
             }),
 
             .expected_expr_type,
@@ -281,10 +282,12 @@ pub const Config = struct {
             .unexpected_logical_type,
             .unexpected_logical_negation_type,
             .unexpected_arithmetic_negation_type,
-            => meta.setUnionValue(&diag_kind, try parseEvalType(ctx)),
+            => meta.setUnionValue(&diag_kind, try parseSemaType(ctx)),
 
             .value_not_found,
             .immutable_mutation,
+            .type_not_found,
+            .value_not_assigned,
             => {
                 meta.setUnionValue(
                     &diag_kind,
@@ -354,27 +357,22 @@ pub const Config = struct {
         try ctx.expectations.out.append('\n');
     }
 
-    fn parseEvalType(
+    fn parseSemaType(
         ctx: *DirectiveContext,
-    ) DirectiveError!EvalType {
-        var eval_type = try parseUnionVariant(ctx, EvalType);
+    ) DirectiveError!SemaType {
+        const sema_type = try parseUnionVariant(ctx, SemaType);
 
-        switch (eval_type) {
-            .obj,
-            => meta.setUnionValue(
-                &eval_type,
-                try parseEnumVariant(ctx, EvalType.ObjKind),
-            ),
-
+        switch (sema_type) {
             .unit,
             .int,
             .float,
             .bool,
+            .string,
             .invalid,
             => {},
         }
 
-        return eval_type;
+        return sema_type;
     }
 
     fn parseStr(ctx: *DirectiveContext) DirectiveError![]const u8 {

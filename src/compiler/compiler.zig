@@ -127,7 +127,7 @@ pub const Compiler = struct {
             .assert => |*assert_stmt| try self.compileAssertStmt(assert_stmt, stmt.position),
             .print => |*print| try self.compilePrintStmt(print, stmt.position),
             .expr => |*expr| try self.compileExprStmt(expr, is_last_statement, stmt.position),
-            .let => |*let| try self.compileVariableMutation(let.index, let.expr, stmt.position),
+            .let => |*let| if (let.expr) |expr| try self.compileVariableMutation(let.index, expr, stmt.position),
         }
     }
 

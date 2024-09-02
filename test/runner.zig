@@ -14,7 +14,7 @@ const IoHandler = arium.IoHandler;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
-const EvalType = arium.EvalType;
+const SemaType = arium.SemaType;
 const ManagedMemory = arium.ManagedMemory;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
@@ -405,6 +405,7 @@ pub const Runner = struct {
                 .expected_name,
                 .expected_equal_after_name,
                 .invalid_assignment_target,
+                .expected_type,
                 => {},
             }
         }
@@ -439,11 +440,11 @@ pub const Runner = struct {
                 .unexpected_logical_type,
                 .unexpected_logical_negation_type,
                 .unexpected_arithmetic_negation_type,
-                => |eval_type| {
+                => |sema_type| {
                     const actual_type =
-                        meta.getUnionValue(&actual_entry.kind, EvalType);
+                        meta.getUnionValue(&actual_entry.kind, SemaType);
 
-                    if (!verifyEvalType(eval_type, actual_type)) {
+                    if (!verifySemaType(sema_type, actual_type)) {
                         return false;
                     }
                 },
@@ -452,15 +453,15 @@ pub const Runner = struct {
                 .unexpected_concat_type,
                 .unexpected_equality_type,
                 .unexpected_assignment_type,
-                => |eval_type| {
-                    const expected_left, const expected_right = eval_type;
+                => |sema_type| {
+                    const expected_left, const expected_right = sema_type;
                     const actual_left, const actual_right = meta.getUnionValue(
                         &actual_entry.kind,
-                        Sema.DiagEntry.EvalTypeTuple,
+                        Sema.DiagEntry.SemaTypeTuple,
                     );
 
-                    if (!verifyEvalType(expected_left, actual_left) or
-                        !verifyEvalType(expected_right, actual_right))
+                    if (!verifySemaType(expected_left, actual_left) or
+                        !verifySemaType(expected_right, actual_right))
                     {
                         return false;
                     }
@@ -468,6 +469,8 @@ pub const Runner = struct {
 
                 .value_not_found,
                 .immutable_mutation,
+                .type_not_found,
+                .value_not_assigned,
                 => |name| {
                     const expected_name = name;
                     const actual_name = meta.getUnionValue(
@@ -543,25 +546,20 @@ pub const Runner = struct {
         return std.mem.eql(u8, expected.items, actual.items);
     }
 
-    fn verifyEvalType(
-        expected: EvalType,
-        actual: EvalType,
+    fn verifySemaType(
+        expected: SemaType,
+        actual: SemaType,
     ) bool {
         if (@intFromEnum(expected) != @intFromEnum(actual)) {
             return false;
         }
 
         switch (expected) {
-            .obj => |obj| {
-                if (obj != actual.obj) {
-                    return false;
-                }
-            },
-
             .unit,
             .int,
             .float,
             .bool,
+            .string,
             .invalid,
             => {},
         }
@@ -591,6 +589,7 @@ pub const Runner = struct {
                         .expected_name,
                         .expected_equal_after_name,
                         .invalid_assignment_target,
+                        .expected_type,
                         => diag.kind,
                     },
                 })),
@@ -601,6 +600,12 @@ pub const Runner = struct {
 
                         .immutable_mutation,
                         => |name| Sema.DiagEntry.Kind{ .immutable_mutation = try self.allocator.dupe(u8, name) },
+
+                        .type_not_found,
+                        => |name| Sema.DiagEntry.Kind{ .type_not_found = try self.allocator.dupe(u8, name) },
+
+                        .value_not_assigned,
+                        => |name| Sema.DiagEntry.Kind{ .value_not_assigned = try self.allocator.dupe(u8, name) },
 
                         .expected_expr_type,
                         .unexpected_arithmetic_type,

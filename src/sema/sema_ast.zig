@@ -6,39 +6,6 @@ const ArrayList = std.ArrayList;
 const meta = std.meta;
 const Position = tokenizer_mod.Position;
 
-pub const EvalType = union(enum) {
-    const Self = @This();
-    const Tag = meta.Tag(EvalType);
-
-    pub const ObjKind = enum {
-        string,
-    };
-
-    unit,
-    int,
-    float,
-    bool,
-    obj: ObjKind,
-    invalid,
-
-    pub fn stringify(self: Self) []const u8 {
-        return switch (self) {
-            .unit => "Unit",
-            .int => "Int",
-            .float => "Float",
-            .bool => "Bool",
-            .obj => switch (self.obj) {
-                .string => "String",
-            },
-            .invalid => "Invalid",
-        };
-    }
-
-    pub fn tag(self: Self) Tag {
-        return self;
-    }
-};
-
 pub const SemaExpr = struct {
     const Self = @This();
 
@@ -57,12 +24,12 @@ pub const SemaExpr = struct {
 
                 expr.* = .{
                     .kind = .{ .literal = literal },
-                    .eval_type = switch (literal) {
+                    .sema_type = switch (literal) {
                         .unit => .unit,
                         .int => .int,
                         .float => .float,
                         .bool => .bool,
-                        .string => .{ .obj = .string },
+                        .string => .string,
                         .invalid => .invalid,
                     },
                     .position = position,
@@ -114,7 +81,7 @@ pub const SemaExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 kind: Binary.Kind,
-                eval_type: EvalType,
+                sema_type: SemaType,
                 position: Position,
                 left: *Self,
                 right: *Self,
@@ -129,7 +96,7 @@ pub const SemaExpr = struct {
                             .right = right,
                         },
                     },
-                    .eval_type = eval_type,
+                    .sema_type = sema_type,
                     .position = position,
                 };
 
@@ -150,7 +117,7 @@ pub const SemaExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 kind: Unary.Kind,
-                eval_type: EvalType,
+                sema_type: SemaType,
                 position: Position,
                 right: *Self,
             ) !*Self {
@@ -163,7 +130,7 @@ pub const SemaExpr = struct {
                             .right = right,
                         },
                     },
-                    .eval_type = eval_type,
+                    .sema_type = sema_type,
                     .position = position,
                 };
 
@@ -177,7 +144,7 @@ pub const SemaExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 stmts: ArrayList(*SemaStmt),
-                eval_type: EvalType,
+                sema_type: SemaType,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -188,7 +155,7 @@ pub const SemaExpr = struct {
                             .stmts = stmts,
                         },
                     },
-                    .eval_type = eval_type,
+                    .sema_type = sema_type,
                     .position = position,
                 };
 
@@ -202,7 +169,7 @@ pub const SemaExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 index: usize,
-                eval_type: EvalType,
+                sema_type: SemaType,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -214,7 +181,7 @@ pub const SemaExpr = struct {
                         },
                     },
                     .position = position,
-                    .eval_type = eval_type,
+                    .sema_type = sema_type,
                 };
 
                 return expr;
@@ -229,7 +196,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 index: usize,
                 right: *Self,
-                eval_type: EvalType,
+                sema_type: SemaType,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -242,7 +209,7 @@ pub const SemaExpr = struct {
                         },
                     },
                     .position = position,
-                    .eval_type = eval_type,
+                    .sema_type = sema_type,
                 };
 
                 return expr;
@@ -258,7 +225,7 @@ pub const SemaExpr = struct {
     };
 
     kind: Kind,
-    eval_type: EvalType,
+    sema_type: SemaType,
     position: Position,
 };
 
@@ -337,12 +304,12 @@ pub const SemaStmt = struct {
 
         pub const Let = struct {
             index: usize,
-            expr: *SemaExpr,
+            expr: ?*SemaExpr,
 
             pub fn create(
                 allocator: Allocator,
                 index: usize,
-                expr: *SemaExpr,
+                expr: ?*SemaExpr,
                 position: Position,
             ) !*Self {
                 const stmt = try allocator.create(Self);
@@ -369,4 +336,31 @@ pub const SemaStmt = struct {
 
     kind: Kind,
     position: Position,
+};
+
+pub const SemaType = union(enum) {
+    const Self = @This();
+    const Tag = meta.Tag(SemaType);
+
+    unit,
+    int,
+    float,
+    bool,
+    string,
+    invalid,
+
+    pub fn stringify(self: Self) []const u8 {
+        return switch (self) {
+            .unit => "Unit",
+            .int => "Int",
+            .float => "Float",
+            .bool => "Bool",
+            .string => "String",
+            .invalid => "Invalid",
+        };
+    }
+
+    pub fn tag(self: Self) Tag {
+        return self;
+    }
 };

@@ -9,6 +9,7 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const expectError = std.testing.expectError;
 const allocPrint = std.fmt.allocPrint;
+const ascii = std.ascii;
 const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
 const Token = tokenizer_mod.Token;
@@ -16,6 +17,7 @@ const Tokenizer = tokenizer_mod.Tokenizer;
 const Position = tokenizer_mod.Position;
 const ParsedExpr = parsed_ast_mod.ParsedExpr;
 const ParsedStmt = parsed_ast_mod.ParsedStmt;
+const ParsedType = parsed_ast_mod.ParsedType;
 
 pub const Parser = struct {
     const Self = @This();
@@ -36,12 +38,15 @@ pub const Parser = struct {
             expected_name,
             expected_equal_after_name,
             invalid_assignment_target,
+            expected_type,
+            variable_name_not_lower_case: []const u8,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             switch (self.kind) {
                 .invalid_token,
-                => |msg| allocator.free(msg),
+                .variable_name_not_lower_case,
+                => |str| allocator.free(str),
 
                 .expected_end_token,
                 .expected_expression,
@@ -51,6 +56,7 @@ pub const Parser = struct {
                 .expected_name,
                 .expected_equal_after_name,
                 .invalid_assignment_target,
+                .expected_type,
                 => {},
             }
         }
@@ -105,16 +111,44 @@ pub const Parser = struct {
     fn parseLetStmt(self: *Self, position: Position) Error!*ParsedStmt {
         const is_mutable = self.match(.mut, false) != null;
         const name_token = try self.consume(.identifier, .expected_name);
-        _ = try self.consume(.equal, .expected_equal_after_name);
-        const expr = try self.parseExpr(false);
+
+        if (!ascii.isLower(name_token.lexeme[0])) {
+            try self.addDiag(.{ .variable_name_not_lower_case = name_token.lexeme }, position);
+        }
+
+        const parsed_type = if (self.match(.colon, false) != null)
+            try self.parseType()
+        else
+            null;
+
+        const expr = if (self.match(.equal, false) != null) try self.parseExpr(false) else null;
 
         return try ParsedStmt.Kind.Let.create(
             self.allocator,
             is_mutable,
             name_token.lexeme,
+            parsed_type,
             expr,
             position,
         );
+    }
+
+    fn parseType(self: *Self) Error!*ParsedType {
+        if (self.match(.identifier, false)) |token| {
+            return ParsedType.Kind.Identifier.create(
+                self.allocator,
+                token.lexeme,
+                token.position,
+            );
+        }
+
+        if (self.match(.invalid, false)) |token| {
+            try self.addDiag(.{ .invalid_token = token.lexeme }, token.position);
+        } else {
+            try self.addDiag(.expected_expression, self.peek().position);
+        }
+
+        return error.ParseFailure;
     }
 
     fn parseAssertStmt(self: *Self, position: Position) Error!*ParsedStmt {
@@ -645,6 +679,11 @@ pub const Parser = struct {
                         .invalid_token = try diags.allocator.dupe(u8, msg),
                     },
 
+                    .variable_name_not_lower_case,
+                    => |name| .{
+                        .variable_name_not_lower_case = try diags.allocator.dupe(u8, name),
+                    },
+
                     .expected_end_token,
                     .expected_expression,
                     .expected_left_paren_before_expr,
@@ -653,6 +692,7 @@ pub const Parser = struct {
                     .expected_name,
                     .expected_equal_after_name,
                     .invalid_assignment_target,
+                    .expected_type,
                     => diag_kind,
                 },
                 .position = position,

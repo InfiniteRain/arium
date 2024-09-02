@@ -8,7 +8,7 @@ const Runner = runner_mod.Runner;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
-const EvalType = arium.EvalType;
+const SemaType = arium.SemaType;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const error_reporter = arium.error_reporter;
@@ -170,6 +170,7 @@ pub fn reportParserDiags(
             .expected_name,
             .expected_equal_after_name,
             .invalid_assignment_target,
+            .expected_type,
             => {},
         }
 
@@ -194,26 +195,28 @@ pub fn reportSemaDiags(
             .unexpected_logical_type,
             .unexpected_logical_negation_type,
             .unexpected_arithmetic_negation_type,
-            => |eval_type| {
+            => |sema_type| {
                 writer.print(" with eval type ");
-                reportEvalType(eval_type, writer);
+                reportSemaType(sema_type, writer);
             },
 
             .unexpected_operand_type,
             .unexpected_concat_type,
             .unexpected_equality_type,
             .unexpected_assignment_type,
-            => |eval_type| {
-                const left, const right = eval_type;
+            => |sema_type| {
+                const left, const right = sema_type;
 
                 writer.print(" with eval types ");
-                reportEvalType(left, writer);
+                reportSemaType(left, writer);
                 writer.print(" and ");
-                reportEvalType(right, writer);
+                reportSemaType(right, writer);
             },
 
             .value_not_found,
             .immutable_mutation,
+            .type_not_found,
+            .value_not_assigned,
             => |name| {
                 writer.printf(" with name {s}", .{name});
             },
@@ -250,21 +253,18 @@ pub fn reportVmDiags(
     }
 }
 
-pub fn reportEvalType(
-    eval_type: EvalType,
+pub fn reportSemaType(
+    sema_type: SemaType,
     writer: *const Writer,
 ) void {
-    writer.printf("{s}", .{@tagName(eval_type)});
+    writer.printf("{s}", .{@tagName(sema_type)});
 
-    switch (eval_type) {
-        .obj => |kind| {
-            writer.printf(" {s}", .{@tagName(kind)});
-        },
-
+    switch (sema_type) {
         .unit,
         .int,
         .float,
         .bool,
+        .string,
         .invalid,
         => {},
     }
