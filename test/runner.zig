@@ -394,8 +394,17 @@ pub const Runner = struct {
                 },
 
                 .invalid_token,
-                => |msg| if (!std.mem.eql(u8, msg, actual_entry.kind.invalid_token)) {
-                    return false;
+                .variable_name_not_lower_case,
+                => |str| {
+                    const expected_str = str;
+                    const actual_str = meta.getUnionValue(
+                        &actual_entry.kind,
+                        []const u8,
+                    );
+
+                    if (!std.mem.eql(u8, expected_str, actual_str)) {
+                        return false;
+                    }
                 },
 
                 .expected_expression,
@@ -579,7 +588,8 @@ pub const Runner = struct {
                 Parser.Diags => try clone.add(meta.spread(diag, .{
                     .kind = switch (diag.kind) {
                         .invalid_token,
-                        => |msg| Parser.DiagEntry.Kind{ .invalid_token = try self.allocator.dupe(u8, msg) },
+                        .variable_name_not_lower_case,
+                        => |str| Parser.DiagEntry.Kind{ .invalid_token = try self.allocator.dupe(u8, str) },
 
                         .expected_end_token,
                         .expected_expression,

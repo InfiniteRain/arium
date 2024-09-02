@@ -1,0 +1,10 @@
+/// run
+
+let mut variable;
+
+variable = "hello,"
+
+variable = variable ++ " world"
+
+print(variable) /// out hello, world
+

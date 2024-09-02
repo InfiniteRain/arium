@@ -231,6 +231,7 @@ pub const Config = struct {
             => meta.setUnionValue(&diag_kind, try parseEnumVariant(ctx, Token.Kind)),
 
             .invalid_token,
+            .variable_name_not_lower_case,
             => meta.setUnionValue(
                 &diag_kind,
                 @as([]const u8, try ctx.allocator.dupe(u8, parseRestStr(ctx))),

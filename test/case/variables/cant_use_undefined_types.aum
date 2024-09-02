@@ -1,0 +1,3 @@
+/// sema
+
+let test: BadType /// err_sema 3 type_not_found BadType

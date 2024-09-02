@@ -1,0 +1,7 @@
+/// run
+
+let variable: String
+
+variable = "hello, world"
+
+print(variable) /// out hello, world

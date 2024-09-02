@@ -1,0 +1,5 @@
+/// sema
+
+let variable = 120
+
+variable = 100 /// err_sema 5 immutable_mutation variable

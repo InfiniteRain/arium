@@ -1,0 +1,5 @@
+/// sema
+
+let variable
+
+print(variable) /// err_sema 5 value_not_assigned variable

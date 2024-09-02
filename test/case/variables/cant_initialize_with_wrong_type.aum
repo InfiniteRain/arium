@@ -1,0 +1,3 @@
+/// sema
+
+let variable: Int = "hello, world" /// err_sema 3 expected_expr_type int

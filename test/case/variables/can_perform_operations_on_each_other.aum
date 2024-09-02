@@ -1,0 +1,16 @@
+/// run
+
+let int = 10
+let float = 0.5
+let bool = true
+let string = "hello, "
+
+let int2 = 20
+let float2 = 10.5
+let bool2 = false
+let string2 = "world"
+
+print(int + int2) /// out 30
+print(float * float2) /// out 5.25
+print(bool and bool2) /// out false
+print(string ++ string2) /// out hello, world

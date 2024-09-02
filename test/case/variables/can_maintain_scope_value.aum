@@ -1,0 +1,18 @@
+/// run
+
+let variable = "hello"
+print(variable) /// out hello
+
+do 
+  let variable = "bye"
+  print(variable) /// out bye
+
+  do
+    let variable = "world"
+    print(variable) /// out world
+  end
+
+  print(variable) /// out bye
+end
+
+print(variable) /// out hello

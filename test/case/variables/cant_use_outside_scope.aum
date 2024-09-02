@@ -1,0 +1,7 @@
+/// sema
+
+do
+  let variable = 120
+end
+
+print(variable) /// err_sema 7 value_not_found variable

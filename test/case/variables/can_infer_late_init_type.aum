@@ -1,0 +1,7 @@
+/// run
+
+let variable
+
+variable = "hello, world"
+
+print(variable) /// out hello, world

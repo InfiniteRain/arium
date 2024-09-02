@@ -163,6 +163,11 @@ pub fn reportParserDiags(
                 .{msg},
             ),
 
+            .variable_name_not_lower_case => |name| writer.printf(
+                " with name '{s}'",
+                .{name},
+            ),
+
             .expected_expression,
             .expected_left_paren_before_expr,
             .expected_right_paren_after_expr,

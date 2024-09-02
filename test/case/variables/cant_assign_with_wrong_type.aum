@@ -1,0 +1,5 @@
+/// sema
+
+let variable: Int
+
+variable = "hello, world" /// err_sema 5 unexpected_assignment_type int string

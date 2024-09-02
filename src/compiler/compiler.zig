@@ -213,11 +213,7 @@ pub const Compiler = struct {
             .unary => |*unary| try self.compileUnaryExpr(unary, expr.position),
             .block => |*block| try self.compileBlockExpr(block),
             .variable => |*variable| try self.compileVariableExpr(variable, expr.position),
-            .assignment => |*assignment| try self.compileVariableMutation(
-                assignment.index,
-                assignment.right,
-                expr.position,
-            ),
+            .assignment => |*assignment| try self.compileAssignmentExpr(assignment, expr.position),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
@@ -524,6 +520,19 @@ pub const Compiler = struct {
                 try self.chunk.writeU8(index, position);
             },
         }
+    }
+
+    fn compileAssignmentExpr(
+        self: *Self,
+        assignment: *const SemaExpr.Kind.Assignment,
+        position: Position,
+    ) Error!void {
+        try self.compileVariableMutation(
+            assignment.index,
+            assignment.right,
+            position,
+        );
+        try self.chunk.writeU8(.constant_unit, position);
     }
 
     fn branchOff(
