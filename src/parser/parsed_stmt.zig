@@ -81,11 +81,13 @@ pub const ParsedStmt = struct {
         };
 
         pub const Let = struct {
+            is_mutable: bool,
             name: []const u8,
             expr: *ParsedExpr,
 
             pub fn create(
                 allocator: Allocator,
+                is_mutable: bool,
                 name: []const u8,
                 expr: *ParsedExpr,
                 position: Position,
@@ -95,6 +97,7 @@ pub const ParsedStmt = struct {
                 stmt.* = .{
                     .kind = .{
                         .let = .{
+                            .is_mutable = is_mutable,
                             .name = try allocator.dupe(u8, name),
                             .expr = expr,
                         },

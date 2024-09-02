@@ -18,6 +18,7 @@ const token_trie = generateTrie(.{
     .{ "assert", .assert },
     .{ "do", .do },
     .{ "end", .end },
+    .{ "mut", .mut },
     .{ "let", .let },
 });
 
@@ -58,6 +59,7 @@ pub const Token = struct {
         or_,
         do,
         end,
+        mut,
         let,
 
         assert,

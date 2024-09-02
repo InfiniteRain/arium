@@ -190,11 +190,40 @@ pub const SemaExpr = struct {
             }
         };
 
+        pub const Assignment = struct {
+            index: usize,
+            right: *Self,
+
+            pub fn create(
+                allocator: Allocator,
+                index: usize,
+                right: *Self,
+                eval_type: EvalType,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .assignment = .{
+                            .index = index,
+                            .right = right,
+                        },
+                    },
+                    .position = position,
+                    .eval_type = eval_type,
+                };
+
+                return expr;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
         block: Block,
         variable: Variable,
+        assignment: Assignment,
     };
 
     pub const EvalType = union(enum) {

@@ -168,6 +168,7 @@ pub fn reportParserDiags(
             .int_literal_overflows,
             .expected_name,
             .expected_equal_after_name,
+            .invalid_assignment_target,
             => {},
         }
 
@@ -200,6 +201,7 @@ pub fn reportSemaDiags(
             .unexpected_operand_type,
             .unexpected_concat_type,
             .unexpected_equality_type,
+            .unexpected_assignment_type,
             => |eval_type| {
                 const left, const right = eval_type;
 
@@ -210,6 +212,7 @@ pub fn reportSemaDiags(
             },
 
             .value_not_found,
+            .immutable_mutation,
             => |name| {
                 writer.printf(" with name {s}", .{name});
             },

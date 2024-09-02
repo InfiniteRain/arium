@@ -332,8 +332,8 @@ pub const Runner = struct {
         if (!verifyErrParser(&expectations.err_parser, &actuals.err_parser)) {
             try diag_entry.failures.append(.{
                 .err_parser_mismatch = .{
-                    .expected = try cloneDiags(&expectations.err_parser),
-                    .actual = try cloneDiags(&actuals.err_parser),
+                    .expected = try self.cloneDiags(&expectations.err_parser),
+                    .actual = try self.cloneDiags(&actuals.err_parser),
                 },
             });
         }
@@ -341,8 +341,8 @@ pub const Runner = struct {
         if (!verifyErrSema(&expectations.err_sema, &actuals.err_sema)) {
             try diag_entry.failures.append(.{
                 .err_sema_mismatch = .{
-                    .expected = try cloneDiags(&expectations.err_sema),
-                    .actual = try cloneDiags(&actuals.err_sema),
+                    .expected = try self.cloneDiags(&expectations.err_sema),
+                    .actual = try self.cloneDiags(&actuals.err_sema),
                 },
             });
         }
@@ -350,8 +350,8 @@ pub const Runner = struct {
         if (!verifyErrCompiler(&expectations.err_compiler, &actuals.err_compiler)) {
             try diag_entry.failures.append(.{
                 .err_compiler_mismatch = .{
-                    .expected = try cloneDiags(&expectations.err_compiler),
-                    .actual = try cloneDiags(&actuals.err_compiler),
+                    .expected = try self.cloneDiags(&expectations.err_compiler),
+                    .actual = try self.cloneDiags(&actuals.err_compiler),
                 },
             });
         }
@@ -359,8 +359,8 @@ pub const Runner = struct {
         if (!verifyErrVm(&expectations.err_vm, &actuals.err_vm)) {
             try diag_entry.failures.append(.{
                 .err_vm_mismatch = .{
-                    .expected = try cloneDiags(&expectations.err_vm),
-                    .actual = try cloneDiags(&actuals.err_vm),
+                    .expected = try self.cloneDiags(&expectations.err_vm),
+                    .actual = try self.cloneDiags(&actuals.err_vm),
                 },
             });
         }
@@ -403,6 +403,7 @@ pub const Runner = struct {
                 .int_literal_overflows,
                 .expected_name,
                 .expected_equal_after_name,
+                .invalid_assignment_target,
                 => {},
             }
         }
@@ -449,6 +450,7 @@ pub const Runner = struct {
                 .unexpected_operand_type,
                 .unexpected_concat_type,
                 .unexpected_equality_type,
+                .unexpected_assignment_type,
                 => |eval_type| {
                     const expected_left, const expected_right = eval_type;
                     const actual_left, const actual_right = meta.getUnionValue(
@@ -464,8 +466,15 @@ pub const Runner = struct {
                 },
 
                 .value_not_found,
+                .immutable_mutation,
                 => |name| {
-                    if (!std.mem.eql(u8, name, actual_entry.kind.value_not_found)) {
+                    const expected_name = name;
+                    const actual_name = meta.getUnionValue(
+                        &actual_entry.kind,
+                        []const u8,
+                    );
+
+                    if (!std.mem.eql(u8, expected_name, actual_name)) {
                         return false;
                     }
                 },
@@ -560,11 +569,70 @@ pub const Runner = struct {
     }
 
     fn cloneDiags(
+        self: *Self,
         diags: anytype,
     ) error{OutOfMemory}!@typeInfo(@TypeOf(diags)).Pointer.child {
-        return .{
-            .allocator = diags.allocator,
-            .entries = try diags.entries.clone(),
-        };
+        const DiagsType = @typeInfo(@TypeOf(diags)).Pointer.child;
+        var clone = DiagsType.init(self.allocator);
+
+        for (diags.getEntries()) |diag| {
+            switch (DiagsType) {
+                Parser.Diags => try clone.add(meta.spread(diag, .{
+                    .kind = switch (diag.kind) {
+                        .invalid_token,
+                        => |msg| Parser.DiagEntry.Kind{ .invalid_token = try self.allocator.dupe(u8, msg) },
+
+                        .expected_end_token,
+                        .expected_expression,
+                        .expected_left_paren_before_expr,
+                        .expected_right_paren_after_expr,
+                        .int_literal_overflows,
+                        .expected_name,
+                        .expected_equal_after_name,
+                        .invalid_assignment_target,
+                        => diag.kind,
+                    },
+                })),
+                Sema.Diags => try clone.add(meta.spread(diag, .{
+                    .kind = switch (diag.kind) {
+                        .value_not_found,
+                        => |name| Sema.DiagEntry.Kind{ .value_not_found = try self.allocator.dupe(u8, name) },
+
+                        .immutable_mutation,
+                        => |name| Sema.DiagEntry.Kind{ .immutable_mutation = try self.allocator.dupe(u8, name) },
+
+                        .expected_expr_type,
+                        .unexpected_arithmetic_type,
+                        .unexpected_operand_type,
+                        .unexpected_concat_type,
+                        .unexpected_equality_type,
+                        .unexpected_comparison_type,
+                        .unexpected_logical_type,
+                        .unexpected_logical_negation_type,
+                        .unexpected_arithmetic_negation_type,
+                        .too_many_locals,
+                        .unexpected_assignment_type,
+                        => diag.kind,
+                    },
+                })),
+                Compiler.Diags => try clone.add(meta.spread(diag, .{
+                    .kind = switch (diag.kind) {
+                        .too_many_constants,
+                        .too_many_branch_jumps,
+                        .jump_too_big,
+                        => diag.kind,
+                    },
+                })),
+                Vm.Diags => try clone.add(meta.spread(diag, .{
+                    .kind = switch (diag.kind) {
+                        .assertion_fail,
+                        => diag.kind,
+                    },
+                })),
+                else => unreachable,
+            }
+        }
+
+        return clone;
     }
 };

@@ -230,7 +230,10 @@ pub const Config = struct {
             => meta.setUnionValue(&diag_kind, try parseEnumVariant(ctx, Token.Kind)),
 
             .invalid_token,
-            => meta.setUnionValue(&diag_kind, parseRestStr(ctx)),
+            => meta.setUnionValue(
+                &diag_kind,
+                @as([]const u8, try ctx.allocator.dupe(u8, parseRestStr(ctx))),
+            ),
 
             .expected_expression,
             .expected_left_paren_before_expr,
@@ -238,6 +241,7 @@ pub const Config = struct {
             .int_literal_overflows,
             .expected_name,
             .expected_equal_after_name,
+            .invalid_assignment_target,
             => {},
         }
 
@@ -264,9 +268,10 @@ pub const Config = struct {
             .unexpected_operand_type,
             .unexpected_concat_type,
             .unexpected_equality_type,
+            .unexpected_assignment_type,
             => meta.setUnionValue(&diag_kind, Sema.DiagEntry.EvalTypeTuple{
-                try parseEvalKind(ctx),
-                try parseEvalKind(ctx),
+                try parseEvalType(ctx),
+                try parseEvalType(ctx),
             }),
 
             .expected_expr_type,
@@ -275,10 +280,16 @@ pub const Config = struct {
             .unexpected_logical_type,
             .unexpected_logical_negation_type,
             .unexpected_arithmetic_negation_type,
-            => meta.setUnionValue(&diag_kind, try parseEvalKind(ctx)),
+            => meta.setUnionValue(&diag_kind, try parseEvalType(ctx)),
 
             .value_not_found,
-            => meta.setUnionValue(&diag_kind, parseRestStr(ctx)),
+            .immutable_mutation,
+            => {
+                meta.setUnionValue(
+                    &diag_kind,
+                    @as([]const u8, try ctx.allocator.dupe(u8, parseRestStr(ctx))),
+                );
+            },
 
             .too_many_locals,
             => {},
@@ -342,7 +353,7 @@ pub const Config = struct {
         try ctx.expectations.out.append('\n');
     }
 
-    fn parseEvalKind(
+    fn parseEvalType(
         ctx: *DirectiveContext,
     ) DirectiveError!SemaExpr.EvalType {
         var eval_type = try parseUnionVariant(ctx, SemaExpr.EvalType);
@@ -408,7 +419,9 @@ pub const Config = struct {
     }
 
     fn parseRestStr(ctx: *DirectiveContext) []const u8 {
-        return std.mem.trim(u8, ctx.split_iter.rest(), " ");
+        const rest = std.mem.trim(u8, ctx.split_iter.rest(), " ");
+        while (ctx.split_iter.next()) |_| {}
+        return rest;
     }
 
     fn parseEndOfLine(ctx: *DirectiveContext) DirectiveError!void {

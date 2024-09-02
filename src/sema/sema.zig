@@ -52,11 +52,16 @@ pub const Sema = struct {
             unexpected_arithmetic_negation_type: SemaExpr.EvalType,
             too_many_locals,
             value_not_found: []const u8,
+            unexpected_assignment_type: EvalTypeTuple,
+            immutable_mutation: []const u8,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             switch (self.kind) {
                 .value_not_found,
+                => |name| allocator.free(name),
+
+                .immutable_mutation,
                 => |name| allocator.free(name),
 
                 .expected_expr_type,
@@ -69,6 +74,7 @@ pub const Sema = struct {
                 .unexpected_logical_negation_type,
                 .unexpected_arithmetic_negation_type,
                 .too_many_locals,
+                .unexpected_assignment_type,
                 => {},
             }
         }
@@ -95,10 +101,15 @@ pub const Sema = struct {
         }
     };
 
+    const Local = struct {
+        eval_type: SemaExpr.EvalType,
+        is_mutable: bool,
+    };
+
     allocator: Allocator,
     diags: ?*Diags = null,
     had_error: bool = false,
-    locals: ArrayList(SemaExpr.EvalType) = undefined,
+    locals: ArrayList(Local) = undefined,
     current_scope: ?*Scope = null,
 
     pub fn init(allocator: *ArenaAllocator) Self {
@@ -115,7 +126,7 @@ pub const Sema = struct {
         self.diags = diags;
         self.had_error = false;
         self.current_scope = null;
-        self.locals = ArrayList(SemaExpr.EvalType).init(self.allocator);
+        self.locals = ArrayList(Local).init(self.allocator);
 
         const sema_block = try self.analyzeExpr(block);
 
@@ -194,7 +205,7 @@ pub const Sema = struct {
             try self.addDiag(position, .too_many_locals);
         }
 
-        const index = try self.declareVariable(let.name, expr.eval_type);
+        const index = try self.declareVariable(let.is_mutable, let.name, expr.eval_type);
 
         return try SemaStmt.Kind.Let.create(
             self.allocator,
@@ -214,6 +225,7 @@ pub const Sema = struct {
             .unary => |*unary| try self.analyzeUnaryExpr(unary, expr.position),
             .block => |*block| try self.analyzeBlockExpr(block, expr.position),
             .variable => |*variable| try self.analyzeVariableExpr(variable, expr.position),
+            .assignment => |*assignment| try self.analyzeAssignmentExpr(assignment, expr.position),
         };
     }
 
@@ -502,7 +514,7 @@ pub const Sema = struct {
         variable: *ParsedExpr.Kind.Variable,
         position: Position,
     ) Error!*SemaExpr {
-        const index, const eval_type = self.getVariable(variable.name) orelse {
+        const index, const local = self.getVariable(variable.name) orelse {
             return self.semaFailure(
                 position,
                 .{ .value_not_found = variable.name },
@@ -512,22 +524,64 @@ pub const Sema = struct {
         return try SemaExpr.Kind.Variable.create(
             self.allocator,
             index,
-            eval_type,
+            local.eval_type,
+            position,
+        );
+    }
+
+    fn analyzeAssignmentExpr(
+        self: *Self,
+        assignment: *ParsedExpr.Kind.Assigment,
+        position: Position,
+    ) Error!*SemaExpr {
+        const index, const local = self.getVariable(assignment.name) orelse {
+            return self.semaFailure(
+                position,
+                .{ .value_not_found = assignment.name },
+            );
+        };
+
+        const right = try self.analyzeExpr(assignment.right);
+
+        if (right.eval_type.tag() != local.eval_type.tag()) {
+            return self.semaFailure(
+                position,
+                .{ .unexpected_assignment_type = .{ local.eval_type, right.eval_type } },
+            );
+        }
+
+        if (!local.is_mutable) {
+            return self.semaFailure(
+                position,
+                .{ .immutable_mutation = assignment.name },
+            );
+        }
+
+        return try SemaExpr.Kind.Assignment.create(
+            self.allocator,
+            index,
+            right,
+            .unit,
             position,
         );
     }
 
     fn declareVariable(
         self: *Self,
+        is_mutable: bool,
         name: []const u8,
         eval_type: SemaExpr.EvalType,
     ) error{OutOfMemory}!usize {
         const scope = self.current_scope orelse @panic("unitialized scope");
+        const local: Local = .{
+            .eval_type = eval_type,
+            .is_mutable = is_mutable,
+        };
 
         if (scope.locals_top == self.locals.items.len) {
-            try self.locals.append(eval_type);
+            try self.locals.append(local);
         } else {
-            self.locals.items[scope.locals_top] = eval_type;
+            self.locals.items[scope.locals_top] = local;
         }
 
         try self.current_scope.?.locals_map.put(name, scope.locals_top);
@@ -539,7 +593,7 @@ pub const Sema = struct {
     fn getVariable(
         self: *Self,
         name: []const u8,
-    ) ?struct { usize, SemaExpr.EvalType } {
+    ) ?struct { usize, Local } {
         var current_map = self.current_scope;
 
         while (current_map) |local_map| {
@@ -580,6 +634,9 @@ pub const Sema = struct {
                     .value_not_found,
                     => |name| .{ .value_not_found = try diags.allocator.dupe(u8, name) },
 
+                    .immutable_mutation,
+                    => |name| .{ .immutable_mutation = try diags.allocator.dupe(u8, name) },
+
                     .expected_expr_type,
                     .unexpected_arithmetic_type,
                     .unexpected_operand_type,
@@ -590,6 +647,7 @@ pub const Sema = struct {
                     .unexpected_logical_negation_type,
                     .unexpected_arithmetic_negation_type,
                     .too_many_locals,
+                    .unexpected_assignment_type,
                     => diag_kind,
                 },
                 .position = position,

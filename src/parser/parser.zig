@@ -36,6 +36,7 @@ pub const Parser = struct {
             int_literal_overflows,
             expected_name,
             expected_equal_after_name,
+            invalid_assignment_target,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
@@ -50,6 +51,7 @@ pub const Parser = struct {
                 .int_literal_overflows,
                 .expected_name,
                 .expected_equal_after_name,
+                .invalid_assignment_target,
                 => {},
             }
         }
@@ -102,12 +104,14 @@ pub const Parser = struct {
     }
 
     fn parseLetStmt(self: *Self, position: Position) Error!*ParsedStmt {
+        const is_mutable = self.match(.mut, false) != null;
         const name_token = try self.consume(.identifier, .expected_name);
         _ = try self.consume(.equal, .expected_equal_after_name);
         const expr = try self.parseExpr(false);
 
         return try ParsedStmt.Kind.Let.create(
             self.allocator,
+            is_mutable,
             name_token.lexeme,
             expr,
             position,
@@ -131,11 +135,33 @@ pub const Parser = struct {
 
     fn parseExprStmt(self: *Self, position: Position) Error!*ParsedStmt {
         const expr = try self.parseExpr(false);
+
         return try ParsedStmt.Kind.Expr.create(self.allocator, expr, position);
     }
 
     fn parseExpr(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        return try self.parseOr(ignore_new_line);
+        return try self.parseAssignment(ignore_new_line);
+    }
+
+    fn parseAssignment(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
+        const position = self.peek().position;
+        const expr = try self.parseOr(ignore_new_line);
+
+        while (self.match(.equal, ignore_new_line) != null) {
+            const value_expr = try self.parseAssignment(ignore_new_line);
+
+            switch (expr.kind) {
+                .variable => |variable| return ParsedExpr.Kind.Assigment.create(
+                    self.allocator,
+                    variable.name,
+                    value_expr,
+                    position,
+                ),
+                else => try self.addDiag(.invalid_assignment_target, position),
+            }
+        }
+
+        return expr;
     }
 
     fn parseOr(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
@@ -627,6 +653,7 @@ pub const Parser = struct {
                     .int_literal_overflows,
                     .expected_name,
                     .expected_equal_after_name,
+                    .invalid_assignment_target,
                     => diag_kind,
                 },
                 .position = position,

@@ -169,11 +169,38 @@ pub const ParsedExpr = struct {
             }
         };
 
+        pub const Assigment = struct {
+            name: []const u8,
+            right: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                name: []const u8,
+                right: *ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .assignment = .{
+                            .name = try allocator.dupe(u8, name),
+                            .right = right,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return expr;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
         block: Block,
         variable: Variable,
+        assignment: Assigment,
     };
 
     kind: Kind,

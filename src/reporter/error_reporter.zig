@@ -60,6 +60,9 @@ pub fn reportParserDiag(
 
         .expected_equal_after_name,
         => writer.print("Expected '=' after name."),
+
+        .invalid_assignment_target,
+        => writer.print("Invalid assignment target."),
     }
 }
 
@@ -95,6 +98,7 @@ pub fn reportParserDiagTokenQuoted(
         .and_,
         .or_,
         .do,
+        .mut,
         .let,
         .assert,
         .print,
@@ -185,6 +189,15 @@ pub fn reportSemaDiag(
 
         .value_not_found,
         => |name| writer.printf("Can't find value '{s}' in this scope.", .{name}),
+
+        .unexpected_assignment_type,
+        => |eval_types| writer.printf(
+            "Can't assign value of type {s} to variable of type {s}.",
+            .{ eval_types[1].stringify(), eval_types[0].stringify() },
+        ),
+
+        .immutable_mutation,
+        => |name| writer.printf("Can't assign twice to immutable variable '{s}'.", .{name}),
     }
 }
 

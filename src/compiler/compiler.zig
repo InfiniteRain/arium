@@ -128,7 +128,7 @@ pub const Compiler = struct {
             .assert => |*assert_stmt| try self.compileAssertStmt(assert_stmt, stmt.position),
             .print => |*print| try self.compilePrintStmt(print, stmt.position),
             .expr => |*expr| try self.compileExprStmt(expr, is_last_statement, stmt.position),
-            .let => |*let| try self.compileLetStmt(let, stmt.position),
+            .let => |*let| try self.compileVariableMutation(let.index, let.expr, stmt.position),
         }
     }
 
@@ -163,16 +163,17 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileLetStmt(
+    fn compileVariableMutation(
         self: *Self,
-        let: *const SemaStmt.Kind.Let,
+        index: usize,
+        expr: *const SemaExpr,
         position: Position,
     ) Error!void {
-        const index: u8 = @intCast(let.index);
+        const index_u8: u8 = @intCast(index);
 
-        try self.compileExpr(let.expr, null);
+        try self.compileExpr(expr, null);
 
-        switch (index) {
+        switch (index_u8) {
             0 => try self.chunk.writeU8(.store_local_0, position),
             1 => try self.chunk.writeU8(.store_local_1, position),
             2 => try self.chunk.writeU8(.store_local_2, position),
@@ -180,7 +181,7 @@ pub const Compiler = struct {
             4 => try self.chunk.writeU8(.store_local_4, position),
             else => {
                 try self.chunk.writeU8(.store_local, position);
-                try self.chunk.writeU8(index, position);
+                try self.chunk.writeU8(index_u8, position);
             },
         }
     }
@@ -213,6 +214,11 @@ pub const Compiler = struct {
             .unary => |*unary| try self.compileUnaryExpr(unary, expr.position),
             .block => |*block| try self.compileBlockExpr(block),
             .variable => |*variable| try self.compileVariableExpr(variable, expr.position),
+            .assignment => |*assignment| try self.compileVariableMutation(
+                assignment.index,
+                assignment.right,
+                expr.position,
+            ),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
