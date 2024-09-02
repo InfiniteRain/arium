@@ -10,6 +10,7 @@ const Position = arium.Position;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
+const EvalType = arium.EvalType;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const SharedDiags = shared.Diags;
@@ -355,14 +356,14 @@ pub const Config = struct {
 
     fn parseEvalType(
         ctx: *DirectiveContext,
-    ) DirectiveError!SemaExpr.EvalType {
-        var eval_type = try parseUnionVariant(ctx, SemaExpr.EvalType);
+    ) DirectiveError!EvalType {
+        var eval_type = try parseUnionVariant(ctx, EvalType);
 
         switch (eval_type) {
             .obj,
             => meta.setUnionValue(
                 &eval_type,
-                try parseEnumVariant(ctx, SemaExpr.EvalType.ObjKind),
+                try parseEnumVariant(ctx, EvalType.ObjKind),
             ),
 
             .unit,

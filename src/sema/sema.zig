@@ -1,9 +1,7 @@
 const std = @import("std");
 const shared = @import("shared");
-const parsed_expr_mod = @import("../parser/parsed_expr.zig");
-const parsed_stmt_mod = @import("../parser/parsed_stmt.zig");
-const sema_expr_mod = @import("sema_expr.zig");
-const sema_stmt_mod = @import("sema_stmt.zig");
+const parsed_ast_mod = @import("../parser/parsed_ast.zig");
+const sema_ast_mod = @import("sema_ast.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const parser_mod = @import("../parser/parser.zig");
 const limits = @import("../limits.zig");
@@ -17,10 +15,11 @@ const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
 const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
-const ParsedExpr = parsed_expr_mod.ParsedExpr;
-const ParsedStmt = parsed_stmt_mod.ParsedStmt;
-const SemaExpr = sema_expr_mod.SemaExpr;
-const SemaStmt = sema_stmt_mod.SemaStmt;
+const ParsedExpr = parsed_ast_mod.ParsedExpr;
+const ParsedStmt = parsed_ast_mod.ParsedStmt;
+const SemaExpr = sema_ast_mod.SemaExpr;
+const SemaStmt = sema_ast_mod.SemaStmt;
+const EvalType = sema_ast_mod.EvalType;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Token = tokenizer_mod.Token;
 const Position = tokenizer_mod.Position;
@@ -36,20 +35,20 @@ pub const Sema = struct {
 
     pub const DiagEntry = struct {
         pub const EvalTypeTuple = struct {
-            SemaExpr.EvalType,
-            SemaExpr.EvalType,
+            EvalType,
+            EvalType,
         };
 
         pub const Kind = union(enum) {
-            expected_expr_type: SemaExpr.EvalType,
-            unexpected_arithmetic_type: SemaExpr.EvalType,
+            expected_expr_type: EvalType,
+            unexpected_arithmetic_type: EvalType,
             unexpected_operand_type: EvalTypeTuple,
             unexpected_concat_type: EvalTypeTuple,
             unexpected_equality_type: EvalTypeTuple,
-            unexpected_comparison_type: SemaExpr.EvalType,
-            unexpected_logical_type: SemaExpr.EvalType,
-            unexpected_logical_negation_type: SemaExpr.EvalType,
-            unexpected_arithmetic_negation_type: SemaExpr.EvalType,
+            unexpected_comparison_type: EvalType,
+            unexpected_logical_type: EvalType,
+            unexpected_logical_negation_type: EvalType,
+            unexpected_arithmetic_negation_type: EvalType,
             too_many_locals,
             value_not_found: []const u8,
             unexpected_assignment_type: EvalTypeTuple,
@@ -102,7 +101,7 @@ pub const Sema = struct {
     };
 
     const Local = struct {
-        eval_type: SemaExpr.EvalType,
+        eval_type: EvalType,
         is_mutable: bool,
     };
 
@@ -308,7 +307,7 @@ pub const Sema = struct {
         left: *SemaExpr,
         right: *SemaExpr,
         position: Position,
-    ) Error!SemaExpr.EvalType {
+    ) Error!EvalType {
         if (left.eval_type != .int and left.eval_type != .float) {
             return self.semaFailure(
                 position,
@@ -331,7 +330,7 @@ pub const Sema = struct {
         left: *SemaExpr,
         right: *SemaExpr,
         position: Position,
-    ) Error!SemaExpr.EvalType {
+    ) Error!EvalType {
         if (!isString(left.eval_type) or !isString(right.eval_type)) {
             return self.semaFailure(
                 position,
@@ -347,7 +346,7 @@ pub const Sema = struct {
         left: *SemaExpr,
         right: *SemaExpr,
         position: Position,
-    ) Error!SemaExpr.EvalType {
+    ) Error!EvalType {
         if (left.eval_type.tag() != right.eval_type.tag()) {
             return self.semaFailure(
                 position,
@@ -363,7 +362,7 @@ pub const Sema = struct {
         left: *SemaExpr,
         right: *SemaExpr,
         position: Position,
-    ) Error!SemaExpr.EvalType {
+    ) Error!EvalType {
         if (left.eval_type != .int and left.eval_type != .float) {
             return self.semaFailure(
                 position,
@@ -386,7 +385,7 @@ pub const Sema = struct {
         left: *SemaExpr,
         right: *SemaExpr,
         position: Position,
-    ) Error!SemaExpr.EvalType {
+    ) Error!EvalType {
         if (left.eval_type != .bool) {
             return self.semaFailure(
                 position,
@@ -442,7 +441,7 @@ pub const Sema = struct {
         self: *Self,
         right: *SemaExpr,
         position: Position,
-    ) Error!SemaExpr.EvalType {
+    ) Error!EvalType {
         if (right.eval_type != .bool) {
             return self.semaFailure(
                 position,
@@ -457,7 +456,7 @@ pub const Sema = struct {
         self: *Self,
         right: *SemaExpr,
         position: Position,
-    ) Error!SemaExpr.EvalType {
+    ) Error!EvalType {
         if (right.eval_type != .int or right.eval_type != .float) {
             return self.semaFailure(
                 position,
@@ -570,7 +569,7 @@ pub const Sema = struct {
         self: *Self,
         is_mutable: bool,
         name: []const u8,
-        eval_type: SemaExpr.EvalType,
+        eval_type: EvalType,
     ) error{OutOfMemory}!usize {
         const scope = self.current_scope orelse @panic("unitialized scope");
         const local: Local = .{
@@ -656,7 +655,7 @@ pub const Sema = struct {
     }
 
     fn translateBinaryKind(
-        eval_type: SemaExpr.EvalType,
+        eval_type: EvalType,
         binary_kind: ParsedExpr.Kind.Binary.Kind,
     ) SemaExpr.Kind.Binary.Kind {
         return switch (eval_type) {
@@ -736,7 +735,7 @@ pub const Sema = struct {
     }
 
     fn translateUnaryKind(
-        eval_type: SemaExpr.EvalType,
+        eval_type: EvalType,
         unary_kind: ParsedExpr.Kind.Unary.Kind,
     ) SemaExpr.Kind.Unary.Kind {
         return switch (eval_type) {
@@ -769,7 +768,7 @@ pub const Sema = struct {
         };
     }
 
-    fn isString(eval_type: SemaExpr.EvalType) bool {
+    fn isString(eval_type: EvalType) bool {
         return eval_type == .obj and eval_type.obj == .string;
     }
 };

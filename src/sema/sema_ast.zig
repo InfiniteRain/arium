@@ -1,12 +1,43 @@
 const std = @import("std");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
-const sema_stmt_mod = @import("sema_stmt.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const meta = std.meta;
 const Position = tokenizer_mod.Position;
-const SemaStmt = sema_stmt_mod.SemaStmt;
+
+pub const EvalType = union(enum) {
+    const Self = @This();
+    const Tag = meta.Tag(EvalType);
+
+    pub const ObjKind = enum {
+        string,
+    };
+
+    unit,
+    int,
+    float,
+    bool,
+    obj: ObjKind,
+    invalid,
+
+    pub fn stringify(self: Self) []const u8 {
+        return switch (self) {
+            .unit => "Unit",
+            .int => "Int",
+            .float => "Float",
+            .bool => "Bool",
+            .obj => switch (self.obj) {
+                .string => "String",
+            },
+            .invalid => "Invalid",
+        };
+    }
+
+    pub fn tag(self: Self) Tag {
+        return self;
+    }
+};
 
 pub const SemaExpr = struct {
     const Self = @This();
@@ -226,39 +257,116 @@ pub const SemaExpr = struct {
         assignment: Assignment,
     };
 
-    pub const EvalType = union(enum) {
-        const Tag = meta.Tag(EvalType);
+    kind: Kind,
+    eval_type: EvalType,
+    position: Position,
+};
 
-        pub const ObjKind = enum {
-            string,
+pub const SemaStmt = struct {
+    const Self = @This();
+
+    pub const Kind = union(enum) {
+        pub const Assert = struct {
+            expr: *SemaExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                expr: *SemaExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .assert = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
         };
 
-        unit,
-        int,
-        float,
-        bool,
-        obj: ObjKind,
-        invalid,
+        pub const Print = struct {
+            expr: *SemaExpr,
 
-        pub fn stringify(self: EvalType) []const u8 {
-            return switch (self) {
-                .unit => "Unit",
-                .int => "Int",
-                .float => "Float",
-                .bool => "Bool",
-                .obj => switch (self.obj) {
-                    .string => "String",
-                },
-                .invalid => "Invalid",
-            };
-        }
+            pub fn create(
+                allocator: Allocator,
+                expr: *SemaExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
 
-        pub fn tag(self: EvalType) Tag {
-            return self;
-        }
+                stmt.* = .{
+                    .kind = .{
+                        .print = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
+        pub const Expr = struct {
+            expr: *SemaExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                expr: *SemaExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .expr = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
+        pub const Let = struct {
+            index: usize,
+            expr: *SemaExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                index: usize,
+                expr: *SemaExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .let = .{
+                            .index = index,
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
+        assert: Assert,
+        print: Print,
+        expr: Expr,
+        let: Let,
     };
 
     kind: Kind,
-    eval_type: EvalType,
     position: Position,
 };

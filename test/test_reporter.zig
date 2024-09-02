@@ -8,6 +8,7 @@ const Runner = runner_mod.Runner;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
+const EvalType = arium.EvalType;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const error_reporter = arium.error_reporter;
@@ -250,7 +251,7 @@ pub fn reportVmDiags(
 }
 
 pub fn reportEvalType(
-    eval_type: SemaExpr.EvalType,
+    eval_type: EvalType,
     writer: *const Writer,
 ) void {
     writer.printf("{s}", .{@tagName(eval_type)});

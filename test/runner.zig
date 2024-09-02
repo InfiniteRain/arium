@@ -14,6 +14,7 @@ const IoHandler = arium.IoHandler;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
+const EvalType = arium.EvalType;
 const ManagedMemory = arium.ManagedMemory;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
@@ -440,7 +441,7 @@ pub const Runner = struct {
                 .unexpected_arithmetic_negation_type,
                 => |eval_type| {
                     const actual_type =
-                        meta.getUnionValue(&actual_entry.kind, SemaExpr.EvalType);
+                        meta.getUnionValue(&actual_entry.kind, EvalType);
 
                     if (!verifyEvalType(eval_type, actual_type)) {
                         return false;
@@ -543,8 +544,8 @@ pub const Runner = struct {
     }
 
     fn verifyEvalType(
-        expected: SemaExpr.EvalType,
-        actual: SemaExpr.EvalType,
+        expected: EvalType,
+        actual: EvalType,
     ) bool {
         if (@intFromEnum(expected) != @intFromEnum(actual)) {
             return false;

@@ -66,6 +66,7 @@ pub const Token = struct {
         print,
 
         new_line,
+        colon,
         semicolon,
         comment,
         eof,
@@ -129,6 +130,7 @@ pub const Tokenizer = struct {
             '>' => self.makeToken(if (self.match('=')) .greater_equal else .greater),
             '"' => self.string(),
             ';' => self.makeToken(.semicolon),
+            ':' => self.makeToken(.colon),
             '\n' => makeNewLineToken(old_line, old_column),
             else => {
                 if (Self.isAlpha(char)) {

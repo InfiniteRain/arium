@@ -103,6 +103,7 @@ pub fn reportParserDiagTokenQuoted(
         .assert,
         .print,
         .new_line,
+        .colon,
         .semicolon,
         .comment,
         .invalid,

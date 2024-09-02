@@ -1,12 +1,10 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
-const parsed_stmt_mod = @import("parsed_stmt.zig");
 
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Token = tokenizer.Token;
 const Position = tokenizer.Position;
-const ParsedStmt = parsed_stmt_mod.ParsedStmt;
 
 pub const ParsedExpr = struct {
     const Self = @This();
@@ -201,6 +199,118 @@ pub const ParsedExpr = struct {
         block: Block,
         variable: Variable,
         assignment: Assigment,
+    };
+
+    kind: Kind,
+    position: Position,
+};
+
+pub const ParsedStmt = struct {
+    const Self = @This();
+
+    pub const Kind = union(enum) {
+        pub const Assert = struct {
+            expr: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                expr: *ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .assert = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
+        pub const Print = struct {
+            expr: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                expr: *ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .print = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
+        pub const Expr = struct {
+            expr: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                expr: *ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .expr = .{
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
+        pub const Let = struct {
+            is_mutable: bool,
+            name: []const u8,
+            expr: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                is_mutable: bool,
+                name: []const u8,
+                expr: *ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const stmt = try allocator.create(Self);
+
+                stmt.* = .{
+                    .kind = .{
+                        .let = .{
+                            .is_mutable = is_mutable,
+                            .name = try allocator.dupe(u8, name),
+                            .expr = expr,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return stmt;
+            }
+        };
+
+        print: Print,
+        assert: Assert,
+        expr: Expr,
+        let: Let,
     };
 
     kind: Kind,

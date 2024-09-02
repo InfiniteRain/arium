@@ -1,8 +1,7 @@
 const std = @import("std");
 const shared = @import("shared");
 const tokenizer_mod = @import("tokenizer.zig");
-const parsed_expr_mod = @import("parsed_expr.zig");
-const parsed_stmt_mod = @import("parsed_stmt.zig");
+const parsed_ast_mod = @import("parsed_ast.zig");
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -15,8 +14,8 @@ const Writer = shared.Writer;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Position = tokenizer_mod.Position;
-const ParsedExpr = parsed_expr_mod.ParsedExpr;
-const ParsedStmt = parsed_stmt_mod.ParsedStmt;
+const ParsedExpr = parsed_ast_mod.ParsedExpr;
+const ParsedStmt = parsed_ast_mod.ParsedStmt;
 
 pub const Parser = struct {
     const Self = @This();
