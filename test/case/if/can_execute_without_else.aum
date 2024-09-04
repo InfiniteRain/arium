@@ -1,0 +1,9 @@
+/// run
+
+if true then
+  print("hello") /// out hello
+end
+
+if false then
+  print("world")
+end

@@ -1,0 +1,17 @@
+/// run
+
+print(
+  if true then
+    "a"
+  else
+    "b"
+  end
+) /// out a
+
+print(
+  if false then
+    "a"
+  else
+    "b"
+  end
+) /// out b

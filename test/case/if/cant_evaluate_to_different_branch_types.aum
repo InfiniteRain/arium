@@ -1,0 +1,9 @@
+/// sema
+
+print(
+  if true then
+    "string"
+  else /// err_sema 6 unexpected_else_type string bool
+    true
+  end
+)

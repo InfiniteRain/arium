@@ -1,0 +1,65 @@
+/// run
+
+print(
+  if true then
+    if true then
+      "a"
+    else
+      "b"
+    end
+  else
+    if true then
+      "c"
+    else
+      "d"
+    end
+  end
+) /// out a
+
+print(
+  if true then
+    if false then
+      "a"
+    else
+      "b"
+    end
+  else
+    if true then
+      "c"
+    else
+      "d"
+    end
+  end
+) /// out b
+
+print(
+  if false then
+    if false then
+      "a"
+    else
+      "b"
+    end
+  else
+    if true then
+      "c"
+    else
+      "d"
+    end
+  end
+) /// out c
+
+print(
+  if false then
+    if false then
+      "a"
+    else
+      "b"
+    end
+  else
+    if false then
+      "c"
+    else
+      "d"
+    end
+  end
+) /// out d

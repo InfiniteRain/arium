@@ -1,0 +1,25 @@
+/// run
+
+if 1 > 0 or 1 > 0 and 1 > 0 then
+  print(1) /// out 1
+end
+
+if 1 > 1 or 1 > 0 and 1 > 0 then
+  print(2) /// out 2
+end
+
+if 1 > 1 or 1 > 1 and 1 > 0 then
+  print(3)
+end
+
+if 1 > 0 or 1 > 0 and 1 > 1 then
+  print(4) /// out 4
+end
+
+if 1 > 1 or 1 > 0 and 1 > 1 then
+  print(5)
+end
+
+if 1 > 1 or 1 > 1 and 1 > 1 then
+  print(6)
+end

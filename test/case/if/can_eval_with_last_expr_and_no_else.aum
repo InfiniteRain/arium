@@ -1,0 +1,25 @@
+/// run
+
+print(
+  if true then
+    123
+  end
+) /// out unit
+
+print(
+  if true then
+    3.14
+  end
+) /// out unit
+
+print(
+  if true then
+    true 
+  end
+) /// out unit
+
+print(
+  if true then
+    "hello, world"
+  end
+) /// out unit

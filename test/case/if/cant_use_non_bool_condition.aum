@@ -1,0 +1,13 @@
+/// sema
+
+if 1234 then /// err_sema 3 expected_expr_type bool
+  print(1)
+end
+
+if 3.14 then /// err_sema 7 expected_expr_type bool
+  print(2)
+end
+
+if "string" then /// err_sema 11 expected_expr_type bool
+  print(3)
+end

@@ -1,0 +1,73 @@
+/// run
+
+if true then
+  if true then
+    print("string") /// out string
+    "string"
+  else
+    print("bool")
+    true
+  end
+else
+  if true then
+    print("int")
+    124
+  else
+    print("float")
+    3.14
+  end
+end
+
+if true then
+  if false then
+    print("string")
+    "string"
+  else
+    print("bool") /// out bool
+    true
+  end
+else
+  if true then
+    print("int")
+    124
+  else
+    print("float")
+    3.14
+  end
+end
+
+if false then
+  if false then
+    print("string")
+    "string"
+  else
+    print("bool")
+    true
+  end
+else
+  if true then
+    print("int") /// out int
+    124
+  else
+    print("float")
+    3.14
+  end
+end
+
+if false then
+  if false then
+    print("string")
+    "string"
+  else
+    print("bool")
+    true
+  end
+else
+  if false then
+    print("int")
+    124
+  else
+    print("float") /// out float
+    3.14
+  end
+end
