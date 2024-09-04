@@ -29,7 +29,7 @@ pub const Parser = struct {
 
     pub const DiagEntry = struct {
         pub const Kind = union(enum) {
-            expected_end_token: Token.Kind,
+            expected_end_token: ArrayList(Token.Kind),
             invalid_token: []const u8,
             expected_expression,
             expected_left_paren_before_expr,
@@ -40,6 +40,7 @@ pub const Parser = struct {
             invalid_assignment_target,
             expected_type,
             variable_name_not_lower_case: []const u8,
+            expected_then_after_condition,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
@@ -49,6 +50,8 @@ pub const Parser = struct {
                 => |str| allocator.free(str),
 
                 .expected_end_token,
+                => |*token_list| token_list.clearAndFree(),
+
                 .expected_expression,
                 .expected_left_paren_before_expr,
                 .expected_right_paren_after_expr,
@@ -57,6 +60,7 @@ pub const Parser = struct {
                 .expected_equal_after_name,
                 .invalid_assignment_target,
                 .expected_type,
+                .expected_then_after_condition,
                 => {},
             }
         }
@@ -87,7 +91,7 @@ pub const Parser = struct {
         self.tokenizer = tokenizer;
         self.current_token = tokenizer.scanNonCommentToken();
         self.diags = diags;
-        return try self.parseBlock(.eof, .{ .line = 1, .column = 1 });
+        return (try self.parseBlock(.eof, .{ .line = 1, .column = 1 }))[0];
     }
 
     fn parseStmt(self: *Self) Error!*ParsedStmt {
@@ -458,7 +462,11 @@ pub const Parser = struct {
         }
 
         if (self.match(.do, ignore_new_line)) |token| {
-            return try self.parseBlock(.end, token.position);
+            return (try self.parseBlock(.end, token.position))[0];
+        }
+
+        if (self.match(.if_, ignore_new_line)) |token| {
+            return try self.parseIf(token.position);
         }
 
         if (self.match(.invalid, ignore_new_line)) |token| {
@@ -472,24 +480,26 @@ pub const Parser = struct {
 
     fn parseBlock(
         self: *Self,
-        end_token_kind: Token.Kind,
+        arg: anytype,
         position: Position,
-    ) Error!*ParsedExpr {
+    ) Error!struct { *ParsedExpr, Token } {
         const stmts = ArrayList(*ParsedStmt).init(self.allocator);
 
         var block = try ParsedExpr.Kind.Block.create(
             self.allocator,
             stmts,
+            false,
             position,
         );
 
-        if (self.match(end_token_kind, true) != null) {
-            try self.addUniExprStmtToBlock(&block.kind.block, position);
-            return block;
+        if (self.match(arg, true)) |end_token| {
+            return .{
+                block,
+                end_token,
+            };
         }
 
         const old_num_diags = if (self.diags) |diags| diags.getLen() else 0;
-        var ends_with_semicolon = false;
 
         while (true) {
             const stmt = self.parseStmt() catch |err| switch (err) {
@@ -515,47 +525,47 @@ pub const Parser = struct {
             try block.kind.block.stmts.append(stmt);
 
             const terminator = self.matchStmtTerminator();
-            ends_with_semicolon = terminator == .semicolon;
+            block.kind.block.ends_with_semicolon = terminator == .semicolon;
 
-            if (terminator == .none or self.check(end_token_kind)) {
+            if (terminator == .none or self.check(arg)) {
                 break;
             }
         }
 
-        _ = try self.consume(
-            end_token_kind,
-            .{ .expected_end_token = end_token_kind },
+        const end_token = try self.consume(
+            arg,
+            .{ .expected_end_token = try self.tokenArgToArrayList(arg) },
         );
 
         if (self.diags != null and self.diags.?.getLen() > old_num_diags) {
             return error.ParseFailure;
         }
 
-        if (ends_with_semicolon or block.kind.block.stmts.getLast().kind != .expr) {
-            try self.addUniExprStmtToBlock(&block.kind.block, position);
-        }
-
-        return block;
+        return .{ block, end_token };
     }
 
-    fn addUniExprStmtToBlock(
+    fn parseIf(
         self: *Self,
-        block: *ParsedExpr.Kind.Block,
         position: Position,
-    ) Error!void {
-        const expr = try ParsedExpr.Kind.Literal.create(
+    ) Error!*ParsedExpr {
+        const condition = try self.parseExpr(true);
+        const then_token = try self.consume(.then, .expected_then_after_condition);
+        const then_block, const end_token = try self.parseBlock(
+            .{ .end, .else_ },
+            then_token.position,
+        );
+        const else_block = if (end_token.kind == .else_)
+            (try self.parseBlock(.end, end_token.position))[0]
+        else
+            null;
+
+        return try ParsedExpr.Kind.If.create(
             self.allocator,
-            .unit,
+            condition,
+            then_block,
+            else_block,
             position,
         );
-
-        const exprStmt = try ParsedStmt.Kind.Expr.create(
-            self.allocator,
-            expr,
-            position,
-        );
-
-        try block.stmts.append(exprStmt);
     }
 
     fn match(self: *Self, arg: anytype, ignore_new_line: bool) ?Token {
@@ -563,20 +573,8 @@ pub const Parser = struct {
             self.skipNewLines();
         }
 
-        const ArgType = @TypeOf(arg);
-        const arg_type_info = @typeInfo(ArgType);
-        const token_stuct = if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Kind)
-            .{arg}
-        else if (arg_type_info == .Struct and arg_type_info.Struct.is_tuple)
-            arg
-        else {
-            @compileError("expected arg to be of type Token.Kind or a tuple of Token.Kind");
-        };
-
-        inline for (@typeInfo(@TypeOf(token_stuct)).Struct.fields) |field| {
-            if (self.check(@field(token_stuct, field.name))) {
-                return self.advance();
-            }
+        if (self.check(arg)) {
+            return self.advance();
         }
 
         return null;
@@ -584,10 +582,10 @@ pub const Parser = struct {
 
     fn consume(
         self: *Self,
-        token_kind: Token.Kind,
+        arg: anytype,
         diag_kind: DiagEntry.Kind,
     ) Error!Token {
-        if (self.check(token_kind)) {
+        if (self.check(arg)) {
             return self.advance();
         }
 
@@ -610,8 +608,23 @@ pub const Parser = struct {
         return .none;
     }
 
-    fn check(self: *Self, kind: Token.Kind) bool {
-        return self.peek().kind == kind;
+    fn check(self: *Self, arg: anytype) bool {
+        const ArgType = @TypeOf(arg);
+        const arg_type_info = @typeInfo(ArgType);
+        const token_stuct = if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Kind)
+            .{arg}
+        else if (arg_type_info == .Struct and arg_type_info.Struct.is_tuple)
+            arg
+        else
+            @compileError("expected arg to be of type Token.Kind or a tuple of Token.Kind");
+
+        inline for (@typeInfo(@TypeOf(token_stuct)).Struct.fields) |field| {
+            if (self.peek().kind == @field(token_stuct, field.name)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     fn isAtEnd(self: *Self) bool {
@@ -661,6 +674,25 @@ pub const Parser = struct {
         }
     }
 
+    fn tokenArgToArrayList(
+        self: *Self,
+        arg: anytype,
+    ) error{OutOfMemory}!ArrayList(Token.Kind) {
+        const ArgType = @TypeOf(arg);
+        var array_list = ArrayList(Token.Kind).init(self.allocator);
+
+        if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Kind) {
+            try array_list.append(arg);
+            return array_list;
+        }
+
+        inline for (@typeInfo(ArgType).Struct.fields) |field| {
+            try array_list.append(@field(arg, field.name));
+        }
+
+        return array_list;
+    }
+
     fn addDiag(
         self: *Self,
         diag_kind: DiagEntry.Kind,
@@ -685,6 +717,14 @@ pub const Parser = struct {
                     },
 
                     .expected_end_token,
+                    => |token_list| .{
+                        .expected_end_token = blk: {
+                            var new_list = ArrayList(Token.Kind).init(diags.allocator);
+                            try new_list.appendSlice(token_list.items);
+                            break :blk new_list;
+                        },
+                    },
+
                     .expected_expression,
                     .expected_left_paren_before_expr,
                     .expected_right_paren_after_expr,
@@ -693,6 +733,7 @@ pub const Parser = struct {
                     .expected_equal_after_name,
                     .invalid_assignment_target,
                     .expected_type,
+                    .expected_then_after_condition,
                     => diag_kind,
                 },
                 .position = position,

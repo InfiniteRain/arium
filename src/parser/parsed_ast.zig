@@ -120,13 +120,14 @@ pub const ParsedExpr = struct {
             }
         };
 
-        // todo: try turning all references to const (expr/stmt)
         pub const Block = struct {
             stmts: ArrayList(*ParsedStmt),
+            ends_with_semicolon: bool,
 
             pub fn create(
                 allocator: Allocator,
                 stmts: ArrayList(*ParsedStmt),
+                ends_with_semicolon: bool,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -135,6 +136,7 @@ pub const ParsedExpr = struct {
                     .kind = .{
                         .block = .{
                             .stmts = stmts,
+                            .ends_with_semicolon = ends_with_semicolon,
                         },
                     },
                     .position = position,
@@ -193,12 +195,42 @@ pub const ParsedExpr = struct {
             }
         };
 
+        pub const If = struct {
+            condition: *ParsedExpr,
+            then_block: *ParsedExpr,
+            else_block: ?*ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                condition: *ParsedExpr,
+                then_block: *ParsedExpr,
+                else_block: ?*ParsedExpr,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .if_ = .{
+                            .condition = condition,
+                            .then_block = then_block,
+                            .else_block = else_block,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return expr;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
         block: Block,
         variable: Variable,
         assignment: Assigment,
+        if_: If,
     };
 
     kind: Kind,

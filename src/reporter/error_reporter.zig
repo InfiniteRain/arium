@@ -34,10 +34,14 @@ pub fn reportParserDiag(
 
     switch (diag.kind) {
         .expected_end_token,
-        => |token_kind| {
+        => |token_list| {
             writer.print("Expected ");
-            reportParserDiagTokenQuoted(token_kind, writer);
-            writer.print(", line break or ';'.");
+
+            for (token_list.items) |token_kind| {
+                reportParserDiagTokenQuoted(token_kind, writer);
+                writer.print(", ");
+            }
+            writer.print("line break or ';'.");
         },
 
         .invalid_token,
@@ -72,6 +76,9 @@ pub fn reportParserDiag(
             "Expected variable '{s}' to start with a lower-case letter.",
             .{name},
         ),
+
+        .expected_then_after_condition,
+        => writer.print("Expected 'then' after the if condition."),
     }
 }
 
@@ -82,6 +89,7 @@ pub fn reportParserDiagTokenQuoted(
     switch (token_kind) {
         .eof => writer.print("end of file"),
         .end => writer.print("'end'"),
+        .else_ => writer.print("'else'"),
 
         .left_paren,
         .right_paren,
@@ -116,6 +124,8 @@ pub fn reportParserDiagTokenQuoted(
         .semicolon,
         .comment,
         .invalid,
+        .if_,
+        .then,
         => @panic("token kind not implemented"),
     }
 }
@@ -214,6 +224,12 @@ pub fn reportSemaDiag(
 
         .value_not_assigned,
         => |name| writer.printf("Can't use variable '{s}' before assigning it a value.", .{name}),
+
+        .unexpected_else_type,
+        => |sema_types| writer.printf(
+            "Else branch is expected to be of type {s}, got {s}.",
+            .{ sema_types[0].stringify(), sema_types[1].stringify() },
+        ),
     }
 }
 

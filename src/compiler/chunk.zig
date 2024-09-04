@@ -207,9 +207,7 @@ pub const Chunk = struct {
             comptime_int, u8 => {
                 return .{ data, false };
             },
-            else => {
-                @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType));
-            },
+            else => @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType)),
         }
     }
 };

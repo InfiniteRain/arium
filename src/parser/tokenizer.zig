@@ -20,6 +20,9 @@ const token_trie = generateTrie(.{
     .{ "end", .end },
     .{ "mut", .mut },
     .{ "let", .let },
+    .{ "if", .if_ },
+    .{ "then", .then },
+    .{ "else", .else_ },
 });
 
 pub const Position = struct {
@@ -64,6 +67,9 @@ pub const Token = struct {
 
         assert,
         print,
+        if_,
+        then,
+        else_,
 
         new_line,
         colon,

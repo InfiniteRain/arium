@@ -153,10 +153,13 @@ pub fn reportParserDiags(
         );
 
         switch (entry.kind) {
-            .expected_end_token => |token| writer.printf(
-                " with token {s}",
-                .{@tagName(token)},
-            ),
+            .expected_end_token => |token_list| {
+                writer.print(" with tokens ");
+
+                for (token_list.items) |token| {
+                    writer.printf("{s} ", .{@tagName(token)});
+                }
+            },
 
             .invalid_token => |msg| writer.printf(
                 " '{s}'",
@@ -176,6 +179,7 @@ pub fn reportParserDiags(
             .expected_equal_after_name,
             .invalid_assignment_target,
             .expected_type,
+            .expected_then_after_condition,
             => {},
         }
 
@@ -209,6 +213,7 @@ pub fn reportSemaDiags(
             .unexpected_concat_type,
             .unexpected_equality_type,
             .unexpected_assignment_type,
+            .unexpected_else_type,
             => |sema_type| {
                 const left, const right = sema_type;
 

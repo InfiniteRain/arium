@@ -3,6 +3,7 @@ const value_mod = @import("value.zig");
 const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 const Value = value_mod.Value;
 
 pub const Stack = struct {
@@ -32,6 +33,8 @@ pub const Stack = struct {
     }
 
     pub fn pop(self: *Self) Value {
+        assert(self.top != @as([*]Value, @ptrCast(&self.items[0])));
+
         self.top -= 1;
         return self.top[0];
     }

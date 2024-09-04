@@ -228,7 +228,10 @@ pub const Config = struct {
 
         switch (diag_kind) {
             .expected_end_token,
-            => meta.setUnionValue(&diag_kind, try parseEnumVariant(ctx, Token.Kind)),
+            => meta.setUnionValue(
+                &diag_kind,
+                try parseEnumVariantList(ctx, Token.Kind),
+            ),
 
             .invalid_token,
             .variable_name_not_lower_case,
@@ -245,6 +248,7 @@ pub const Config = struct {
             .expected_equal_after_name,
             .invalid_assignment_target,
             .expected_type,
+            .expected_then_after_condition,
             => {},
         }
 
@@ -272,6 +276,7 @@ pub const Config = struct {
             .unexpected_concat_type,
             .unexpected_equality_type,
             .unexpected_assignment_type,
+            .unexpected_else_type,
             => meta.setUnionValue(&diag_kind, Sema.DiagEntry.SemaTypeTuple{
                 try parseSemaType(ctx),
                 try parseSemaType(ctx),
@@ -404,10 +409,7 @@ pub const Config = struct {
             return directiveParseFailure(ctx, msg, args);
     }
 
-    fn parseEnumVariant(
-        ctx: *DirectiveContext,
-        comptime T: type,
-    ) DirectiveError!T {
+    fn parseEnumVariant(ctx: *DirectiveContext, T: type) DirectiveError!T {
         const msg = "Expected an enum variant of {s}.";
         const args = .{@typeName(T)};
 
@@ -416,6 +418,21 @@ pub const Config = struct {
 
         return std.meta.stringToEnum(T, param) orelse
             return directiveParseFailure(ctx, msg, args);
+    }
+
+    fn parseEnumVariantList(ctx: *DirectiveContext, T: type) DirectiveError!ArrayList(T) {
+        const msg = "Expected a list of enum variants of {s}.";
+        const args = .{@typeName(T)};
+        const comma_list = try parseStr(ctx);
+        var split_iter = std.mem.splitScalar(u8, comma_list, ',');
+        var list = ArrayList(T).init(ctx.allocator);
+
+        while (split_iter.next()) |variant| {
+            try list.append(std.meta.stringToEnum(T, variant) orelse
+                return directiveParseFailure(ctx, msg, args));
+        }
+
+        return list;
     }
 
     fn parseRestStr(ctx: *DirectiveContext) []const u8 {

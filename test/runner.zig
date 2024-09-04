@@ -10,6 +10,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const Tokenizer = arium.Tokenizer;
+const Token = arium.Token;
 const IoHandler = arium.IoHandler;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
@@ -389,8 +390,19 @@ pub const Runner = struct {
 
             switch (expected_entry.kind) {
                 .expected_end_token,
-                => |token| if (token != actual_entry.kind.expected_end_token) {
-                    return false;
+                => |*array_list| {
+                    if (array_list.items.len != actual_entry.kind.expected_end_token.items.len) {
+                        return false;
+                    }
+
+                    for (
+                        array_list.items,
+                        actual_entry.kind.expected_end_token.items,
+                    ) |expected_token, actual_token| {
+                        if (expected_token != actual_token) {
+                            return false;
+                        }
+                    }
                 },
 
                 .invalid_token,
@@ -415,6 +427,7 @@ pub const Runner = struct {
                 .expected_equal_after_name,
                 .invalid_assignment_target,
                 .expected_type,
+                .expected_then_after_condition,
                 => {},
             }
         }
@@ -462,6 +475,7 @@ pub const Runner = struct {
                 .unexpected_concat_type,
                 .unexpected_equality_type,
                 .unexpected_assignment_type,
+                .unexpected_else_type,
                 => |sema_type| {
                     const expected_left, const expected_right = sema_type;
                     const actual_left, const actual_right = meta.getUnionValue(
@@ -592,6 +606,14 @@ pub const Runner = struct {
                         => |str| Parser.DiagEntry.Kind{ .invalid_token = try self.allocator.dupe(u8, str) },
 
                         .expected_end_token,
+                        => |token_list| Parser.DiagEntry.Kind{
+                            .expected_end_token = blk: {
+                                var new_list = ArrayList(Token.Kind).init(self.allocator);
+                                try new_list.appendSlice(token_list.items);
+                                break :blk new_list;
+                            },
+                        },
+
                         .expected_expression,
                         .expected_left_paren_before_expr,
                         .expected_right_paren_after_expr,
@@ -600,6 +622,7 @@ pub const Runner = struct {
                         .expected_equal_after_name,
                         .invalid_assignment_target,
                         .expected_type,
+                        .expected_then_after_condition,
                         => diag.kind,
                     },
                 })),
@@ -628,6 +651,7 @@ pub const Runner = struct {
                         .unexpected_arithmetic_negation_type,
                         .too_many_locals,
                         .unexpected_assignment_type,
+                        .unexpected_else_type,
                         => diag.kind,
                     },
                 })),

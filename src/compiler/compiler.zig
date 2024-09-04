@@ -56,17 +56,18 @@ pub const Compiler = struct {
 
         const BranchOffsets = BoundedArray(usize, 128);
 
-        const LogicalOperation = enum {
-            or_,
-            and_,
+        const IfBlocks = struct {
+            then_block: *SemaExpr,
+            else_block: ?*SemaExpr,
         };
 
+        is_root: bool = false,
         is_child_to_logical: bool = false,
-        current_logical: ?LogicalOperation = null,
-        prev_logical: ?LogicalOperation = null,
+        is_current_logical_or: bool = false,
         last_jump: *?JumpInfo,
         else_branch_offsets: *BranchOffsets,
         then_branch_offsets: *BranchOffsets,
+        if_blocks: ?IfBlocks = null,
     };
 
     vm_state: *VmState,
@@ -109,7 +110,6 @@ pub const Compiler = struct {
         }
 
         try compiler.compileExpr(block, null);
-        try compiler.eraseOrPopEvalValue(block.position);
         try compiler.chunk.writeU8(.return_, .{ .line = 0, .column = 0 });
 
         vm_state.chunk = compiler.chunk;
@@ -121,12 +121,11 @@ pub const Compiler = struct {
     fn compileStmt(
         self: *Self,
         stmt: *const SemaStmt,
-        is_last_statement: bool,
     ) Error!void {
         switch (stmt.kind) {
             .assert => |*assert_stmt| try self.compileAssertStmt(assert_stmt, stmt.position),
             .print => |*print| try self.compilePrintStmt(print, stmt.position),
-            .expr => |*expr| try self.compileExprStmt(expr, is_last_statement, stmt.position),
+            .expr => |*expr| try self.compileExprStmt(expr, stmt.position),
             .let => |*let| if (let.expr) |expr| try self.compileVariableMutation(let.index, expr, stmt.position),
         }
     }
@@ -152,13 +151,31 @@ pub const Compiler = struct {
     fn compileExprStmt(
         self: *Self,
         expr: *const SemaStmt.Kind.Expr,
-        is_last_statement: bool,
         position: Position,
     ) Error!void {
+        // if the expr should be evaluated, compile as normal and return
+        if (expr.expr.evals) {
+            try self.compileExpr(expr.expr, null);
+            return;
+        }
+
+        // if the expr shouldn't be evaluated and the expr is of a kind that
+        // doesn't have child expressions, then don't compile it and return
+        if (expr.expr.kind == .literal or expr.expr.kind == .variable) {
+            return;
+        }
+
+        // if the expr shouldn't be evaluated, but has nested expressions,
+        // compile it
         try self.compileExpr(expr.expr, null);
 
-        if (!is_last_statement) {
-            try self.eraseOrPopEvalValue(position);
+        // if the compiled expr that shouldn't be evaluated has child
+        // block(s), that means it doesn't leave a value on the stack, pop is
+        // not needed
+        if (expr.expr.kind != .block and expr.expr.kind != .if_) {
+            // other expr types WILL leave a value on the stack, so we need
+            // to pop it
+            try self.chunk.writeU8(.pop, position);
         }
     }
 
@@ -199,6 +216,7 @@ pub const Compiler = struct {
             then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
 
             break :blk ExprContext{
+                .is_root = true,
                 .last_jump = &last_jump,
                 .else_branch_offsets = &else_branch_offsets,
                 .then_branch_offsets = &then_branch_offsets,
@@ -214,6 +232,7 @@ pub const Compiler = struct {
             .block => |*block| try self.compileBlockExpr(block),
             .variable => |*variable| try self.compileVariableExpr(variable, expr.position),
             .assignment => |*assignment| try self.compileAssignmentExpr(assignment, expr.position),
+            .if_ => |*if_| try self.compileIfExpr(if_),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
@@ -301,7 +320,7 @@ pub const Compiler = struct {
             .divide_float,
             .concat,
             => {
-                try self.compileArithmeticBinaryExpr(binary, position, ctx);
+                try self.compileArithmeticBinaryExpr(binary, position);
                 return false;
             },
 
@@ -352,12 +371,27 @@ pub const Compiler = struct {
             ctx,
         );
 
-        if (!ctx.is_child_to_logical or ctx.current_logical == null) {
-            try self.chunk.writeU8(.constant_bool_true, position);
-            const then_offset = try self.chunk.writeJump(.jump, position);
+        if (!ctx.is_child_to_logical) {
+            if (ctx.if_blocks) |if_blocks| {
+                try self.compileExpr(if_blocks.then_block, null);
+            } else {
+                try self.chunk.writeU8(.constant_bool_true, position);
+            }
+
+            if (ctx.if_blocks != null and ctx.if_blocks.?.else_block == null) {
+                try self.patchJump(offset);
+                return;
+            }
+
+            const then_offset = try self.writeJump(.jump, position);
             try self.patchJump(offset);
 
-            try self.chunk.writeU8(.constant_bool_false, position);
+            if (ctx.if_blocks) |if_blocks| {
+                try self.compileExpr(if_blocks.else_block.?, null);
+            } else {
+                try self.chunk.writeU8(.constant_bool_false, position);
+            }
+
             try self.patchJump(then_offset);
         } else if (is_inverted) {
             ctx.then_branch_offsets.append(offset) catch
@@ -374,9 +408,7 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprContext,
     ) Error!void {
-        const prev_logical = ctx.current_logical;
-        const current_logical: ExprContext.LogicalOperation =
-            if (expr.kind == .or_) .or_ else if (expr.kind == .and_) .and_ else unreachable;
+        const is_current_logical_or = expr.kind == .or_;
 
         var new_else_branch_offsets: ExprContext.BranchOffsets = undefined;
         var new_then_branch_offsets: ExprContext.BranchOffsets = undefined;
@@ -392,9 +424,9 @@ pub const Compiler = struct {
         }
 
         const left_ctx = meta.spread(ctx, .{
+            .is_root = false,
             .is_child_to_logical = true,
-            .prev_logical = prev_logical,
-            .current_logical = current_logical,
+            .is_current_logical_or = is_current_logical_or,
             .else_branch_offsets = else_branch_offsets,
             .then_branch_offsets = then_branch_offsets,
         });
@@ -422,7 +454,7 @@ pub const Compiler = struct {
 
         try self.compileExpr(expr.right, right_ctx);
 
-        if (prev_logical == null) {
+        if (ctx.is_root) {
             // if the deepest branch condition was inverted, invert it back
             // as it is the end of the logical expression
             if (ctx.last_jump.* != null and ctx.last_jump.*.?.is_inverted) {
@@ -431,12 +463,26 @@ pub const Compiler = struct {
 
             try self.patchJumps(ctx.then_branch_offsets);
 
-            try self.chunk.writeU8(.constant_bool_true, position);
-            const then_offset = try self.chunk.writeJump(.jump, position);
+            if (ctx.if_blocks) |if_blocks| {
+                try self.compileExpr(if_blocks.then_block, null);
+            } else {
+                try self.chunk.writeU8(.constant_bool_true, position);
+            }
 
+            if (ctx.if_blocks != null and ctx.if_blocks.?.else_block == null) {
+                try self.patchJumps(ctx.else_branch_offsets);
+                return;
+            }
+
+            const then_offset = try self.writeJump(.jump, position);
             try self.patchJumps(ctx.else_branch_offsets);
 
-            try self.chunk.writeU8(.constant_bool_false, position);
+            if (ctx.if_blocks) |if_blocks| {
+                try self.compileExpr(if_blocks.else_block.?, null);
+            } else {
+                try self.chunk.writeU8(.constant_bool_false, position);
+            }
+
             try self.patchJump(then_offset);
         }
     }
@@ -445,18 +491,9 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
-        ctx: ExprContext,
     ) Error!void {
-        const new_ctx = meta.spread(ctx, .{
-            .is_child_to_logical = false,
-            .current_logical = ctx.current_logical,
-            .prev_logical = ctx.prev_logical,
-            .else_branch_offsets = ctx.else_branch_offsets,
-            .then_branch_offsets = ctx.then_branch_offsets,
-        });
-
-        try self.compileExpr(expr.left, new_ctx);
-        try self.compileExpr(expr.right, new_ctx);
+        try self.compileExpr(expr.left, null);
+        try self.compileExpr(expr.right, null);
 
         const op_code: OpCode = switch (expr.kind) {
             .add_int => .add_int,
@@ -494,11 +531,8 @@ pub const Compiler = struct {
         self: *Self,
         block: *const SemaExpr.Kind.Block,
     ) Error!void {
-        for (block.stmts.items, 0..) |child_stmt, index| {
-            try self.compileStmt(
-                child_stmt,
-                index == block.stmts.items.len - 1,
-            );
+        for (block.stmts.items) |child_stmt| {
+            try self.compileStmt(child_stmt);
         }
     }
 
@@ -535,6 +569,26 @@ pub const Compiler = struct {
         try self.chunk.writeU8(.constant_unit, position);
     }
 
+    fn compileIfExpr(
+        self: *Self,
+        if_: *const SemaExpr.Kind.If,
+    ) Error!void {
+        var last_jump: ?ExprContext.JumpInfo = null;
+        var else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
+        var then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
+
+        try self.compileExpr(if_.condition, .{
+            .is_root = true,
+            .last_jump = &last_jump,
+            .else_branch_offsets = &else_branch_offsets,
+            .then_branch_offsets = &then_branch_offsets,
+            .if_blocks = .{
+                .then_block = if_.then_block,
+                .else_block = if_.else_block,
+            },
+        });
+    }
+
     fn branchOff(
         self: *Self,
         cmp_op_code: OpCode,
@@ -542,13 +596,13 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprContext,
     ) Error!struct { usize, bool } {
-        const invert = ctx.current_logical == .or_ and ctx.is_child_to_logical;
+        const invert = ctx.is_current_logical_or and ctx.is_child_to_logical;
         const final_if_op_code = if (invert)
             invertComparisonOpCode(if_op_code)
         else
             if_op_code;
         try self.chunk.writeU8(cmp_op_code, position);
-        const offset = try self.chunk.writeJump(final_if_op_code, position);
+        const offset = try self.writeJump(final_if_op_code, position);
         ctx.last_jump.* = .{ .index = offset - 1, .is_inverted = invert };
 
         return .{ offset, invert };
@@ -618,6 +672,10 @@ pub const Compiler = struct {
         }
     }
 
+    fn writeJump(self: *Self, op_code: OpCode, position: Position) Error!usize {
+        return try self.chunk.writeJump(op_code, position);
+    }
+
     fn patchJumps(self: *Self, jumps: *ExprContext.BranchOffsets) Error!void {
         while (jumps.popOrNull()) |jump| {
             try self.patchJump(jump);
@@ -641,32 +699,6 @@ pub const Compiler = struct {
             },
             error.OutOfMemory => return error.OutOfMemory,
         };
-    }
-
-    fn eraseOrPopEvalValue(self: *Self, position: Position) Error!void {
-        switch (self.chunk.current_op_code) {
-            .constant,
-            .constant_unit,
-            .constant_bool_false,
-            .constant_bool_true,
-            .constant_int_n1,
-            .constant_int_0,
-            .constant_int_1,
-            .constant_int_2,
-            .constant_int_3,
-            .constant_int_4,
-            .constant_int_5,
-            .constant_float_0,
-            .constant_float_1,
-            .constant_float_2,
-            => {
-                try self.chunk.eraseLast();
-            },
-
-            else => {
-                try self.chunk.writeU8(.pop, position);
-            },
-        }
     }
 
     fn tooManyBranchJumps(self: *Self, offset: usize) Error {

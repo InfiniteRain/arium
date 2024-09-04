@@ -19,7 +19,12 @@ pub const SemaExpr = struct {
             invalid,
 
             // Takes ownership of heap data (string).
-            pub fn create(allocator: Allocator, literal: Literal, position: Position) !*Self {
+            pub fn create(
+                allocator: Allocator,
+                literal: Literal,
+                evals: bool,
+                position: Position,
+            ) !*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -32,6 +37,7 @@ pub const SemaExpr = struct {
                         .string => .string,
                         .invalid => .invalid,
                     },
+                    .evals = evals,
                     .position = position,
                 };
 
@@ -81,10 +87,11 @@ pub const SemaExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 kind: Binary.Kind,
-                sema_type: SemaType,
-                position: Position,
                 left: *Self,
                 right: *Self,
+                sema_type: SemaType,
+                evals: bool,
+                position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
 
@@ -97,6 +104,7 @@ pub const SemaExpr = struct {
                         },
                     },
                     .sema_type = sema_type,
+                    .evals = evals,
                     .position = position,
                 };
 
@@ -117,9 +125,10 @@ pub const SemaExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 kind: Unary.Kind,
-                sema_type: SemaType,
-                position: Position,
                 right: *Self,
+                sema_type: SemaType,
+                evals: bool,
+                position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
 
@@ -131,6 +140,7 @@ pub const SemaExpr = struct {
                         },
                     },
                     .sema_type = sema_type,
+                    .evals = evals,
                     .position = position,
                 };
 
@@ -145,6 +155,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 stmts: ArrayList(*SemaStmt),
                 sema_type: SemaType,
+                evals: bool,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -156,6 +167,7 @@ pub const SemaExpr = struct {
                         },
                     },
                     .sema_type = sema_type,
+                    .evals = evals,
                     .position = position,
                 };
 
@@ -170,6 +182,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 index: usize,
                 sema_type: SemaType,
+                evals: bool,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -181,6 +194,7 @@ pub const SemaExpr = struct {
                         },
                     },
                     .position = position,
+                    .evals = evals,
                     .sema_type = sema_type,
                 };
 
@@ -196,7 +210,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 index: usize,
                 right: *Self,
-                sema_type: SemaType,
+                evals: bool,
                 position: Position,
             ) !*Self {
                 const expr = try allocator.create(Self);
@@ -209,6 +223,40 @@ pub const SemaExpr = struct {
                         },
                     },
                     .position = position,
+                    .evals = evals,
+                    .sema_type = .unit,
+                };
+
+                return expr;
+            }
+        };
+
+        pub const If = struct {
+            condition: *SemaExpr,
+            then_block: *SemaExpr,
+            else_block: ?*SemaExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                condition: *SemaExpr,
+                then_block: *SemaExpr,
+                else_block: ?*SemaExpr,
+                sema_type: SemaType,
+                evals: bool,
+                position: Position,
+            ) !*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .if_ = .{
+                            .condition = condition,
+                            .then_block = then_block,
+                            .else_block = else_block,
+                        },
+                    },
+                    .position = position,
+                    .evals = evals,
                     .sema_type = sema_type,
                 };
 
@@ -222,10 +270,12 @@ pub const SemaExpr = struct {
         block: Block,
         variable: Variable,
         assignment: Assignment,
+        if_: If,
     };
 
     kind: Kind,
     sema_type: SemaType,
+    evals: bool,
     position: Position,
 };
 
