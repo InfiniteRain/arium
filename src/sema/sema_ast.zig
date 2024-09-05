@@ -9,6 +9,8 @@ const Position = tokenizer_mod.Position;
 pub const SemaExpr = struct {
     const Self = @This();
 
+    const Error = error{OutOfMemory};
+
     pub const Kind = union(enum) {
         pub const Literal = union(enum) {
             unit,
@@ -24,7 +26,7 @@ pub const SemaExpr = struct {
                 literal: Literal,
                 evals: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -92,7 +94,7 @@ pub const SemaExpr = struct {
                 sema_type: SemaType,
                 evals: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -129,7 +131,7 @@ pub const SemaExpr = struct {
                 sema_type: SemaType,
                 evals: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -157,7 +159,7 @@ pub const SemaExpr = struct {
                 sema_type: SemaType,
                 evals: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -184,7 +186,7 @@ pub const SemaExpr = struct {
                 sema_type: SemaType,
                 evals: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -212,7 +214,7 @@ pub const SemaExpr = struct {
                 right: *Self,
                 evals: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -244,7 +246,7 @@ pub const SemaExpr = struct {
                 sema_type: SemaType,
                 evals: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -282,6 +284,8 @@ pub const SemaExpr = struct {
 pub const SemaStmt = struct {
     const Self = @This();
 
+    const Error = error{OutOfMemory};
+
     pub const Kind = union(enum) {
         pub const Assert = struct {
             expr: *SemaExpr,
@@ -290,7 +294,7 @@ pub const SemaStmt = struct {
                 allocator: Allocator,
                 expr: *SemaExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{
@@ -313,7 +317,7 @@ pub const SemaStmt = struct {
                 allocator: Allocator,
                 expr: *SemaExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{
@@ -336,7 +340,7 @@ pub const SemaStmt = struct {
                 allocator: Allocator,
                 expr: *SemaExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{
@@ -361,7 +365,7 @@ pub const SemaStmt = struct {
                 index: usize,
                 expr: ?*SemaExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{

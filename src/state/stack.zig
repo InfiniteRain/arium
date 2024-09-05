@@ -9,11 +9,13 @@ const Value = value_mod.Value;
 pub const Stack = struct {
     const Self = @This();
 
+    const Error = error{OutOfMemory};
+
     allocator: Allocator,
     items: []Value,
     top: [*]Value,
 
-    pub fn init(allocator: Allocator) !Self {
+    pub fn init(allocator: Allocator) Error!Self {
         const items = try allocator.alloc(Value, limits.max_stack);
 
         return .{

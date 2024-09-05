@@ -9,6 +9,8 @@ const Position = tokenizer.Position;
 pub const ParsedExpr = struct {
     const Self = @This();
 
+    const Error = error{OutOfMemory};
+
     pub const Kind = union(enum) {
         pub const Literal = struct {
             pub const Kind = union(enum) {
@@ -26,7 +28,7 @@ pub const ParsedExpr = struct {
                 allocator: Allocator,
                 literal_kind: Literal.Kind,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -71,7 +73,7 @@ pub const ParsedExpr = struct {
                 kind: Binary.Kind,
                 right: *Self,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -103,7 +105,7 @@ pub const ParsedExpr = struct {
                 kind: Unary.Kind,
                 right: *Self,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -129,7 +131,7 @@ pub const ParsedExpr = struct {
                 stmts: ArrayList(*ParsedStmt),
                 ends_with_semicolon: bool,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -153,7 +155,7 @@ pub const ParsedExpr = struct {
                 allocator: Allocator,
                 name: []const u8,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -178,7 +180,7 @@ pub const ParsedExpr = struct {
                 name: []const u8,
                 right: *ParsedExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -206,7 +208,7 @@ pub const ParsedExpr = struct {
                 then_block: *ParsedExpr,
                 else_block: ?*ParsedExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const expr = try allocator.create(Self);
 
                 expr.* = .{
@@ -240,6 +242,8 @@ pub const ParsedExpr = struct {
 pub const ParsedStmt = struct {
     const Self = @This();
 
+    const Error = error{OutOfMemory};
+
     pub const Kind = union(enum) {
         pub const Assert = struct {
             expr: *ParsedExpr,
@@ -248,7 +252,7 @@ pub const ParsedStmt = struct {
                 allocator: Allocator,
                 expr: *ParsedExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{
@@ -271,7 +275,7 @@ pub const ParsedStmt = struct {
                 allocator: Allocator,
                 expr: *ParsedExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{
@@ -294,7 +298,7 @@ pub const ParsedStmt = struct {
                 allocator: Allocator,
                 expr: *ParsedExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{
@@ -323,7 +327,7 @@ pub const ParsedStmt = struct {
                 parsed_type: ?*ParsedType,
                 expr: ?*ParsedExpr,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const stmt = try allocator.create(Self);
 
                 stmt.* = .{
@@ -355,6 +359,8 @@ pub const ParsedStmt = struct {
 pub const ParsedType = struct {
     const Self = @This();
 
+    const Error = error{OutOfMemory};
+
     pub const Kind = union(enum) {
         pub const Identifier = struct {
             name: []const u8,
@@ -363,7 +369,7 @@ pub const ParsedType = struct {
                 allocator: Allocator,
                 name: []const u8,
                 position: Position,
-            ) !*Self {
+            ) Error!*Self {
                 const parsed_type = try allocator.create(Self);
 
                 parsed_type.* = .{
