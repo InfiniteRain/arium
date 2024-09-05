@@ -1,0 +1,10 @@
+/// run
+
+print(
+  do
+    "hello"
+    do 
+      "world"
+    end
+  end
+) /// out world

@@ -1,5 +1,0 @@
-/// parse
-
-print(do
-  "hello" "world" /// err_parser 4 expected_end_token end
-end)

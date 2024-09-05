@@ -1,6 +1,0 @@
-/// run
-
-print(do
-  "hello"
-  "world"
-end) /// out world

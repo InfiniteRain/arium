@@ -1,7 +1,9 @@
 /// run
 
-print(do
-  2 * do
-    2 + 2
-  end / 8
-end) /// out 1
+print(
+  do
+    2 * do
+      2 + 2
+    end / 8
+  end
+) /// out 1
