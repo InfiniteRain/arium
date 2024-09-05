@@ -172,7 +172,7 @@ pub const Compiler = struct {
         // if the compiled expr that shouldn't be evaluated has child
         // block(s), that means it doesn't leave a value on the stack, pop is
         // not needed
-        if (expr.expr.kind != .block and expr.expr.kind != .if_) {
+        if (expr.expr.kind != .block and expr.expr.kind != .@"if") {
             // other expr types WILL leave a value on the stack, so we need
             // to pop it
             try self.chunk.writeU8(.pop, position);
@@ -232,7 +232,7 @@ pub const Compiler = struct {
             .block => |*block| try self.compileBlockExpr(block),
             .variable => |*variable| try self.compileVariableExpr(variable, expr.position),
             .assignment => |*assignment| try self.compileAssignmentExpr(assignment, expr.position),
-            .if_ => |*if_| try self.compileIfExpr(if_),
+            .@"if" => |*@"if"| try self.compileIfExpr(@"if"),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
@@ -345,8 +345,8 @@ pub const Compiler = struct {
                 return true;
             },
 
-            .or_,
-            .and_,
+            .@"or",
+            .@"and",
             => {
                 try self.compileLogicalBinaryExpr(binary, position, ctx);
                 return true;
@@ -408,14 +408,14 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprContext,
     ) Error!void {
-        const is_current_logical_or = expr.kind == .or_;
+        const is_current_logical_or = expr.kind == .@"or";
 
         var new_else_branch_offsets: ExprContext.BranchOffsets = undefined;
         var new_then_branch_offsets: ExprContext.BranchOffsets = undefined;
         var else_branch_offsets = ctx.else_branch_offsets;
         var then_branch_offsets = ctx.then_branch_offsets;
 
-        if (expr.kind == .or_) {
+        if (expr.kind == .@"or") {
             new_else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
             else_branch_offsets = &new_else_branch_offsets;
         } else {
@@ -433,7 +433,7 @@ pub const Compiler = struct {
 
         try self.compileExpr(expr.left, left_ctx);
 
-        if (expr.kind == .or_) {
+        if (expr.kind == .@"or") {
             if (ctx.last_jump.* != null and !ctx.last_jump.*.?.is_inverted) {
                 try self.invertLastBranchJump(left_ctx);
             }
@@ -571,20 +571,20 @@ pub const Compiler = struct {
 
     fn compileIfExpr(
         self: *Self,
-        if_: *const SemaExpr.Kind.If,
+        @"if": *const SemaExpr.Kind.If,
     ) Error!void {
         var last_jump: ?ExprContext.JumpInfo = null;
         var else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
         var then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
 
-        try self.compileExpr(if_.condition, .{
+        try self.compileExpr(@"if".condition, .{
             .is_root = true,
             .last_jump = &last_jump,
             .else_branch_offsets = &else_branch_offsets,
             .then_branch_offsets = &then_branch_offsets,
             .if_blocks = .{
-                .then_block = if_.then_block,
-                .else_block = if_.else_block,
+                .then_block = @"if".then_block,
+                .else_block = @"if".else_block,
             },
         });
     }

@@ -297,7 +297,7 @@ pub const Sema = struct {
             .block => |*block| try self.analyzeBlockExpr(block, expr.position, evals),
             .variable => |*variable| try self.analyzeVariableExpr(variable, expr.position, evals),
             .assignment => |*assignment| try self.analyzeAssignmentExpr(assignment, expr.position, evals),
-            .if_ => |*if_| try self.analyzeIfExpr(if_, expr.position, evals),
+            .@"if" => |*@"if"| try self.analyzeIfExpr(@"if", expr.position, evals),
         };
     }
 
@@ -368,8 +368,8 @@ pub const Sema = struct {
             .less_equal,
             => try self.analyzeComparisonBinaryExpr(left, right, position),
 
-            .or_,
-            .and_,
+            .@"or",
+            .@"and",
             => try self.analyzeLogicalBinaryExpr(left, right, position),
         };
 
@@ -682,11 +682,11 @@ pub const Sema = struct {
 
     fn analyzeIfExpr(
         self: *Self,
-        if_: *ParsedExpr.Kind.If,
+        @"if": *ParsedExpr.Kind.If,
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        var condition = try self.analyzeExpr(if_.condition, true);
+        var condition = try self.analyzeExpr(@"if".condition, true);
 
         if (!typeSatisfies(condition.sema_type, .bool)) {
             return self.semaFailure(
@@ -712,8 +712,8 @@ pub const Sema = struct {
             );
         }
 
-        if (evals and if_.else_block == null) {
-            try if_.then_block.kind.block.stmts.append(
+        if (evals and @"if".else_block == null) {
+            try @"if".then_block.kind.block.stmts.append(
                 try ParsedStmt.Kind.Expr.create(
                     self.allocator,
                     try ParsedExpr.Kind.Literal.create(
@@ -726,10 +726,10 @@ pub const Sema = struct {
             );
         }
 
-        const then_block = try self.analyzeExpr(if_.then_block, evals);
+        const then_block = try self.analyzeExpr(@"if".then_block, evals);
         var else_block: ?*SemaExpr = null;
 
-        if (if_.else_block) |block| {
+        if (@"if".else_block) |block| {
             else_block = try self.analyzeExpr(block, evals);
         } else if (evals) {
             var else_block_stmts = ArrayList(*SemaStmt).init(self.allocator);
@@ -920,8 +920,8 @@ pub const Sema = struct {
             .less_float,
             .less_equal_int,
             .less_equal_float,
-            .or_,
-            .and_,
+            .@"or",
+            .@"and",
             => true,
 
             .add_int,
@@ -955,8 +955,8 @@ pub const Sema = struct {
                 .less_equal => .less_equal_int,
 
                 .concat,
-                .and_,
-                .or_,
+                .@"and",
+                .@"or",
                 => unreachable,
             },
             .float => switch (binary_kind) {
@@ -972,15 +972,15 @@ pub const Sema = struct {
                 .less_equal => .less_equal_float,
 
                 .concat,
-                .and_,
-                .or_,
+                .@"and",
+                .@"or",
                 => unreachable,
             },
             .bool => switch (binary_kind) {
                 .equal => .equal_bool,
                 .not_equal => .not_equal_bool,
-                .and_ => .and_,
-                .or_ => .or_,
+                .@"and" => .@"and",
+                .@"or" => .@"or",
 
                 .add,
                 .subtract,
@@ -1006,8 +1006,8 @@ pub const Sema = struct {
                 .greater_equal,
                 .less,
                 .less_equal,
-                .and_,
-                .or_,
+                .@"and",
+                .@"or",
                 => unreachable,
             },
 

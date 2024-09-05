@@ -76,8 +76,8 @@ pub const SemaExpr = struct {
                 less_equal_int,
                 less_equal_float,
 
-                or_,
-                and_,
+                @"or",
+                @"and",
             };
 
             kind: Binary.Kind,
@@ -249,7 +249,7 @@ pub const SemaExpr = struct {
 
                 expr.* = .{
                     .kind = .{
-                        .if_ = .{
+                        .@"if" = .{
                             .condition = condition,
                             .then_block = then_block,
                             .else_block = else_block,
@@ -270,7 +270,7 @@ pub const SemaExpr = struct {
         block: Block,
         variable: Variable,
         assignment: Assignment,
-        if_: If,
+        @"if": If,
     };
 
     kind: Kind,

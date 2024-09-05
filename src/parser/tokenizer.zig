@@ -9,10 +9,10 @@ const Writer = shared.Writer;
 const generateTrie = token_trie_mod.generateTrie;
 
 const token_trie = generateTrie(.{
-    .{ "and", .and_ },
-    .{ "or", .or_ },
-    .{ "false", .false_ },
-    .{ "true", .true_ },
+    .{ "and", .@"and" },
+    .{ "or", .@"or" },
+    .{ "false", .false },
+    .{ "true", .true },
     .{ "not", .not },
     .{ "print", .print },
     .{ "assert", .assert },
@@ -20,9 +20,9 @@ const token_trie = generateTrie(.{
     .{ "end", .end },
     .{ "mut", .mut },
     .{ "let", .let },
-    .{ "if", .if_ },
+    .{ "if", .@"if" },
     .{ "then", .then },
-    .{ "else", .else_ },
+    .{ "else", .@"else" },
 });
 
 pub const Position = struct {
@@ -55,11 +55,11 @@ pub const Token = struct {
         float,
         string,
 
-        true_,
-        false_,
+        true,
+        false,
         not,
-        and_,
-        or_,
+        @"and",
+        @"or",
         do,
         end,
         mut,
@@ -67,9 +67,9 @@ pub const Token = struct {
 
         assert,
         print,
-        if_,
+        @"if",
         then,
-        else_,
+        @"else",
 
         new_line,
         colon,

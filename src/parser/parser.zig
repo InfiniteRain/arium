@@ -205,7 +205,7 @@ pub const Parser = struct {
         const position = self.peek().position;
         var expr = try self.parseAnd(ignore_new_line);
 
-        while (self.match(.or_, ignore_new_line) != null) {
+        while (self.match(.@"or", ignore_new_line) != null) {
             self.skipNewLines();
 
             const right = try self.parseAnd(ignore_new_line);
@@ -213,7 +213,7 @@ pub const Parser = struct {
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
                 expr,
-                .or_,
+                .@"or",
                 right,
                 position,
             );
@@ -226,7 +226,7 @@ pub const Parser = struct {
         const position = self.peek().position;
         var expr = try self.parseEquality(ignore_new_line);
 
-        while (self.match(.and_, ignore_new_line) != null) {
+        while (self.match(.@"and", ignore_new_line) != null) {
             self.skipNewLines();
 
             const right = try self.parseEquality(ignore_new_line);
@@ -234,7 +234,7 @@ pub const Parser = struct {
             expr = try ParsedExpr.Kind.Binary.create(
                 self.allocator,
                 expr,
-                .and_,
+                .@"and",
                 right,
                 position,
             );
@@ -401,7 +401,7 @@ pub const Parser = struct {
     }
 
     fn parsePrimary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        if (self.match(.{ .true_, .false_ }, ignore_new_line)) |token| {
+        if (self.match(.{ .true, .false }, ignore_new_line)) |token| {
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .bool = token.lexeme.len == 4 },
@@ -465,7 +465,7 @@ pub const Parser = struct {
             return (try self.parseBlock(.end, token.position))[0];
         }
 
-        if (self.match(.if_, ignore_new_line)) |token| {
+        if (self.match(.@"if", ignore_new_line)) |token| {
             return try self.parseIf(token.position);
         }
 
@@ -551,10 +551,10 @@ pub const Parser = struct {
         const condition = try self.parseExpr(true);
         const then_token = try self.consume(.then, .expected_then_after_condition);
         const then_block, const end_token = try self.parseBlock(
-            .{ .end, .else_ },
+            .{ .end, .@"else" },
             then_token.position,
         );
-        const else_block = if (end_token.kind == .else_)
+        const else_block = if (end_token.kind == .@"else")
             (try self.parseBlock(.end, end_token.position))[0]
         else
             null;

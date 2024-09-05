@@ -89,7 +89,7 @@ pub fn reportParserDiagTokenQuoted(
     switch (token_kind) {
         .eof => writer.print("end of file"),
         .end => writer.print("'end'"),
-        .else_ => writer.print("'else'"),
+        .@"else" => writer.print("'else'"),
 
         .left_paren,
         .right_paren,
@@ -109,11 +109,11 @@ pub fn reportParserDiagTokenQuoted(
         .int,
         .float,
         .string,
-        .true_,
-        .false_,
+        .true,
+        .false,
         .not,
-        .and_,
-        .or_,
+        .@"and",
+        .@"or",
         .do,
         .mut,
         .let,
@@ -124,7 +124,7 @@ pub fn reportParserDiagTokenQuoted(
         .semicolon,
         .comment,
         .invalid,
-        .if_,
+        .@"if",
         .then,
         => @panic("token kind not implemented"),
     }

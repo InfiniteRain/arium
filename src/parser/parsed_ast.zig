@@ -57,8 +57,8 @@ pub const ParsedExpr = struct {
                 less,
                 less_equal,
 
-                and_,
-                or_,
+                @"and",
+                @"or",
             };
 
             left: *Self,
@@ -211,7 +211,7 @@ pub const ParsedExpr = struct {
 
                 expr.* = .{
                     .kind = .{
-                        .if_ = .{
+                        .@"if" = .{
                             .condition = condition,
                             .then_block = then_block,
                             .else_block = else_block,
@@ -230,7 +230,7 @@ pub const ParsedExpr = struct {
         block: Block,
         variable: Variable,
         assignment: Assigment,
-        if_: If,
+        @"if": If,
     };
 
     kind: Kind,
