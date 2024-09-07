@@ -171,6 +171,11 @@ pub fn reportParserDiags(
                 .{name},
             ),
 
+            .expected_token_after_condition => |token| writer.printf(
+                " with token {s} ",
+                .{@tagName(token)},
+            ),
+
             .expected_expression,
             .expected_left_paren_before_expr,
             .expected_right_paren_after_expr,
@@ -179,7 +184,6 @@ pub fn reportParserDiags(
             .expected_equal_after_name,
             .invalid_assignment_target,
             .expected_type,
-            .expected_then_after_condition,
             => {},
         }
 

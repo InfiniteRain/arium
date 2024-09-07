@@ -1,0 +1,5 @@
+/// sema
+
+for 123 do /// err_sema 3 expected_expr_type bool
+  print("hello")
+end

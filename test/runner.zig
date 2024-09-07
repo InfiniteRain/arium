@@ -419,6 +419,13 @@ pub const Runner = struct {
                     }
                 },
 
+                .expected_token_after_condition,
+                => |token| {
+                    if (token != actual_entry.kind.expected_token_after_condition) {
+                        return false;
+                    }
+                },
+
                 .expected_expression,
                 .expected_left_paren_before_expr,
                 .expected_right_paren_after_expr,
@@ -427,7 +434,6 @@ pub const Runner = struct {
                 .expected_equal_after_name,
                 .invalid_assignment_target,
                 .expected_type,
-                .expected_then_after_condition,
                 => {},
             }
         }
@@ -622,7 +628,7 @@ pub const Runner = struct {
                         .expected_equal_after_name,
                         .invalid_assignment_target,
                         .expected_type,
-                        .expected_then_after_condition,
+                        .expected_token_after_condition,
                         => diag.kind,
                     },
                 })),

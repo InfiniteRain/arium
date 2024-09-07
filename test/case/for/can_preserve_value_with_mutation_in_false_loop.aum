@@ -1,0 +1,9 @@
+/// run
+
+let mut variable = "test"
+
+for false do
+  variable = "wrong"
+end
+
+print(variable) /// out test
