@@ -23,6 +23,7 @@ const token_trie = generateTrie(.{
     .{ "if", .@"if" },
     .{ "then", .then },
     .{ "else", .@"else" },
+    .{ "for", .@"for" },
 });
 
 pub const Position = struct {
@@ -70,6 +71,7 @@ pub const Token = struct {
         @"if",
         then,
         @"else",
+        @"for",
 
         new_line,
         colon,

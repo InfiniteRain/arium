@@ -77,8 +77,12 @@ pub fn reportParserDiag(
             .{name},
         ),
 
-        .expected_then_after_condition,
-        => writer.print("Expected 'then' after the if condition."),
+        .expected_token_after_condition,
+        => |token_kind| {
+            writer.print("Expected ");
+            reportParserDiagTokenQuoted(token_kind, writer);
+            writer.print(" after the if condition.");
+        },
     }
 }
 
@@ -90,6 +94,8 @@ pub fn reportParserDiagTokenQuoted(
         .eof => writer.print("end of file"),
         .end => writer.print("'end'"),
         .@"else" => writer.print("'else'"),
+        .then => writer.print("'then'"),
+        .do => writer.print("'do'"),
 
         .left_paren,
         .right_paren,
@@ -114,7 +120,6 @@ pub fn reportParserDiagTokenQuoted(
         .not,
         .@"and",
         .@"or",
-        .do,
         .mut,
         .let,
         .assert,
@@ -125,7 +130,7 @@ pub fn reportParserDiagTokenQuoted(
         .comment,
         .invalid,
         .@"if",
-        .then,
+        .@"for",
         => @panic("token kind not implemented"),
     }
 }

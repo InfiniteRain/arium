@@ -11,6 +11,7 @@ const debug_reporter = @import("../reporter/debug_reporter.zig");
 
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
+const assert = std.debug.assert;
 const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
@@ -293,6 +294,10 @@ pub const Vm = struct {
                     const offset = self.readU16();
                     self.state.ip += offset;
                 },
+                .negative_jump => {
+                    const offset = self.readU16();
+                    self.state.ip -= offset;
+                },
 
                 .assert => {
                     const a = self.pop().bool;
@@ -310,7 +315,8 @@ pub const Vm = struct {
                     value_reporter.printValue(value, self.out_writer);
                     self.out_writer.print("\n");
                 },
-                .return_ => {
+                .@"return" => {
+                    assert(self.state.stack.top == @as([*]Value, @ptrCast(&self.state.stack.items[0])));
                     return;
                 },
                 .pop => _ = self.pop(),

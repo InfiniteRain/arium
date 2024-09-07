@@ -67,26 +67,27 @@ pub fn reportJumpInstructionName(
     chunk: *const Chunk,
     writer: *const Writer,
     offset: usize,
+    negative: bool,
 ) usize {
     const byte = chunk.readU8(offset);
     const op_code: OpCode = @enumFromInt(byte);
     const jump_offset = chunk.readU16(offset + 1);
 
     reportOpCode(op_code, writer);
-    writer.printf(" to {}\n", .{offset + jump_offset + 3});
+
+    if (negative) {
+        writer.printf(" to {}\n", .{offset + 3 - jump_offset});
+    } else {
+        writer.printf(" to {}\n", .{offset + jump_offset + 3});
+    }
 
     return 3;
 }
 
 pub fn reportOpCode(op_code: OpCode, writer: *const Writer) void {
-    const tag_name = switch (op_code) {
-        .return_ => "return",
-        else => @tagName(op_code),
-    };
-
     var fill: u8 = 24;
 
-    for (tag_name) |char| {
+    for (@tagName(op_code)) |char| {
         writer.printf("{c}", .{std.ascii.toUpper(char)});
 
         if (fill > 0) {
@@ -158,7 +159,7 @@ pub fn reportInstruction(
         .compare_obj,
         .assert,
         .print,
-        .return_,
+        .@"return",
         .pop,
         => reportInstructionName(chunk, writer, offset),
 
@@ -171,7 +172,10 @@ pub fn reportInstruction(
         .if_true,
         .if_false,
         .jump,
-        => reportJumpInstructionName(chunk, writer, offset),
+        => reportJumpInstructionName(chunk, writer, offset, false),
+
+        .negative_jump,
+        => reportJumpInstructionName(chunk, writer, offset, true),
 
         .store_local,
         .load_local,

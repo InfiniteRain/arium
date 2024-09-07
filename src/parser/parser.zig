@@ -40,7 +40,7 @@ pub const Parser = struct {
             invalid_assignment_target,
             expected_type,
             variable_name_not_lower_case: []const u8,
-            expected_then_after_condition,
+            expected_token_after_condition: Token.Kind,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
@@ -60,7 +60,7 @@ pub const Parser = struct {
                 .expected_equal_after_name,
                 .invalid_assignment_target,
                 .expected_type,
-                .expected_then_after_condition,
+                .expected_token_after_condition,
                 => {},
             }
         }
@@ -469,6 +469,10 @@ pub const Parser = struct {
             return try self.parseIf(token.position);
         }
 
+        if (self.match(.@"for", ignore_new_line)) |token| {
+            return try self.parseFor(token.position);
+        }
+
         if (self.match(.invalid, ignore_new_line)) |token| {
             try self.addDiag(.{ .invalid_token = token.lexeme }, token.position);
         } else {
@@ -549,7 +553,7 @@ pub const Parser = struct {
         position: Position,
     ) Error!*ParsedExpr {
         const condition = try self.parseExpr(true);
-        const then_token = try self.consume(.then, .expected_then_after_condition);
+        const then_token = try self.consume(.then, .{ .expected_token_after_condition = .then });
         const then_block, const end_token = try self.parseBlock(
             .{ .end, .@"else" },
             then_token.position,
@@ -564,6 +568,28 @@ pub const Parser = struct {
             condition,
             then_block,
             else_block,
+            position,
+        );
+    }
+
+    fn parseFor(
+        self: *Self,
+        position: Position,
+    ) Error!*ParsedExpr {
+        const condition = if (self.match(.do, true) != null)
+            null
+        else blk: {
+            const expr = try self.parseExpr(true);
+            _ = try self.consume(.do, .{ .expected_token_after_condition = .do });
+            break :blk expr;
+        };
+
+        const body_block = (try self.parseBlock(.end, position))[0];
+
+        return try ParsedExpr.Kind.For.create(
+            self.allocator,
+            condition,
+            body_block,
             position,
         );
     }
@@ -733,7 +759,7 @@ pub const Parser = struct {
                     .expected_equal_after_name,
                     .invalid_assignment_target,
                     .expected_type,
-                    .expected_then_after_condition,
+                    .expected_token_after_condition,
                     => diag_kind,
                 },
                 .position = position,

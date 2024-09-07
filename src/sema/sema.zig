@@ -118,6 +118,7 @@ pub const Sema = struct {
     had_error: bool = false,
     locals: ArrayList(Local) = undefined,
     current_scope: *Scope = undefined,
+    is_in_loop: bool = false,
 
     pub fn init(allocator: *ArenaAllocator) Self {
         return .{
@@ -135,6 +136,8 @@ pub const Sema = struct {
 
         var current_scope = Scope.init(self.allocator, null);
         self.current_scope = &current_scope;
+
+        self.is_in_loop = false;
 
         // todo: is this the best place for this?
         try self.current_scope.types_map.put("Int", .int);
@@ -298,6 +301,7 @@ pub const Sema = struct {
             .variable => |*variable| try self.analyzeVariableExpr(variable, expr.position, evals),
             .assignment => |*assignment| try self.analyzeAssignmentExpr(assignment, expr.position, evals),
             .@"if" => |*@"if"| try self.analyzeIfExpr(@"if", expr.position, evals),
+            .@"for" => |*@"for"| try self.analyzeForExpr(@"for", expr.position, evals),
         };
     }
 
@@ -686,31 +690,7 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        var condition = try self.analyzeExpr(@"if".condition, true);
-
-        if (!typeSatisfies(condition.sema_type, .bool)) {
-            return self.semaFailure(
-                condition.position,
-                .{ .expected_expr_type = .bool },
-            );
-        }
-
-        if (!isBranching(condition)) {
-            condition = try SemaExpr.Kind.Binary.create(
-                self.allocator,
-                .equal_bool,
-                condition,
-                try SemaExpr.Kind.Literal.create(
-                    self.allocator,
-                    .{ .bool = true },
-                    true,
-                    position,
-                ),
-                .bool,
-                true,
-                position,
-            );
-        }
+        const condition = try self.analyzeCondition(@"if".condition);
 
         if (evals and @"if".else_block == null) {
             try @"if".then_block.kind.block.stmts.append(
@@ -757,6 +737,70 @@ pub const Sema = struct {
             then_block,
             else_block,
             then_block.sema_type,
+            evals,
+            position,
+        );
+    }
+
+    fn analyzeCondition(
+        self: *Self,
+        expr: *ParsedExpr,
+    ) Error!*SemaExpr {
+        const condition = try self.analyzeExpr(expr, true);
+
+        if (!typeSatisfies(condition.sema_type, .bool)) {
+            return self.semaFailure(
+                condition.position,
+                .{ .expected_expr_type = .bool },
+            );
+        }
+
+        return if (isBranching(condition))
+            condition
+        else
+            try SemaExpr.Kind.Binary.create(
+                self.allocator,
+                .equal_bool,
+                condition,
+                try SemaExpr.Kind.Literal.create(
+                    self.allocator,
+                    .{ .bool = true },
+                    true,
+                    condition.position,
+                ),
+                .bool,
+                true,
+                condition.position,
+            );
+    }
+
+    fn analyzeForExpr(
+        self: *Self,
+        @"for": *ParsedExpr.Kind.For,
+        position: Position,
+        evals: bool,
+    ) Error!*SemaExpr {
+        const old_is_in_loop = self.is_in_loop;
+        self.is_in_loop = true;
+
+        const condition = try self.analyzeCondition(
+            if (@"for".condition) |condition|
+                condition
+            else
+                try ParsedExpr.Kind.Literal.create(
+                    self.allocator,
+                    .{ .bool = true },
+                    position,
+                ),
+        );
+        const body_block = try self.analyzeExpr(@"for".body_block, false);
+
+        self.is_in_loop = old_is_in_loop;
+
+        return try SemaExpr.Kind.For.create(
+            self.allocator,
+            condition,
+            body_block,
             evals,
             position,
         );

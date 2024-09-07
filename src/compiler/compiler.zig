@@ -12,6 +12,7 @@ const tokenizer_mod = @import("../parser/tokenizer.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const BoundedArray = std.BoundedArray;
+const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const meta = shared.meta;
 const SharedDiags = shared.Diags;
@@ -48,7 +49,7 @@ pub const Compiler = struct {
 
     pub const Diags = SharedDiags(DiagEntry);
 
-    const ExprContext = struct {
+    const ExprCtx = struct {
         const JumpInfo = struct {
             index: usize,
             is_inverted: bool,
@@ -56,22 +57,22 @@ pub const Compiler = struct {
 
         const BranchOffsets = BoundedArray(usize, 128);
 
-        const IfBlocks = struct {
-            then_block: *SemaExpr,
-            else_block: ?*SemaExpr,
-        };
-
         is_root: bool = false,
         is_child_to_logical: bool = false,
         is_current_logical_or: bool = false,
         last_jump: *?JumpInfo,
         else_branch_offsets: *BranchOffsets,
         then_branch_offsets: *BranchOffsets,
-        if_blocks: ?IfBlocks = null,
+        conditional_blocks: ?struct {
+            then: *SemaExpr,
+            @"else": ?*SemaExpr = null,
+            loop_start: ?usize = null,
+        } = null,
     };
 
     vm_state: *VmState,
-    allocator: Allocator,
+    managed_allocator: Allocator,
+    unmanaged_allocator: Allocator,
     chunk: Chunk,
     diags: ?*Diags,
 
@@ -90,7 +91,8 @@ pub const Compiler = struct {
 
         var compiler = Self{
             .vm_state = &vm_state,
-            .allocator = allocator,
+            .managed_allocator = allocator,
+            .unmanaged_allocator = memory.backing_allocator,
             .chunk = try Chunk.init(allocator),
             .diags = diags,
         };
@@ -110,7 +112,7 @@ pub const Compiler = struct {
         }
 
         try compiler.compileExpr(block, null);
-        try compiler.chunk.writeU8(.return_, .{ .line = 0, .column = 0 });
+        try compiler.chunk.writeU8(.@"return", .{ .line = 0, .column = 0 });
 
         vm_state.chunk = compiler.chunk;
         vm_state.ip = @ptrCast(&compiler.chunk.code.items[0]);
@@ -125,7 +127,7 @@ pub const Compiler = struct {
         switch (stmt.kind) {
             .assert => |*assert_stmt| try self.compileAssertStmt(assert_stmt, stmt.position),
             .print => |*print| try self.compilePrintStmt(print, stmt.position),
-            .expr => |*expr| try self.compileExprStmt(expr, stmt.position),
+            .expr => |*expr| try self.compileExprStmt(expr),
             .let => |*let| if (let.expr) |expr| try self.compileVariableMutation(let.index, expr, stmt.position),
         }
     }
@@ -151,32 +153,8 @@ pub const Compiler = struct {
     fn compileExprStmt(
         self: *Self,
         expr: *const SemaStmt.Kind.Expr,
-        position: Position,
     ) Error!void {
-        // if the expr should be evaluated, compile as normal and return
-        if (expr.expr.evals) {
-            try self.compileExpr(expr.expr, null);
-            return;
-        }
-
-        // if the expr shouldn't be evaluated and the expr is of a kind that
-        // doesn't have child expressions, then don't compile it and return
-        if (expr.expr.kind == .literal or expr.expr.kind == .variable) {
-            return;
-        }
-
-        // if the expr shouldn't be evaluated, but has nested expressions,
-        // compile it
         try self.compileExpr(expr.expr, null);
-
-        // if the compiled expr that shouldn't be evaluated has child
-        // block(s), that means it doesn't leave a value on the stack, pop is
-        // not needed
-        if (expr.expr.kind != .block and expr.expr.kind != .@"if") {
-            // other expr types WILL leave a value on the stack, so we need
-            // to pop it
-            try self.chunk.writeU8(.pop, position);
-        }
     }
 
     fn compileVariableMutation(
@@ -205,17 +183,17 @@ pub const Compiler = struct {
     fn compileExpr(
         self: *Self,
         expr: *const SemaExpr,
-        ctx_opt: ?ExprContext,
+        ctx_opt: ?ExprCtx,
     ) Error!void {
         var is_branching = false;
-        var last_jump: ?ExprContext.JumpInfo = null;
-        var else_branch_offsets: ExprContext.BranchOffsets = undefined;
-        var then_branch_offsets: ExprContext.BranchOffsets = undefined;
+        var last_jump: ?ExprCtx.JumpInfo = null;
+        var else_branch_offsets: ExprCtx.BranchOffsets = undefined;
+        var then_branch_offsets: ExprCtx.BranchOffsets = undefined;
         const ctx = if (ctx_opt) |passed_ctx| passed_ctx else blk: {
-            else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
-            then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
+            else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
+            then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
 
-            break :blk ExprContext{
+            break :blk ExprCtx{
                 .is_root = true,
                 .last_jump = &last_jump,
                 .else_branch_offsets = &else_branch_offsets,
@@ -224,15 +202,16 @@ pub const Compiler = struct {
         };
 
         switch (expr.kind) {
-            .literal => |*literal| try self.compileLiteralExpr(literal, expr.position),
+            .literal => |*literal| try self.compileLiteralExpr(literal, expr),
             .binary => |*binary| {
-                is_branching = try self.compileBinaryExpr(binary, ctx, expr.position);
+                is_branching = try self.compileBinaryExpr(binary, expr, ctx);
             },
-            .unary => |*unary| try self.compileUnaryExpr(unary, expr.position),
+            .unary => |*unary| try self.compileUnaryExpr(unary, expr),
             .block => |*block| try self.compileBlockExpr(block),
-            .variable => |*variable| try self.compileVariableExpr(variable, expr.position),
-            .assignment => |*assignment| try self.compileAssignmentExpr(assignment, expr.position),
+            .variable => |*variable| try self.compileVariableExpr(variable, expr),
+            .assignment => |*assignment| try self.compileAssignmentExpr(assignment, expr),
             .@"if" => |*@"if"| try self.compileIfExpr(@"if"),
+            .@"for" => |*@"for"| try self.compileForExpr(@"for", expr),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
@@ -260,44 +239,48 @@ pub const Compiler = struct {
     fn compileLiteralExpr(
         self: *Self,
         literal: *const SemaExpr.Kind.Literal,
-        position: Position,
+        expr: *const SemaExpr,
     ) Error!void {
+        if (!expr.evals) {
+            return;
+        }
+
         switch (literal.*) {
-            .unit => try self.chunk.writeU8(.constant_unit, position),
+            .unit => try self.chunk.writeU8(.constant_unit, expr.position),
             .int => |int| switch (int) {
-                -1 => try self.chunk.writeU8(.constant_int_n1, position),
-                0 => try self.chunk.writeU8(.constant_int_0, position),
-                1 => try self.chunk.writeU8(.constant_int_1, position),
-                2 => try self.chunk.writeU8(.constant_int_2, position),
-                3 => try self.chunk.writeU8(.constant_int_3, position),
-                4 => try self.chunk.writeU8(.constant_int_4, position),
-                5 => try self.chunk.writeU8(.constant_int_5, position),
-                else => try self.writeConstant(.{ .int = int }, position),
+                -1 => try self.chunk.writeU8(.constant_int_n1, expr.position),
+                0 => try self.chunk.writeU8(.constant_int_0, expr.position),
+                1 => try self.chunk.writeU8(.constant_int_1, expr.position),
+                2 => try self.chunk.writeU8(.constant_int_2, expr.position),
+                3 => try self.chunk.writeU8(.constant_int_3, expr.position),
+                4 => try self.chunk.writeU8(.constant_int_4, expr.position),
+                5 => try self.chunk.writeU8(.constant_int_5, expr.position),
+                else => try self.writeConstant(.{ .int = int }, expr.position),
             },
             .float => |float| {
                 if (float == 0) {
-                    try self.chunk.writeU8(.constant_float_0, position);
+                    try self.chunk.writeU8(.constant_float_0, expr.position);
                 } else if (float == 1) {
-                    try self.chunk.writeU8(.constant_float_1, position);
+                    try self.chunk.writeU8(.constant_float_1, expr.position);
                 } else if (float == 2) {
-                    try self.chunk.writeU8(.constant_float_2, position);
+                    try self.chunk.writeU8(.constant_float_2, expr.position);
                 } else {
-                    try self.writeConstant(.{ .float = float }, position);
+                    try self.writeConstant(.{ .float = float }, expr.position);
                 }
             },
             .bool => |bool_| switch (bool_) {
-                true => try self.chunk.writeU8(.constant_bool_true, position),
-                false => try self.chunk.writeU8(.constant_bool_false, position),
+                true => try self.chunk.writeU8(.constant_bool_true, expr.position),
+                false => try self.chunk.writeU8(.constant_bool_false, expr.position),
             },
             .string => |string| try self.writeConstant(
                 .{
                     .obj = &(try Obj.String.createFromCopied(
-                        self.allocator,
+                        self.managed_allocator,
                         self.vm_state,
                         string,
                     )).obj,
                 },
-                position,
+                expr.position,
             ),
             .invalid => @panic("invalid expr"),
         }
@@ -306,8 +289,8 @@ pub const Compiler = struct {
     fn compileBinaryExpr(
         self: *Self,
         binary: *const SemaExpr.Kind.Binary,
-        ctx: ExprContext,
-        position: Position,
+        expr: *const SemaExpr,
+        ctx: ExprCtx,
     ) Error!bool {
         switch (binary.kind) {
             .add_int,
@@ -320,7 +303,7 @@ pub const Compiler = struct {
             .divide_float,
             .concat,
             => {
-                try self.compileArithmeticBinaryExpr(binary, position);
+                try self.compileArithmeticBinaryExpr(binary, expr.position);
                 return false;
             },
 
@@ -341,16 +324,20 @@ pub const Compiler = struct {
             .less_equal_int,
             .less_equal_float,
             => {
-                try self.compileComparisonBinaryExpr(binary, position, ctx);
+                try self.compileComparisonBinaryExpr(binary, expr.position, ctx);
                 return true;
             },
 
             .@"or",
             .@"and",
             => {
-                try self.compileLogicalBinaryExpr(binary, position, ctx);
+                try self.compileLogicalBinaryExpr(binary, expr.position, ctx);
                 return true;
             },
+        }
+
+        if (!expr.evals) {
+            try self.chunk.writeU8(.pop, expr.position);
         }
     }
 
@@ -358,7 +345,7 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
-        ctx: ExprContext,
+        ctx: ExprCtx,
     ) Error!void {
         try self.compileExpr(expr.left, null);
         try self.compileExpr(expr.right, null);
@@ -372,13 +359,17 @@ pub const Compiler = struct {
         );
 
         if (!ctx.is_child_to_logical) {
-            if (ctx.if_blocks) |if_blocks| {
-                try self.compileExpr(if_blocks.then_block, null);
+            if (ctx.conditional_blocks) |blocks| {
+                try self.compileExpr(blocks.then, null);
             } else {
                 try self.chunk.writeU8(.constant_bool_true, position);
             }
 
-            if (ctx.if_blocks != null and ctx.if_blocks.?.else_block == null) {
+            if (ctx.conditional_blocks != null and ctx.conditional_blocks.?.@"else" == null) {
+                if (ctx.conditional_blocks.?.loop_start) |loop_start| {
+                    try self.writeNegativeJump(loop_start, position);
+                }
+
                 try self.patchJump(offset);
                 return;
             }
@@ -386,8 +377,8 @@ pub const Compiler = struct {
             const then_offset = try self.writeJump(.jump, position);
             try self.patchJump(offset);
 
-            if (ctx.if_blocks) |if_blocks| {
-                try self.compileExpr(if_blocks.else_block.?, null);
+            if (ctx.conditional_blocks) |blocks| {
+                try self.compileExpr(blocks.@"else".?, null);
             } else {
                 try self.chunk.writeU8(.constant_bool_false, position);
             }
@@ -406,20 +397,20 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
-        ctx: ExprContext,
+        ctx: ExprCtx,
     ) Error!void {
         const is_current_logical_or = expr.kind == .@"or";
 
-        var new_else_branch_offsets: ExprContext.BranchOffsets = undefined;
-        var new_then_branch_offsets: ExprContext.BranchOffsets = undefined;
+        var new_else_branch_offsets: ExprCtx.BranchOffsets = undefined;
+        var new_then_branch_offsets: ExprCtx.BranchOffsets = undefined;
         var else_branch_offsets = ctx.else_branch_offsets;
         var then_branch_offsets = ctx.then_branch_offsets;
 
         if (expr.kind == .@"or") {
-            new_else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
+            new_else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
             else_branch_offsets = &new_else_branch_offsets;
         } else {
-            new_then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
+            new_then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
             then_branch_offsets = &new_then_branch_offsets;
         }
 
@@ -463,13 +454,17 @@ pub const Compiler = struct {
 
             try self.patchJumps(ctx.then_branch_offsets);
 
-            if (ctx.if_blocks) |if_blocks| {
-                try self.compileExpr(if_blocks.then_block, null);
+            if (ctx.conditional_blocks) |blocks| {
+                try self.compileExpr(blocks.then, null);
             } else {
                 try self.chunk.writeU8(.constant_bool_true, position);
             }
 
-            if (ctx.if_blocks != null and ctx.if_blocks.?.else_block == null) {
+            if (ctx.conditional_blocks != null and ctx.conditional_blocks.?.@"else" == null) {
+                if (ctx.conditional_blocks.?.loop_start) |loop_start| {
+                    try self.writeNegativeJump(loop_start, position);
+                }
+
                 try self.patchJumps(ctx.else_branch_offsets);
                 return;
             }
@@ -477,8 +472,8 @@ pub const Compiler = struct {
             const then_offset = try self.writeJump(.jump, position);
             try self.patchJumps(ctx.else_branch_offsets);
 
-            if (ctx.if_blocks) |if_blocks| {
-                try self.compileExpr(if_blocks.else_block.?, null);
+            if (ctx.conditional_blocks) |blocks| {
+                try self.compileExpr(blocks.@"else".?, null);
             } else {
                 try self.chunk.writeU8(.constant_bool_false, position);
             }
@@ -514,7 +509,7 @@ pub const Compiler = struct {
     fn compileUnaryExpr(
         self: *Self,
         unary: *const SemaExpr.Kind.Unary,
-        position: Position,
+        expr: *const SemaExpr,
     ) Error!void {
         try self.compileExpr(unary.right, null);
         try self.chunk.writeU8(
@@ -523,8 +518,12 @@ pub const Compiler = struct {
                 .negate_int => OpCode.negate_int,
                 .negate_float => OpCode.negate_float,
             },
-            position,
+            expr.position,
         );
+
+        if (!expr.evals) {
+            try self.chunk.writeU8(.pop, expr.position);
+        }
     }
 
     fn compileBlockExpr(
@@ -539,19 +538,23 @@ pub const Compiler = struct {
     fn compileVariableExpr(
         self: *Self,
         variable: *const SemaExpr.Kind.Variable,
-        position: Position,
+        expr: *const SemaExpr,
     ) Error!void {
+        if (!expr.evals) {
+            return;
+        }
+
         const index: u8 = @intCast(variable.index);
 
         switch (index) {
-            0 => try self.chunk.writeU8(.load_local_0, position),
-            1 => try self.chunk.writeU8(.load_local_1, position),
-            2 => try self.chunk.writeU8(.load_local_2, position),
-            3 => try self.chunk.writeU8(.load_local_3, position),
-            4 => try self.chunk.writeU8(.load_local_4, position),
+            0 => try self.chunk.writeU8(.load_local_0, expr.position),
+            1 => try self.chunk.writeU8(.load_local_1, expr.position),
+            2 => try self.chunk.writeU8(.load_local_2, expr.position),
+            3 => try self.chunk.writeU8(.load_local_3, expr.position),
+            4 => try self.chunk.writeU8(.load_local_4, expr.position),
             else => {
-                try self.chunk.writeU8(.load_local, position);
-                try self.chunk.writeU8(index, position);
+                try self.chunk.writeU8(.load_local, expr.position);
+                try self.chunk.writeU8(index, expr.position);
             },
         }
     }
@@ -559,34 +562,62 @@ pub const Compiler = struct {
     fn compileAssignmentExpr(
         self: *Self,
         assignment: *const SemaExpr.Kind.Assignment,
-        position: Position,
+        expr: *const SemaExpr,
     ) Error!void {
         try self.compileVariableMutation(
             assignment.index,
             assignment.right,
-            position,
+            expr.position,
         );
-        try self.chunk.writeU8(.constant_unit, position);
+
+        if (expr.evals) {
+            try self.chunk.writeU8(.constant_unit, expr.position);
+        }
     }
 
     fn compileIfExpr(
         self: *Self,
         @"if": *const SemaExpr.Kind.If,
     ) Error!void {
-        var last_jump: ?ExprContext.JumpInfo = null;
-        var else_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
-        var then_branch_offsets = ExprContext.BranchOffsets.init(0) catch unreachable;
+        var last_jump: ?ExprCtx.JumpInfo = null;
+        var else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
+        var then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
 
         try self.compileExpr(@"if".condition, .{
             .is_root = true,
             .last_jump = &last_jump,
             .else_branch_offsets = &else_branch_offsets,
             .then_branch_offsets = &then_branch_offsets,
-            .if_blocks = .{
-                .then_block = @"if".then_block,
-                .else_block = @"if".else_block,
+            .conditional_blocks = .{
+                .then = @"if".then_block,
+                .@"else" = @"if".else_block,
             },
         });
+    }
+
+    fn compileForExpr(
+        self: *Self,
+        @"for": *const SemaExpr.Kind.For,
+        expr: *const SemaExpr,
+    ) Error!void {
+        var last_jump: ?ExprCtx.JumpInfo = null;
+        var else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
+        var then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
+
+        try self.compileExpr(@"for".condition, .{
+            .is_root = true,
+            .last_jump = &last_jump,
+            .else_branch_offsets = &else_branch_offsets,
+            .then_branch_offsets = &then_branch_offsets,
+            .conditional_blocks = .{
+                .then = @"for".body_block,
+                .loop_start = self.chunk.code.items.len,
+            },
+        });
+
+        if (expr.evals) {
+            try self.chunk.writeU8(.constant_unit, expr.position);
+        }
     }
 
     fn branchOff(
@@ -594,7 +625,7 @@ pub const Compiler = struct {
         cmp_op_code: OpCode,
         if_op_code: OpCode,
         position: Position,
-        ctx: ExprContext,
+        ctx: ExprCtx,
     ) Error!struct { usize, bool } {
         const invert = ctx.is_current_logical_or and ctx.is_child_to_logical;
         const final_if_op_code = if (invert)
@@ -654,7 +685,7 @@ pub const Compiler = struct {
 
     fn invertLastBranchJump(
         self: *Self,
-        ctx: ExprContext,
+        ctx: ExprCtx,
     ) Error!void {
         const last_jump = ctx.last_jump.*.?;
         const if_op_code: OpCode = @enumFromInt(self.chunk.code.items[last_jump.index]);
@@ -676,7 +707,7 @@ pub const Compiler = struct {
         return try self.chunk.writeJump(op_code, position);
     }
 
-    fn patchJumps(self: *Self, jumps: *ExprContext.BranchOffsets) Error!void {
+    fn patchJumps(self: *Self, jumps: *ExprCtx.BranchOffsets) Error!void {
         while (jumps.popOrNull()) |jump| {
             try self.patchJump(jump);
         }
@@ -688,6 +719,20 @@ pub const Compiler = struct {
                 try self.addDiag(.jump_too_big, self.chunk.positions.items[offset]);
                 return error.CompileFailure;
             },
+        };
+    }
+
+    fn writeNegativeJump(
+        self: *Self,
+        offset: usize,
+        position: Position,
+    ) Error!void {
+        self.chunk.writeNegativeJump(offset, position) catch |err| switch (err) {
+            error.JumpTooBig => {
+                try self.addDiag(.jump_too_big, position);
+                return error.CompileFailure;
+            },
+            error.OutOfMemory => return error.OutOfMemory,
         };
     }
 

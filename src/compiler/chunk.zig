@@ -72,10 +72,11 @@ pub const OpCode = enum(u8) {
     if_true,
     if_false,
     jump,
+    negative_jump,
 
     assert,
     print,
-    return_,
+    @"return",
     pop,
     _,
 };
@@ -147,7 +148,7 @@ pub const Chunk = struct {
     pub fn patchJump(self: *Self, offset: usize) error{JumpTooBig}!void {
         const jump = self.code.items.len - offset - 2;
 
-        if (offset > math.maxInt(u16)) {
+        if (jump > math.maxInt(u16)) {
             return error.JumpTooBig;
         }
 
@@ -155,6 +156,21 @@ pub const Chunk = struct {
 
         self.code.items[offset] = @intCast((jump_converted >> 8) & 0xFF);
         self.code.items[offset + 1] = @intCast(jump_converted & 0xFF);
+    }
+
+    pub fn writeNegativeJump(
+        self: *Self,
+        offset: usize,
+        position: Position,
+    ) error{ OutOfMemory, JumpTooBig }!void {
+        const jump = self.code.items.len - offset + 3;
+
+        if (jump > math.maxInt(u16)) {
+            return error.JumpTooBig;
+        }
+
+        try self.writeU8(.negative_jump, position);
+        try self.writeU16(@intCast(jump), position);
     }
 
     pub fn writeConstant(self: *Self, value: Value, position: Position) error{
@@ -231,7 +247,7 @@ test "writeByte works for all supported types" {
     try expect(chunk.code.items[1] == 1);
     try expect(chunk.positions.items[1].line == 2);
     try expect(chunk.positions.items[1].column == 2);
-    try expect(chunk.code.items[2] == @intFromEnum(OpCode.return_));
+    try expect(chunk.code.items[2] == @intFromEnum(OpCode.@"return"));
     try expect(chunk.positions.items[2].line == 3);
     try expect(chunk.positions.items[2].column == 3);
     try expect(chunk.code.items[3] == @intFromEnum(OpCode.pop));

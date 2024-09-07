@@ -266,6 +266,35 @@ pub const SemaExpr = struct {
             }
         };
 
+        pub const For = struct {
+            condition: *SemaExpr,
+            body_block: *SemaExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                condition: *SemaExpr,
+                body_block: *SemaExpr,
+                evals: bool,
+                position: Position,
+            ) Error!*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .@"for" = .{
+                            .condition = condition,
+                            .body_block = body_block,
+                        },
+                    },
+                    .position = position,
+                    .evals = evals,
+                    .sema_type = .unit,
+                };
+
+                return expr;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
@@ -273,6 +302,7 @@ pub const SemaExpr = struct {
         variable: Variable,
         assignment: Assignment,
         @"if": If,
+        @"for": For,
     };
 
     kind: Kind,

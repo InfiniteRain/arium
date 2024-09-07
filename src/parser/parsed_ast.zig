@@ -226,6 +226,32 @@ pub const ParsedExpr = struct {
             }
         };
 
+        pub const For = struct {
+            condition: ?*ParsedExpr,
+            body_block: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                condition: ?*ParsedExpr,
+                body_block: *ParsedExpr,
+                position: Position,
+            ) Error!*Self {
+                const expr = try allocator.create(Self);
+
+                expr.* = .{
+                    .kind = .{
+                        .@"for" = .{
+                            .condition = condition,
+                            .body_block = body_block,
+                        },
+                    },
+                    .position = position,
+                };
+
+                return expr;
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
@@ -233,6 +259,7 @@ pub const ParsedExpr = struct {
         variable: Variable,
         assignment: Assigment,
         @"if": If,
+        @"for": For,
     };
 
     kind: Kind,
