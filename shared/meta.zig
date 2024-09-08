@@ -49,3 +49,10 @@ pub fn getUnionValue(union_: anytype, T: type) T {
 
     @panic("value of the active field doesn't match desired type");
 }
+
+pub fn typeName(T: type) []const u8 {
+    const full_name = @typeName(T);
+    const last_dot_index = std.mem.lastIndexOfScalar(u8, full_name, '.') orelse
+        return full_name;
+    return full_name[last_dot_index + 1 ..];
+}
