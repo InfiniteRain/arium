@@ -234,15 +234,15 @@ pub const SemaExpr = struct {
         };
 
         pub const If = struct {
-            condition: *SemaExpr,
-            then_block: *SemaExpr,
-            else_block: ?*SemaExpr,
+            condition: *Self,
+            then_block: *Self,
+            else_block: ?*Self,
 
             pub fn create(
                 allocator: Allocator,
-                condition: *SemaExpr,
-                then_block: *SemaExpr,
-                else_block: ?*SemaExpr,
+                condition: *Self,
+                then_block: *Self,
+                else_block: ?*Self,
                 sema_type: SemaType,
                 evals: bool,
                 position: Position,
@@ -267,13 +267,13 @@ pub const SemaExpr = struct {
         };
 
         pub const For = struct {
-            condition: *SemaExpr,
-            body_block: *SemaExpr,
+            condition: *Self,
+            body_block: *Self,
 
             pub fn create(
                 allocator: Allocator,
-                condition: *SemaExpr,
-                body_block: *SemaExpr,
+                condition: *Self,
+                body_block: *Self,
                 evals: bool,
                 position: Position,
             ) Error!*Self {
@@ -422,9 +422,8 @@ pub const SemaStmt = struct {
     position: Position,
 };
 
-pub const SemaType = union(enum) {
+pub const SemaType = enum {
     const Self = @This();
-    const Tag = meta.Tag(SemaType);
 
     unit,
     int,
@@ -442,9 +441,5 @@ pub const SemaType = union(enum) {
             .string => "String",
             .invalid => "Invalid",
         };
-    }
-
-    pub fn tag(self: Self) Tag {
-        return self;
     }
 };

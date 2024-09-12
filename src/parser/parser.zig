@@ -731,37 +731,11 @@ pub const Parser = struct {
             // each test to detect memory leaks. that allocator then gets
             // deinited while diags are owned by the tests.
             try diags.add(.{
-                .kind = switch (diag_kind) {
-                    .invalid_token,
-                    => |msg| .{
-                        .invalid_token = try diags.allocator.dupe(u8, msg),
-                    },
-
-                    .variable_name_not_lower_case,
-                    => |name| .{
-                        .variable_name_not_lower_case = try diags.allocator.dupe(u8, name),
-                    },
-
-                    .expected_end_token,
-                    => |token_list| .{
-                        .expected_end_token = blk: {
-                            var new_list = ArrayList(Token.Kind).init(diags.allocator);
-                            try new_list.appendSlice(token_list.items);
-                            break :blk new_list;
-                        },
-                    },
-
-                    .expected_expression,
-                    .expected_left_paren_before_expr,
-                    .expected_right_paren_after_expr,
-                    .int_literal_overflows,
-                    .expected_name,
-                    .expected_equal_after_name,
-                    .invalid_assignment_target,
-                    .expected_type,
-                    .expected_token_after_condition,
-                    => diag_kind,
-                },
+                .kind = try shared.clone.createClone(
+                    diags.allocator,
+                    diag_kind,
+                    .{DiagEntry.Kind},
+                ),
                 .position = position,
             });
         }

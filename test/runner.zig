@@ -9,7 +9,9 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
+const comptimePrint = std.fmt.comptimePrint;
 const Tokenizer = arium.Tokenizer;
+const Position = arium.Position;
 const Token = arium.Token;
 const IoHandler = arium.IoHandler;
 const Parser = arium.Parser;
@@ -100,6 +102,21 @@ pub const Runner = struct {
     };
 
     pub const Diags = SharedDiags(DiagEntry);
+
+    const VerifiableTypes = .{
+        Parser.DiagEntry,
+        Parser.DiagEntry.Kind,
+        Position,
+        Token.Kind,
+        Sema.DiagEntry,
+        Sema.DiagEntry.Kind,
+        SemaType,
+        Sema.DiagEntry.SemaTypeTuple,
+        Compiler.DiagEntry,
+        Compiler.DiagEntry.Kind,
+        Vm.DiagEntry,
+        Vm.DiagEntry.Kind,
+    };
 
     allocator: Allocator,
     tests: ArrayList(Config),
@@ -316,7 +333,7 @@ pub const Runner = struct {
         actuals: *const Config.Expectations,
         diag_entry: *DiagEntry,
     ) !void {
-        if (!verifyOut(&expectations.out, &actuals.out)) {
+        if (!verifyValue(expectations.out, actuals.out)) {
             try diag_entry.failures.append(.{
                 .out_mismatch = .{
                     .expected = try self.allocator.dupe(
@@ -331,7 +348,10 @@ pub const Runner = struct {
             });
         }
 
-        if (!verifyErrParser(&expectations.err_parser, &actuals.err_parser)) {
+        if (!verifyValue(
+            expectations.err_parser.entries,
+            actuals.err_parser.entries,
+        )) {
             try diag_entry.failures.append(.{
                 .err_parser_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_parser),
@@ -340,7 +360,10 @@ pub const Runner = struct {
             });
         }
 
-        if (!verifyErrSema(&expectations.err_sema, &actuals.err_sema)) {
+        if (!verifyValue(
+            expectations.err_sema.entries,
+            actuals.err_sema.entries,
+        )) {
             try diag_entry.failures.append(.{
                 .err_sema_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_sema),
@@ -349,7 +372,10 @@ pub const Runner = struct {
             });
         }
 
-        if (!verifyErrCompiler(&expectations.err_compiler, &actuals.err_compiler)) {
+        if (!verifyValue(
+            expectations.err_compiler.entries,
+            actuals.err_compiler.entries,
+        )) {
             try diag_entry.failures.append(.{
                 .err_compiler_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_compiler),
@@ -358,7 +384,10 @@ pub const Runner = struct {
             });
         }
 
-        if (!verifyErrVm(&expectations.err_vm, &actuals.err_vm)) {
+        if (!verifyValue(
+            expectations.err_vm.entries,
+            actuals.err_vm.entries,
+        )) {
             try diag_entry.failures.append(.{
                 .err_vm_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_vm),
@@ -368,175 +397,76 @@ pub const Runner = struct {
         }
     }
 
-    fn verifyErrParser(
-        expected: *const Parser.Diags,
-        actual: *const Parser.Diags,
-    ) bool {
-        if (expected.getLen() != actual.getLen()) {
-            return false;
+    fn verifyValue(expectation: anytype, actual: anytype) bool {
+        const Type = @TypeOf(expectation);
+        const type_name = @typeName(Type);
+
+        if (Type != @TypeOf(actual)) {
+            @compileError("expectation and actual should be of the same type");
         }
 
-        for (
-            expected.getEntries(),
-            actual.getEntries(),
-        ) |expected_entry, actual_entry| {
-            if (@intFromEnum(expected_entry.kind) != @intFromEnum(actual_entry.kind)) {
-                return false;
-            }
+        const type_info = @typeInfo(Type);
 
-            if (expected_entry.position.line != actual_entry.position.line) {
-                return false;
-            }
-
-            switch (expected_entry.kind) {
-                .expected_end_token,
-                => |*array_list| {
-                    if (array_list.items.len != actual_entry.kind.expected_end_token.items.len) {
-                        return false;
-                    }
-
-                    for (
-                        array_list.items,
-                        actual_entry.kind.expected_end_token.items,
-                    ) |expected_token, actual_token| {
-                        if (expected_token != actual_token) {
-                            return false;
-                        }
-                    }
-                },
-
-                .invalid_token,
-                .variable_name_not_lower_case,
-                => |str| {
-                    const expected_str = str;
-                    const actual_str = meta.getUnionValue(
-                        &actual_entry.kind,
-                        []const u8,
-                    );
-
-                    if (!std.mem.eql(u8, expected_str, actual_str)) {
-                        return false;
-                    }
-                },
-
-                .expected_token_after_condition,
-                => |token| {
-                    if (token != actual_entry.kind.expected_token_after_condition) {
-                        return false;
-                    }
-                },
-
-                .expected_expression,
-                .expected_left_paren_before_expr,
-                .expected_right_paren_after_expr,
-                .int_literal_overflows,
-                .expected_name,
-                .expected_equal_after_name,
-                .invalid_assignment_target,
-                .expected_type,
-                => {},
-            }
+        if (Type == Position) {
+            // special case here as we ignore the column for now.
+            return expectation.line == actual.line;
         }
 
-        return true;
+        if (Type == []u8 or Type == []const u8) {
+            return verifyString(expectation, actual);
+        }
+
+        if (comptime meta.isArrayList(Type)) {
+            return verifyArrayList(expectation, actual);
+        }
+
+        switch (type_info) {
+            .Void,
+            => return true,
+
+            .Int,
+            => return expectation == actual,
+
+            .Enum,
+            => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
+                return expectation == actual;
+            } else {
+                @compileError(comptimePrint(
+                    "enum {s} isn't marked as verifiable",
+                    .{type_name},
+                ));
+            },
+
+            .Union,
+            => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
+                return verifyUnion(expectation, actual);
+            } else {
+                @compileError(comptimePrint(
+                    "union {s} isn't marked as verifiable",
+                    .{type_name},
+                ));
+            },
+
+            .Struct,
+            => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
+                return verifyStruct(expectation, actual);
+            } else {
+                @compileError(comptimePrint(
+                    "struct {s} isn't marked as verifiable",
+                    .{type_name},
+                ));
+            },
+
+            else => @compileError(comptimePrint(
+                "no verification exists for {s} / {s}",
+                .{ type_name, @tagName(type_info) },
+            )),
+        }
     }
 
-    fn verifyErrSema(
-        expected: *const Sema.Diags,
-        actual: *const Sema.Diags,
-    ) bool {
-        if (expected.getLen() != actual.getLen()) {
-            return false;
-        }
-
-        for (
-            expected.getEntries(),
-            actual.getEntries(),
-        ) |expected_entry, actual_entry| {
-            if (@intFromEnum(expected_entry.kind) != @intFromEnum(actual_entry.kind)) {
-                return false;
-            }
-
-            if (expected_entry.position.line != actual_entry.position.line) {
-                return false;
-            }
-
-            switch (expected_entry.kind) {
-                .expected_expr_type,
-                .unexpected_arithmetic_type,
-                .unexpected_comparison_type,
-                .unexpected_logical_type,
-                .unexpected_logical_negation_type,
-                .unexpected_arithmetic_negation_type,
-                => |sema_type| {
-                    const actual_type =
-                        meta.getUnionValue(&actual_entry.kind, SemaType);
-
-                    if (!verifySemaType(sema_type, actual_type)) {
-                        return false;
-                    }
-                },
-
-                .unexpected_operand_type,
-                .unexpected_concat_type,
-                .unexpected_equality_type,
-                .unexpected_assignment_type,
-                .unexpected_else_type,
-                => |sema_type| {
-                    const expected_left, const expected_right = sema_type;
-                    const actual_left, const actual_right = meta.getUnionValue(
-                        &actual_entry.kind,
-                        Sema.DiagEntry.SemaTypeTuple,
-                    );
-
-                    if (!verifySemaType(expected_left, actual_left) or
-                        !verifySemaType(expected_right, actual_right))
-                    {
-                        return false;
-                    }
-                },
-
-                .value_not_found,
-                .immutable_mutation,
-                .type_not_found,
-                .value_not_assigned,
-                => |name| {
-                    const expected_name = name;
-                    const actual_name = meta.getUnionValue(
-                        &actual_entry.kind,
-                        []const u8,
-                    );
-
-                    if (!std.mem.eql(u8, expected_name, actual_name)) {
-                        return false;
-                    }
-                },
-
-                .too_many_locals,
-                => {},
-            }
-        }
-
-        return true;
-    }
-
-    fn verifyErrCompiler(
-        expected: *const Compiler.Diags,
-        actual: *const Compiler.Diags,
-    ) bool {
-        if (expected.getLen() != actual.getLen()) {
-            return false;
-        }
-
-        for (
-            expected.getEntries(),
-            actual.getEntries(),
-        ) |expected_entry, actual_entry| {
-            if (expected_entry.kind != actual_entry.kind) {
-                return false;
-            }
-
-            if (expected_entry.position.line != actual_entry.position.line) {
+    fn verifyStruct(expectation: anytype, actual: anytype) bool {
+        inline for (@typeInfo(@TypeOf(expectation)).Struct.fields) |field| {
+            if (!verifyValue(@field(expectation, field.name), @field(actual, field.name))) {
                 return false;
             }
         }
@@ -544,23 +474,36 @@ pub const Runner = struct {
         return true;
     }
 
-    fn verifyErrVm(
-        expected: *const Vm.Diags,
-        actual: *const Vm.Diags,
-    ) bool {
-        if (expected.getLen() != actual.getLen()) {
+    fn verifyUnion(expectation: anytype, actual: anytype) bool {
+        const Type = @TypeOf(expectation);
+        const type_info = @typeInfo(Type);
+        const Tag = std.meta.Tag(Type);
+
+        if (@as(Tag, expectation) != @as(Tag, actual)) {
             return false;
         }
 
-        for (
-            expected.getEntries(),
-            actual.getEntries(),
-        ) |expected_entry, actual_entry| {
-            if (expected_entry.kind != actual_entry.kind) {
-                return false;
+        inline for (type_info.Union.fields) |field| {
+            if (!std.mem.eql(u8, @tagName(expectation), field.name)) {
+                comptime continue;
             }
 
-            if (expected_entry.position.line != actual_entry.position.line) {
+            return verifyValue(
+                @field(expectation, field.name),
+                @field(actual, field.name),
+            );
+        }
+
+        unreachable;
+    }
+
+    fn verifyArrayList(expectation: anytype, actual: anytype) bool {
+        if (expectation.items.len != actual.items.len) {
+            return false;
+        }
+
+        for (expectation.items, actual.items) |expected_item, actual_item| {
+            if (!verifyValue(expected_item, actual_item)) {
                 return false;
             }
         }
@@ -568,32 +511,8 @@ pub const Runner = struct {
         return true;
     }
 
-    fn verifyOut(
-        expected: *const ArrayList(u8),
-        actual: *const ArrayList(u8),
-    ) bool {
-        return std.mem.eql(u8, expected.items, actual.items);
-    }
-
-    fn verifySemaType(
-        expected: SemaType,
-        actual: SemaType,
-    ) bool {
-        if (@intFromEnum(expected) != @intFromEnum(actual)) {
-            return false;
-        }
-
-        switch (expected) {
-            .unit,
-            .int,
-            .float,
-            .bool,
-            .string,
-            .invalid,
-            => {},
-        }
-
-        return true;
+    fn verifyString(expectation: anytype, actual: anytype) bool {
+        return std.mem.eql(u8, expectation, actual);
     }
 
     fn cloneDiags(
@@ -604,79 +523,17 @@ pub const Runner = struct {
         var clone = DiagsType.init(self.allocator);
 
         for (diags.getEntries()) |diag| {
-            switch (DiagsType) {
-                Parser.Diags => try clone.add(meta.spread(diag, .{
-                    .kind = switch (diag.kind) {
-                        .invalid_token,
-                        .variable_name_not_lower_case,
-                        => |str| Parser.DiagEntry.Kind{ .invalid_token = try self.allocator.dupe(u8, str) },
-
-                        .expected_end_token,
-                        => |token_list| Parser.DiagEntry.Kind{
-                            .expected_end_token = blk: {
-                                var new_list = ArrayList(Token.Kind).init(self.allocator);
-                                try new_list.appendSlice(token_list.items);
-                                break :blk new_list;
-                            },
-                        },
-
-                        .expected_expression,
-                        .expected_left_paren_before_expr,
-                        .expected_right_paren_after_expr,
-                        .int_literal_overflows,
-                        .expected_name,
-                        .expected_equal_after_name,
-                        .invalid_assignment_target,
-                        .expected_type,
-                        .expected_token_after_condition,
-                        => diag.kind,
+            try clone.add(meta.spread(diag, .{
+                .kind = try shared.clone.createClone(
+                    self.allocator,
+                    diag.kind,
+                    .{
+                        Parser.DiagEntry.Kind,
+                        Sema.DiagEntry.Kind,
+                        Sema.DiagEntry.SemaTypeTuple,
                     },
-                })),
-                Sema.Diags => try clone.add(meta.spread(diag, .{
-                    .kind = switch (diag.kind) {
-                        .value_not_found,
-                        => |name| Sema.DiagEntry.Kind{ .value_not_found = try self.allocator.dupe(u8, name) },
-
-                        .immutable_mutation,
-                        => |name| Sema.DiagEntry.Kind{ .immutable_mutation = try self.allocator.dupe(u8, name) },
-
-                        .type_not_found,
-                        => |name| Sema.DiagEntry.Kind{ .type_not_found = try self.allocator.dupe(u8, name) },
-
-                        .value_not_assigned,
-                        => |name| Sema.DiagEntry.Kind{ .value_not_assigned = try self.allocator.dupe(u8, name) },
-
-                        .expected_expr_type,
-                        .unexpected_arithmetic_type,
-                        .unexpected_operand_type,
-                        .unexpected_concat_type,
-                        .unexpected_equality_type,
-                        .unexpected_comparison_type,
-                        .unexpected_logical_type,
-                        .unexpected_logical_negation_type,
-                        .unexpected_arithmetic_negation_type,
-                        .too_many_locals,
-                        .unexpected_assignment_type,
-                        .unexpected_else_type,
-                        => diag.kind,
-                    },
-                })),
-                Compiler.Diags => try clone.add(meta.spread(diag, .{
-                    .kind = switch (diag.kind) {
-                        .too_many_constants,
-                        .too_many_branch_jumps,
-                        .jump_too_big,
-                        => diag.kind,
-                    },
-                })),
-                Vm.Diags => try clone.add(meta.spread(diag, .{
-                    .kind = switch (diag.kind) {
-                        .assertion_fail,
-                        => diag.kind,
-                    },
-                })),
-                else => unreachable,
-            }
+                ),
+            }));
         }
 
         return clone;

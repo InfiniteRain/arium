@@ -4,6 +4,7 @@ const shared = @import("shared");
 
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+const comptimePrint = std.fmt.comptimePrint;
 const Token = arium.Token;
 const Tokenizer = arium.Tokenizer;
 const Position = arium.Position;
@@ -83,7 +84,7 @@ pub const Config = struct {
         }
     };
 
-    const DirectiveContext = struct {
+    const DirectiveCtx = struct {
         allocator: Allocator,
         kind: Kind,
         diags: *Diags,
@@ -93,6 +94,16 @@ pub const Config = struct {
     };
 
     const SplitIter = std.mem.SplitIterator(u8, .scalar);
+
+    const ParsableTypes = .{
+        Parser.DiagEntry.Kind,
+        Token.Kind,
+        Sema.DiagEntry.Kind,
+        Sema.DiagEntry.SemaTypeTuple,
+        SemaType,
+        Compiler.DiagEntry.Kind,
+        Vm.DiagEntry.Kind,
+    };
 
     allocator: Allocator,
     path: []const u8,
@@ -163,13 +174,13 @@ pub const Config = struct {
                 continue;
             }
 
-            var split = std.mem.splitScalar(u8, directive_line_opt.?, ' ');
-            var ctx: DirectiveContext = .{
+            var split_iter = std.mem.splitScalar(u8, directive_line_opt.?, ' ');
+            var ctx: DirectiveCtx = .{
                 .allocator = allocator,
                 .kind = test_kind,
                 .diags = diags,
                 .position = current_token.position,
-                .split_iter = &split,
+                .split_iter = &split_iter,
                 .expectations = &expectations,
             };
 
@@ -201,66 +212,58 @@ pub const Config = struct {
             null;
     }
 
-    fn parseDirective(ctx: *DirectiveContext) DirectiveError!void {
-        const directive_kind_str = try parseStr(ctx);
-        const directive_kind_opt = std.meta.stringToEnum(Directive, directive_kind_str);
-
-        if (directive_kind_opt == null) {
+    fn parseDirective(ctx: *DirectiveCtx) DirectiveError!void {
+        const directive_kind_str = try parseStr(
+            ctx,
+            "Expected test directive.",
+            .{},
+        );
+        const directive_kind = std.meta.stringToEnum(
+            Directive,
+            directive_kind_str,
+        ) orelse {
             return directiveParseFailure(
                 ctx,
                 "Invalid directive '{s}'.",
                 .{directive_kind_str},
             );
+        };
+
+        const is_illegal = switch (directive_kind) {
+            .out => ctx.kind == .run,
+            .err_parser => true,
+            .err_sema => ctx.kind == .sema or ctx.kind == .compile or ctx.kind == .run,
+            .err_compiler => ctx.kind == .compile or ctx.kind == .run,
+            .err_vm => ctx.kind == .run,
+        };
+
+        if (!is_illegal) {
+            return illegalDirectiveFailure(ctx, directive_kind);
         }
 
-        switch (directive_kind_opt.?) {
+        switch (directive_kind) {
             .out => try parseOutDirective(ctx),
-            .err_parser => try parseErrParserDirective(ctx),
-            .err_sema => try parseErrSemaDirective(ctx),
-            .err_compiler => try parseErrCompilerDirective(ctx),
-            .err_vm => try parseErrVmDirective(ctx),
+            .err_parser => try parseDiag(&ctx.expectations.err_parser, ctx),
+            .err_sema => try parseDiag(&ctx.expectations.err_sema, ctx),
+            .err_compiler => try parseDiag(&ctx.expectations.err_compiler, ctx),
+            .err_vm => try parseDiag(&ctx.expectations.err_vm, ctx),
         }
     }
 
-    fn parseErrParserDirective(ctx: *DirectiveContext) DirectiveError!void {
-        const line = try parseInt(ctx, u64);
-        var diag_kind = try parseUnionVariant(ctx, Parser.DiagEntry.Kind);
+    fn parseDiag(
+        diags: anytype,
+        ctx: *DirectiveCtx,
+    ) DirectiveError!void {
+        const ChildDiagEntry =
+            @typeInfo(@TypeOf(diags.entries.items)).Pointer.child;
 
-        switch (diag_kind) {
-            .expected_end_token,
-            => meta.setUnionValue(
-                &diag_kind,
-                try parseEnumVariantList(ctx, Token.Kind),
-            ),
+        const line = try parseType(u64, ctx);
+        const diag = try parseType(ChildDiagEntry.Kind, ctx);
 
-            .invalid_token,
-            .variable_name_not_lower_case,
-            => meta.setUnionValue(
-                &diag_kind,
-                @as([]const u8, try ctx.allocator.dupe(u8, parseRestStr(ctx))),
-            ),
+        try parseEndOfSplitIter(ctx, "Expected end of comment.");
 
-            .expected_token_after_condition,
-            => meta.setUnionValue(
-                &diag_kind,
-                try parseEnumVariant(ctx, Token.Kind),
-            ),
-
-            .expected_expression,
-            .expected_left_paren_before_expr,
-            .expected_right_paren_after_expr,
-            .int_literal_overflows,
-            .expected_name,
-            .expected_equal_after_name,
-            .invalid_assignment_target,
-            .expected_type,
-            => {},
-        }
-
-        try parseEndOfLine(ctx);
-
-        try ctx.expectations.err_parser.add(.{
-            .kind = diag_kind,
+        try diags.add(.{
+            .kind = diag,
             .position = .{
                 .line = line,
                 .column = 0, // not part of the check for now
@@ -268,130 +271,110 @@ pub const Config = struct {
         });
     }
 
-    fn parseErrSemaDirective(ctx: *DirectiveContext) DirectiveError!void {
-        if (ctx.kind != .sema and ctx.kind != .compile and ctx.kind != .run) {
-            return illegalDirectiveFailure(ctx, .err_sema);
+    fn parseType(T: type, ctx: *DirectiveCtx) DirectiveError!T {
+        const type_info = @typeInfo(T);
+        const type_name = @typeName(T);
+
+        if (T == []u8 or T == []const u8) {
+            return try ctx.allocator.dupe(
+                u8,
+                try parseStr(ctx, "Expected string.", .{}),
+            );
         }
 
-        const line = try parseInt(ctx, u64);
-        var diag_kind = try parseUnionVariant(ctx, Sema.DiagEntry.Kind);
+        if (comptime meta.isArrayList(T)) {
+            return try parseArrayList(T, ctx);
+        }
 
-        switch (diag_kind) {
-            .unexpected_operand_type,
-            .unexpected_concat_type,
-            .unexpected_equality_type,
-            .unexpected_assignment_type,
-            .unexpected_else_type,
-            => meta.setUnionValue(&diag_kind, Sema.DiagEntry.SemaTypeTuple{
-                try parseSemaType(ctx),
-                try parseSemaType(ctx),
-            }),
+        switch (type_info) {
+            .Void,
+            => return,
 
-            .expected_expr_type,
-            .unexpected_arithmetic_type,
-            .unexpected_comparison_type,
-            .unexpected_logical_type,
-            .unexpected_logical_negation_type,
-            .unexpected_arithmetic_negation_type,
-            => meta.setUnionValue(&diag_kind, try parseSemaType(ctx)),
+            .Int,
+            => return try parseInt(T, ctx),
 
-            .value_not_found,
-            .immutable_mutation,
-            .type_not_found,
-            .value_not_assigned,
-            => {
-                meta.setUnionValue(
-                    &diag_kind,
-                    @as([]const u8, try ctx.allocator.dupe(u8, parseRestStr(ctx))),
-                );
+            .Enum,
+            => if (comptime meta.typeInTuple(T, ParsableTypes)) {
+                return try parseEnum(T, ctx);
+            } else {
+                @compileError(comptimePrint(
+                    "enum {s} isn't marked as parsable",
+                    .{type_name},
+                ));
             },
 
-            .too_many_locals,
-            => {},
-        }
-
-        try parseEndOfLine(ctx);
-
-        try ctx.expectations.err_sema.add(.{
-            .kind = diag_kind,
-            .position = .{
-                .line = line,
-                .column = 0, // not part of the check for now
+            .Union,
+            => if (comptime meta.typeInTuple(T, ParsableTypes)) {
+                return try parseUnion(T, ctx);
+            } else {
+                @compileError(comptimePrint(
+                    "union {s} isn't marked as parsable",
+                    .{type_name},
+                ));
             },
-        });
-    }
 
-    fn parseErrCompilerDirective(ctx: *DirectiveContext) DirectiveError!void {
-        if (ctx.kind != .compile and ctx.kind != .run) {
-            return illegalDirectiveFailure(ctx, .err_compiler);
-        }
+            .Struct,
+            => |@"struct"| {
+                if (!@"struct".is_tuple) {
+                    @compileError("can't parse non-tuple structs");
+                }
 
-        const line = try parseInt(ctx, u64);
-        const diag_kind = try parseEnumVariant(ctx, Compiler.DiagEntry.Kind);
+                if (!comptime meta.typeInTuple(T, ParsableTypes)) {
+                    @compileError(comptimePrint(
+                        "tuple {s} isn't marked as parsable",
+                        .{type_name},
+                    ));
+                }
 
-        try parseEndOfLine(ctx);
-
-        try ctx.expectations.err_compiler.add(.{
-            .kind = diag_kind,
-            .position = .{
-                .line = line,
-                .column = 0, // not part of the check for now
+                return try parseTuple(T, ctx);
             },
-        });
+
+            else => @compileError(comptimePrint(
+                "no parsing exists for {s} / {s}",
+                .{ type_name, @tagName(type_info) },
+            )),
+        }
     }
 
-    fn parseErrVmDirective(ctx: *DirectiveContext) DirectiveError!void {
-        if (ctx.kind != .run) {
-            return illegalDirectiveFailure(ctx, .err_vm);
+    fn parseTuple(T: type, ctx: *DirectiveCtx) DirectiveError!T {
+        const type_info = @typeInfo(T);
+        var tuple: T = undefined;
+
+        inline for (type_info.Struct.fields) |field| {
+            @field(tuple, field.name) = try parseType(field.type, ctx);
         }
 
-        const line = try parseInt(ctx, u64);
-        const diag_kind = try parseEnumVariant(ctx, Vm.DiagEntry.Kind);
-
-        try parseEndOfLine(ctx);
-
-        try ctx.expectations.err_vm.add(.{
-            .kind = diag_kind,
-            .position = .{
-                .line = line,
-                .column = 0, // not part of the check for now
-            },
-        });
+        return tuple;
     }
 
-    fn parseOutDirective(ctx: *DirectiveContext) DirectiveError!void {
-        if (ctx.kind != .run) {
-            return illegalDirectiveFailure(ctx, .out);
+    fn parseUnion(T: type, ctx: *DirectiveCtx) DirectiveError!T {
+        const error_msg = "Expected a union variant of {s}";
+        const error_args = .{@typeName(T)};
+        const variant = try parseStr(ctx, error_msg, error_args);
+
+        inline for (@typeInfo(T).Union.fields) |field| {
+            if (std.mem.eql(u8, field.name, variant)) {
+                const value = try parseType(field.type, ctx);
+
+                return @unionInit(T, field.name, value);
+            }
         }
 
-        try ctx.expectations.out.appendSlice(parseRestStr(ctx));
-        try ctx.expectations.out.append('\n');
+        return directiveParseFailure(ctx, error_msg, error_args);
     }
 
-    fn parseSemaType(
-        ctx: *DirectiveContext,
-    ) DirectiveError!SemaType {
-        const sema_type = try parseUnionVariant(ctx, SemaType);
+    fn parseEnum(T: type, ctx: *DirectiveCtx) DirectiveError!T {
+        const msg = "Expected an enum variant of {s}.";
+        const args = .{@typeName(T)};
 
-        switch (sema_type) {
-            .unit,
-            .int,
-            .float,
-            .bool,
-            .string,
-            .invalid,
-            => {},
-        }
+        const variant = nextNonEmpty(ctx) orelse
+            return directiveParseFailure(ctx, msg, args);
 
-        return sema_type;
+        return std.meta.stringToEnum(T, variant) orelse
+            return directiveParseFailure(ctx, msg, args);
     }
 
-    fn parseStr(ctx: *DirectiveContext) DirectiveError![]const u8 {
-        return nextNonEmpty(ctx) orelse
-            return directiveParseFailure(ctx, "Expected string.", .{});
-    }
-
-    fn parseInt(ctx: *DirectiveContext, T: type) DirectiveError!T {
+    fn parseInt(T: type, ctx: *DirectiveCtx) DirectiveError!T {
         const msg = "Expected {s}.";
         const args = .{@typeName(T)};
 
@@ -403,53 +386,99 @@ pub const Config = struct {
         };
     }
 
-    fn parseUnionVariant(ctx: *DirectiveContext, T: type) DirectiveError!T {
-        const msg = "Expected a union variant of {s}.";
-        const args = .{@typeName(T)};
+    fn parseArrayList(T: type, ctx: *DirectiveCtx) DirectiveError!T {
+        const ChildType = @typeInfo(T.Slice).Pointer.child;
+        var new_array = ArrayList(ChildType).init(ctx.allocator);
+        const list_str = try parseGroup(
+            ctx,
+            "list",
+            '[',
+            ']',
+            "Expected a list of {s}.",
+            .{@typeName(ChildType)},
+        );
+        var split_iter = std.mem.splitScalar(u8, list_str, ',');
+        const parent_split_iter = ctx.split_iter;
 
-        const param = nextNonEmpty(ctx) orelse
-            return directiveParseFailure(ctx, msg, args);
+        while (split_iter.next()) |segment| {
+            var inner_split_iter = std.mem.splitScalar(u8, segment, ' ');
 
-        return meta.stringToUnion(T, param) orelse
-            return directiveParseFailure(ctx, msg, args);
-    }
+            ctx.split_iter = &inner_split_iter;
 
-    fn parseEnumVariant(ctx: *DirectiveContext, T: type) DirectiveError!T {
-        const msg = "Expected an enum variant of {s}.";
-        const args = .{@typeName(T)};
+            try new_array.append(try parseType(ChildType, ctx));
+            try parseEndOfSplitIter(ctx, "Expected end of list.");
 
-        const param = nextNonEmpty(ctx) orelse
-            return directiveParseFailure(ctx, msg, args);
-
-        return std.meta.stringToEnum(T, param) orelse
-            return directiveParseFailure(ctx, msg, args);
-    }
-
-    fn parseEnumVariantList(ctx: *DirectiveContext, T: type) DirectiveError!ArrayList(T) {
-        const msg = "Expected a list of enum variants of {s}.";
-        const args = .{@typeName(T)};
-        const comma_list = try parseStr(ctx);
-        var split_iter = std.mem.splitScalar(u8, comma_list, ',');
-        var list = ArrayList(T).init(ctx.allocator);
-
-        while (split_iter.next()) |variant| {
-            try list.append(std.meta.stringToEnum(T, variant) orelse
-                return directiveParseFailure(ctx, msg, args));
+            ctx.split_iter = parent_split_iter;
         }
 
-        return list;
+        return new_array;
     }
 
-    fn parseRestStr(ctx: *DirectiveContext) []const u8 {
+    fn parseGroup(
+        ctx: *DirectiveCtx,
+        group_name: []const u8,
+        begin: u8,
+        end: u8,
+        comptime error_fmt: []const u8,
+        error_args: anytype,
+    ) DirectiveError![]const u8 {
+        const old_index = ctx.split_iter.index orelse
+            return directiveParseFailure(ctx, error_fmt, error_args);
+        const next = ctx.split_iter.next() orelse
+            return directiveParseFailure(ctx, error_fmt, error_args);
+
+        if (next[0] != begin) {
+            return next;
+        }
+
+        if (next.len > 1 and next[0] == begin and next[next.len - 1] == end) {
+            return next[1 .. next.len - 1];
+        }
+
+        while (ctx.split_iter.next()) |split| {
+            if (split.len > 0 and split[split.len - 1] == end) {
+                const buffer = ctx.split_iter.buffer;
+
+                return if (ctx.split_iter.index) |index|
+                    buffer[old_index + 1 .. index - 1]
+                else
+                    buffer[old_index + 1 .. buffer.len - 1];
+            }
+        }
+
+        return directiveParseFailure(ctx, "Unterminated {s}.", .{group_name});
+    }
+
+    fn parseStr(
+        ctx: *DirectiveCtx,
+        comptime error_fmt: []const u8,
+        error_args: anytype,
+    ) DirectiveError![]const u8 {
+        return try parseGroup(ctx, "string", '"', '"', error_fmt, error_args);
+    }
+
+    fn parseRestStr(ctx: *DirectiveCtx) []const u8 {
         const rest = std.mem.trim(u8, ctx.split_iter.rest(), " ");
         while (ctx.split_iter.next()) |_| {}
         return rest;
     }
 
-    fn parseEndOfLine(ctx: *DirectiveContext) DirectiveError!void {
+    fn parseEndOfSplitIter(
+        ctx: *DirectiveCtx,
+        comptime msg: []const u8,
+    ) DirectiveError!void {
         if (nextNonEmpty(ctx) != null) {
-            return directiveParseFailure(ctx, "Expected end of comment.", .{});
+            return directiveParseFailure(ctx, msg, .{});
         }
+    }
+
+    fn parseOutDirective(ctx: *DirectiveCtx) DirectiveError!void {
+        if (ctx.kind != .run) {
+            return illegalDirectiveFailure(ctx, .out);
+        }
+
+        try ctx.expectations.out.appendSlice(parseRestStr(ctx));
+        try ctx.expectations.out.append('\n');
     }
 
     fn addDiag(
@@ -464,7 +493,7 @@ pub const Config = struct {
         });
     }
 
-    fn nextNonEmpty(ctx: *DirectiveContext) ?[]const u8 {
+    fn nextNonEmpty(ctx: *DirectiveCtx) ?[]const u8 {
         var next = ctx.split_iter.next();
 
         while (next != null and next.?.len == 0) {
@@ -485,7 +514,7 @@ pub const Config = struct {
     }
 
     fn directiveParseFailure(
-        ctx: *DirectiveContext,
+        ctx: *DirectiveCtx,
         comptime fmt: []const u8,
         args: anytype,
     ) DirectiveError {
@@ -494,7 +523,7 @@ pub const Config = struct {
     }
 
     fn illegalDirectiveFailure(
-        ctx: *DirectiveContext,
+        ctx: *DirectiveCtx,
         directive: Directive,
     ) DirectiveError {
         return directiveParseFailure(

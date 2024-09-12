@@ -902,33 +902,14 @@ pub const Sema = struct {
             // each test to detect memory leaks. that allocator then gets
             // deinited while diags are owned by the tests.
             try diags.add(.{
-                .kind = switch (diag_kind) {
-                    .value_not_found,
-                    => |name| .{ .value_not_found = try diags.allocator.dupe(u8, name) },
-
-                    .immutable_mutation,
-                    => |name| .{ .immutable_mutation = try diags.allocator.dupe(u8, name) },
-
-                    .type_not_found,
-                    => |name| .{ .type_not_found = try diags.allocator.dupe(u8, name) },
-
-                    .value_not_assigned,
-                    => |name| .{ .value_not_assigned = try diags.allocator.dupe(u8, name) },
-
-                    .expected_expr_type,
-                    .unexpected_arithmetic_type,
-                    .unexpected_operand_type,
-                    .unexpected_concat_type,
-                    .unexpected_equality_type,
-                    .unexpected_comparison_type,
-                    .unexpected_logical_type,
-                    .unexpected_logical_negation_type,
-                    .unexpected_arithmetic_negation_type,
-                    .too_many_locals,
-                    .unexpected_assignment_type,
-                    .unexpected_else_type,
-                    => diag_kind,
-                },
+                .kind = try shared.clone.createClone(
+                    diags.allocator,
+                    diag_kind,
+                    .{
+                        DiagEntry.Kind,
+                        DiagEntry.SemaTypeTuple,
+                    },
+                ),
                 .position = position,
             });
         }
@@ -939,7 +920,7 @@ pub const Sema = struct {
             return true;
         }
 
-        return sema_type.tag() == target.tag();
+        return sema_type == target;
     }
 
     fn isBranching(expr: *SemaExpr) bool {

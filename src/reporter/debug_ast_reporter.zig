@@ -4,6 +4,7 @@ const parsed_ast_mod = @import("../parser/parsed_ast.zig");
 const sema_ast_mod = @import("../sema/sema_ast.zig");
 
 const ArrayList = std.ArrayList;
+const comptimePrint = std.fmt.comptimePrint;
 const Writer = shared.Writer;
 const meta = shared.meta;
 const SemaExpr = sema_ast_mod.SemaExpr;
@@ -54,14 +55,14 @@ pub const Indent = struct {
 
 pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) void {
     const indent_ptr: ?*const Indent = if (indent_opt) |indent| &indent else null;
-    const NodeType = @TypeOf(node);
-    const node_type_info = @typeInfo(NodeType);
+    const Type = @TypeOf(node);
+    const type_info = @typeInfo(Type);
 
-    if (node_type_info != .Pointer) {
+    if (type_info != .Pointer) {
         @compileError("expected node to be a pointer");
     }
 
-    const child_type_info = @typeInfo(node_type_info.Pointer.child);
+    const child_type_info = @typeInfo(type_info.Pointer.child);
     const child_variant = switch (child_type_info) {
         .Struct => child_type_info.Struct,
         .Union => child_type_info.Union,
@@ -69,17 +70,17 @@ pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) v
         else => @compileError("expected node to be a struct or a union"),
     };
 
-    if (!@hasField(node_type_info.Pointer.child, "kind")) {
+    if (!@hasField(type_info.Pointer.child, "kind")) {
         @compileError("expected node to have a 'kind' field");
     }
 
     const indent_level = if (indent_opt) |indent| indent.level else 0;
     const style = styles[indent_level % styles.len];
 
-    writer.print(style);
-    writer.print(meta.typeName(NodeType));
-    writer.print(style_end);
-    writer.print(" {\n");
+    writer.printf(
+        "{s}{s}{s} {{\n",
+        .{ style, meta.typeName(Type), style_end },
+    );
 
     inline for (child_variant.fields) |field| {
         if (!std.mem.eql(u8, field.name, "kind")) {
@@ -106,10 +107,10 @@ pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) v
 }
 
 pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *const Writer) void {
-    const FieldType = @TypeOf(field);
-    const field_type_info = @typeInfo(FieldType);
+    const Type = @TypeOf(field);
+    const type_info = @typeInfo(Type);
 
-    switch (FieldType) {
+    switch (Type) {
         ArrayList(*SemaStmt),
         ArrayList(*const SemaStmt),
         ArrayList(*ParsedStmt),
@@ -130,7 +131,7 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
         *const ParsedStmt,
         => printAstNode(field, indent, writer),
 
-        else => switch (field_type_info) {
+        else => switch (type_info) {
             .Bool,
             .Int,
             => writer.printf("{}", .{field}),
@@ -154,9 +155,9 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
                 writer.print("null");
             },
 
-            else => @panic(std.fmt.comptimePrint(
+            else => @panic(comptimePrint(
                 "no reporting is implemented for {s} / {s}",
-                .{ @typeName(FieldType), @tagName(field_type_info) },
+                .{ @typeName(Type), @tagName(type_info) },
             )),
         },
     }
@@ -173,45 +174,47 @@ pub fn printUnion(
     const type_info = @typeInfo(Type);
 
     inline for (type_info.Union.fields) |field| {
-        if (std.mem.eql(u8, @tagName(@"union"), field.name)) {
-            var last_indent = indent;
+        if (!std.mem.eql(u8, @tagName(@"union"), field.name)) {
+            comptime continue;
+        }
 
-            if (field.type != void) {
-                writer.print("{");
+        var last_indent = indent;
 
-                if (multiline) {
-                    last_indent = indent.wrap(true);
+        if (field.type != void) {
+            writer.print("{");
 
-                    writer.print("\n");
-                    printIndent(last_indent, writer);
-                } else {
-                    writer.print(" ");
-                }
+            if (multiline) {
+                last_indent = indent.wrap(true);
+
+                writer.print("\n");
+                printIndent(last_indent, writer);
+            } else {
+                writer.print(" ");
+            }
+        }
+
+        if (style_opt) |style| {
+            writer.print(style);
+        }
+
+        writer.print(field.name);
+
+        if (style_opt != null) {
+            writer.print(style_end);
+        }
+
+        if (field.type != void) {
+            writer.print(" = ");
+            printField(@field(@"union", field.name), last_indent, multiline, writer);
+
+            if (multiline) {
+                writer.print("\n");
+                printIndentNoConnect(indent, writer);
+            } else {
+                writer.print(" ");
             }
 
-            if (style_opt) |style| {
-                writer.print(style);
-            }
-
-            writer.print(field.name);
-
-            if (style_opt != null) {
-                writer.print(style_end);
-            }
-
-            if (field.type != void) {
-                writer.print(" = ");
-                printField(@field(@"union", field.name), last_indent, multiline, writer);
-
-                if (multiline) {
-                    writer.print("\n");
-                    printIndentNoConnect(indent, writer);
-                } else {
-                    writer.print(" ");
-                }
-
-                writer.print("}");
-            }
+            writer.print("}");
         }
     }
 }

@@ -1,11 +1,16 @@
+const std = @import("std");
 const shared = @import("shared");
 const arium = @import("arium");
 const runner_mod = @import("runner.zig");
 const config_mod = @import("config.zig");
 
+const comptimePrint = std.fmt.comptimePrint;
 const Writer = shared.Writer;
+const meta = shared.meta;
 const Runner = runner_mod.Runner;
+const Token = arium.Token;
 const Parser = arium.Parser;
+const Position = arium.Position;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
 const SemaType = arium.SemaType;
@@ -13,6 +18,20 @@ const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const error_reporter = arium.error_reporter;
 const Config = config_mod.Config;
+
+const ReportableTypes = .{
+    Token.Kind,
+    Parser.DiagEntry,
+    Parser.DiagEntry.Kind,
+    Sema.DiagEntry,
+    Sema.DiagEntry.Kind,
+    SemaType,
+    Sema.DiagEntry.SemaTypeTuple,
+    Compiler.DiagEntry,
+    Compiler.DiagEntry.Kind,
+    Vm.DiagEntry,
+    Vm.DiagEntry.Kind,
+};
 
 pub fn reportConfigDiags(
     path: []const u8,
@@ -97,9 +116,9 @@ pub fn reportErrParserMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected parser error(s).\nExpected:\n");
-    reportParserDiags(&mismatch.expected, writer);
+    reportValue(mismatch.expected.entries, writer);
     writer.print("\nActual:\n");
-    reportParserDiags(&mismatch.actual, writer);
+    reportValue(mismatch.actual.entries, writer);
 }
 
 pub fn reportErrSemaMismatch(
@@ -107,9 +126,9 @@ pub fn reportErrSemaMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected sema error(s).\nExpected:\n");
-    reportSemaDiags(&mismatch.expected, writer);
+    reportValue(mismatch.expected.entries, writer);
     writer.print("\nActual:\n");
-    reportSemaDiags(&mismatch.actual, writer);
+    reportValue(mismatch.actual.entries, writer);
 }
 
 pub fn reportErrCompilerMismatch(
@@ -117,9 +136,9 @@ pub fn reportErrCompilerMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected compiler error.\nExpected:\n");
-    reportCompilerDiags(&mismatch.expected, writer);
+    reportValue(mismatch.expected.entries, writer);
     writer.print("\nActual:\n");
-    reportCompilerDiags(&mismatch.actual, writer);
+    reportValue(mismatch.actual.entries, writer);
 }
 
 pub fn reportErrVmMismatch(
@@ -127,9 +146,9 @@ pub fn reportErrVmMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected vm error.\nExpected:\n");
-    reportVmDiags(&mismatch.expected, writer);
+    reportValue(mismatch.expected.entries, writer);
     writer.print("\nActual:\n");
-    reportVmDiags(&mismatch.actual, writer);
+    reportValue(mismatch.actual.entries, writer);
 }
 
 pub fn reportOutMismatch(
@@ -142,144 +161,121 @@ pub fn reportOutMismatch(
     });
 }
 
-pub fn reportParserDiags(
-    diags: *const Parser.Diags,
+pub fn reportValue(
+    value: anytype,
     writer: *const Writer,
 ) void {
-    for (diags.getEntries()) |entry| {
-        writer.printf(
-            "'{s}' on line {}",
-            .{ @tagName(entry.kind), entry.position.line },
-        );
+    const Type = @TypeOf(value);
+    const type_info = @typeInfo(Type);
+    const type_name = @typeName(Type);
 
-        switch (entry.kind) {
-            .expected_end_token => |token_list| {
-                writer.print(" with tokens ");
+    if (Type == Position) {
+        // special case here as we ignore the column for now.
+        writer.printf("Position{{ .line = {} }}", .{value.line});
+        return;
+    }
 
-                for (token_list.items) |token| {
-                    writer.printf("{s} ", .{@tagName(token)});
-                }
-            },
+    if (Type == []u8 or Type == []const u8) {
+        writer.print(value);
+        return;
+    }
 
-            .invalid_token => |msg| writer.printf(
-                " '{s}'",
-                .{msg},
-            ),
+    if (comptime meta.isArrayList(Type)) {
+        reportArrayList(value, writer);
+        return;
+    }
 
-            .variable_name_not_lower_case => |name| writer.printf(
-                " with name '{s}'",
-                .{name},
-            ),
+    switch (type_info) {
+        .Void,
+        => writer.print("void"),
 
-            .expected_token_after_condition => |token| writer.printf(
-                " with token {s} ",
-                .{@tagName(token)},
-            ),
+        .Int,
+        => writer.printf("{}", .{value}),
 
-            .expected_expression,
-            .expected_left_paren_before_expr,
-            .expected_right_paren_after_expr,
-            .int_literal_overflows,
-            .expected_name,
-            .expected_equal_after_name,
-            .invalid_assignment_target,
-            .expected_type,
-            => {},
+        .Enum,
+        => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
+            reportEnum(value, writer);
+        } else {
+            @compileError(comptimePrint(
+                "enum {s} isn't marked as reportable",
+                .{type_name},
+            ));
+        },
+
+        .Union,
+        => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
+            reportUnion(value, writer);
+        } else {
+            @compileError(comptimePrint(
+                "union {s} isn't marked as reportable",
+                .{type_name},
+            ));
+        },
+
+        .Struct,
+        => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
+            reportStruct(value, writer);
+        } else {
+            @compileError(comptimePrint(
+                "struct {s} isn't marked as reportable",
+                .{type_name},
+            ));
+        },
+
+        else => @compileError(comptimePrint(
+            "no reporting exists for {s} / {s}",
+            .{ type_name, @tagName(type_info) },
+        )),
+    }
+}
+
+pub fn reportStruct(value: anytype, writer: *const Writer) void {
+    const Type = @TypeOf(value);
+    const type_info = @typeInfo(Type);
+
+    writer.printf("{s}{{", .{meta.typeName(Type)});
+
+    inline for (type_info.Struct.fields, 0..) |field, index| {
+        writer.printf(" .{s} = ", .{field.name});
+        reportValue(@field(value, field.name), writer);
+
+        if (index != type_info.Struct.fields.len - 1) {
+            writer.print(",");
         }
-
-        writer.print(".\n");
     }
+
+    writer.print(" }");
 }
 
-pub fn reportSemaDiags(
-    diags: *const Sema.Diags,
-    writer: *const Writer,
-) void {
-    for (diags.getEntries()) |entry| {
-        writer.printf(
-            "'{s}' on line {}",
-            .{ @tagName(entry.kind), entry.position.line },
-        );
+pub fn reportUnion(value: anytype, writer: *const Writer) void {
+    writer.printf(
+        "{s}{{ .{s} = ",
+        .{ meta.typeName(@TypeOf(value)), @tagName(value) },
+    );
 
-        switch (entry.kind) {
-            .expected_expr_type,
-            .unexpected_arithmetic_type,
-            .unexpected_comparison_type,
-            .unexpected_logical_type,
-            .unexpected_logical_negation_type,
-            .unexpected_arithmetic_negation_type,
-            => |sema_type| {
-                writer.print(" with eval type ");
-                reportSemaType(sema_type, writer);
-            },
-
-            .unexpected_operand_type,
-            .unexpected_concat_type,
-            .unexpected_equality_type,
-            .unexpected_assignment_type,
-            .unexpected_else_type,
-            => |sema_type| {
-                const left, const right = sema_type;
-
-                writer.print(" with eval types ");
-                reportSemaType(left, writer);
-                writer.print(" and ");
-                reportSemaType(right, writer);
-            },
-
-            .value_not_found,
-            .immutable_mutation,
-            .type_not_found,
-            .value_not_assigned,
-            => |name| {
-                writer.printf(" with name {s}", .{name});
-            },
-
-            .too_many_locals,
-            => {},
+    inline for (@typeInfo(@TypeOf(value)).Union.fields) |field| {
+        if (std.mem.eql(u8, field.name, @tagName(value))) {
+            reportValue(@field(value, field.name), writer);
         }
-
-        writer.print(".\n");
     }
+
+    writer.print(" }");
 }
 
-pub fn reportCompilerDiags(
-    diags: *const Compiler.Diags,
-    writer: *const Writer,
-) void {
-    for (diags.getEntries()) |entry| {
-        writer.printf(
-            "'{s}' on line {}\n",
-            .{ @tagName(entry.kind), entry.position.line },
-        );
-    }
+pub fn reportEnum(value: anytype, writer: *const Writer) void {
+    writer.printf("{s}.{s}", .{ meta.typeName(@TypeOf(value)), @tagName(value) });
 }
 
-pub fn reportVmDiags(
-    diags: *const Vm.Diags,
-    writer: *const Writer,
-) void {
-    for (diags.getEntries()) |entry| {
-        writer.printf(
-            "'{s}' on line {}\n",
-            .{ @tagName(entry.kind), entry.position.line },
-        );
-    }
-}
+pub fn reportArrayList(value: anytype, writer: *const Writer) void {
+    writer.print("[");
 
-pub fn reportSemaType(
-    sema_type: SemaType,
-    writer: *const Writer,
-) void {
-    writer.printf("{s}", .{@tagName(sema_type)});
+    for (value.items, 0..) |item, index| {
+        reportValue(item, writer);
 
-    switch (sema_type) {
-        .unit,
-        .int,
-        .float,
-        .bool,
-        .string,
-        .invalid,
-        => {},
+        if (index != value.items.len - 1) {
+            writer.print(", ");
+        }
     }
+
+    writer.print("]");
 }
