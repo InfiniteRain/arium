@@ -29,18 +29,15 @@ pub const ParsedExpr = struct {
                 literal_kind: Literal.Kind,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .literal = .{
                             .kind = literal_kind,
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
 
@@ -74,20 +71,17 @@ pub const ParsedExpr = struct {
                 right: *Self,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .binary = .{
                             .left = left,
                             .kind = kind,
                             .right = right,
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
 
@@ -106,19 +100,16 @@ pub const ParsedExpr = struct {
                 right: *Self,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .unary = .{
                             .kind = kind,
                             .right = right,
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
 
@@ -132,19 +123,16 @@ pub const ParsedExpr = struct {
                 ends_with_semicolon: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .block = .{
                             .stmts = stmts,
                             .ends_with_semicolon = ends_with_semicolon,
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
 
@@ -156,18 +144,15 @@ pub const ParsedExpr = struct {
                 name: []const u8,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .variable = .{
                             .name = try allocator.dupe(u8, name),
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
 
@@ -181,19 +166,16 @@ pub const ParsedExpr = struct {
                 right: *ParsedExpr,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .assignment = .{
                             .name = try allocator.dupe(u8, name),
                             .right = right,
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
 
@@ -209,20 +191,17 @@ pub const ParsedExpr = struct {
                 else_block: ?*ParsedExpr,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .@"if" = .{
                             .condition = condition,
                             .then_block = then_block,
                             .else_block = else_block,
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
 
@@ -236,21 +215,33 @@ pub const ParsedExpr = struct {
                 body_block: *ParsedExpr,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .@"for" = .{
                             .condition = condition,
                             .body_block = body_block,
                         },
                     },
-                    .position = position,
-                };
-
-                return expr;
+                    position,
+                );
             }
         };
+
+        fn createExpr(
+            allocator: Allocator,
+            kind: Kind,
+            position: Position,
+        ) Error!*Self {
+            const expr = try allocator.create(Self);
+
+            expr.* = .{
+                .kind = kind,
+                .position = position,
+            };
+
+            return expr;
+        }
 
         literal: Literal,
         binary: Binary,
@@ -280,18 +271,15 @@ pub const ParsedStmt = struct {
                 expr: *ParsedExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .assert = .{
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
 
@@ -303,18 +291,15 @@ pub const ParsedStmt = struct {
                 expr: *ParsedExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .print = .{
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
 
@@ -326,18 +311,15 @@ pub const ParsedStmt = struct {
                 expr: *ParsedExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .expr = .{
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
 
@@ -355,10 +337,9 @@ pub const ParsedStmt = struct {
                 expr: ?*ParsedExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .let = .{
                             .is_mutable = is_mutable,
                             .name = try allocator.dupe(u8, name),
@@ -366,12 +347,25 @@ pub const ParsedStmt = struct {
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
+
+        fn createStmt(
+            allocator: Allocator,
+            kind: Kind,
+            position: Position,
+        ) Error!*Self {
+            const stmt = try allocator.create(Self);
+
+            stmt.* = .{
+                .kind = kind,
+                .position = position,
+            };
+
+            return stmt;
+        }
 
         print: Print,
         assert: Assert,
@@ -397,23 +391,35 @@ pub const ParsedType = struct {
                 name: []const u8,
                 position: Position,
             ) Error!*Self {
-                const parsed_type = try allocator.create(Self);
-
-                parsed_type.* = .{
-                    .kind = .{
+                return try createType(
+                    allocator,
+                    .{
                         .identifier = .{
                             .name = try allocator.dupe(u8, name),
                         },
                     },
-                    .position = position,
-                };
-
-                return parsed_type;
+                    position,
+                );
             }
         };
 
         identifier: Identifier,
     };
+
+    fn createType(
+        allocator: Allocator,
+        kind: Kind,
+        position: Position,
+    ) Error!*Self {
+        const parsed_type = try allocator.create(Self);
+
+        parsed_type.* = .{
+            .kind = kind,
+            .position = position,
+        };
+
+        return parsed_type;
+    }
 
     kind: Kind,
     position: Position,

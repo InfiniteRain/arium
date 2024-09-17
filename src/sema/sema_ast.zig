@@ -26,22 +26,19 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{ .literal = literal },
-                    .sema_type = switch (literal) {
+                return try createExpr(
+                    allocator,
+                    .{ .literal = literal },
+                    switch (literal) {
                         .unit => .unit,
                         .int => .int,
                         .float => .float,
                         .bool => .bool,
                         .string => .string,
                     },
-                    .evals = evals,
-                    .position = position,
-                };
-
-                return expr;
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -93,22 +90,19 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .binary = .{
                             .kind = kind,
                             .left = left,
                             .right = right,
                         },
                     },
-                    .sema_type = sema_type,
-                    .evals = evals,
-                    .position = position,
-                };
-
-                return expr;
+                    sema_type,
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -130,21 +124,18 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .unary = .{
                             .kind = kind,
                             .right = right,
                         },
                     },
-                    .sema_type = sema_type,
-                    .evals = evals,
-                    .position = position,
-                };
-
-                return expr;
+                    sema_type,
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -158,20 +149,17 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .block = .{
                             .stmts = stmts,
                         },
                     },
-                    .sema_type = sema_type,
-                    .evals = evals,
-                    .position = position,
-                };
-
-                return expr;
+                    sema_type,
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -185,20 +173,17 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .variable = .{
                             .index = index,
                         },
                     },
-                    .position = position,
-                    .evals = evals,
-                    .sema_type = sema_type,
-                };
-
-                return expr;
+                    sema_type,
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -213,21 +198,18 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .assignment = .{
                             .index = index,
                             .right = right,
                         },
                     },
-                    .position = position,
-                    .evals = evals,
-                    .sema_type = .unit,
-                };
-
-                return expr;
+                    .unit,
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -245,22 +227,19 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .@"if" = .{
                             .condition = condition,
                             .then_block = then_block,
                             .else_block = else_block,
                         },
                     },
-                    .position = position,
-                    .evals = evals,
-                    .sema_type = sema_type,
-                };
-
-                return expr;
+                    sema_type,
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -275,21 +254,18 @@ pub const SemaExpr = struct {
                 evals: bool,
                 position: Position,
             ) Error!*Self {
-                const expr = try allocator.create(Self);
-
-                expr.* = .{
-                    .kind = .{
+                return try createExpr(
+                    allocator,
+                    .{
                         .@"for" = .{
                             .condition = condition,
                             .body_block = body_block,
                         },
                     },
-                    .position = position,
-                    .evals = evals,
-                    .sema_type = .unit,
-                };
-
-                return expr;
+                    .unit,
+                    evals,
+                    position,
+                );
             }
         };
 
@@ -302,6 +278,25 @@ pub const SemaExpr = struct {
         @"if": If,
         @"for": For,
     };
+
+    fn createExpr(
+        allocator: Allocator,
+        kind: Kind,
+        sema_type: SemaType,
+        evals: bool,
+        position: Position,
+    ) Error!*Self {
+        const expr = try allocator.create(Self);
+
+        expr.* = .{
+            .kind = kind,
+            .sema_type = sema_type,
+            .evals = evals,
+            .position = position,
+        };
+
+        return expr;
+    }
 
     kind: Kind,
     sema_type: SemaType,
@@ -323,18 +318,15 @@ pub const SemaStmt = struct {
                 expr: *SemaExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .assert = .{
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
 
@@ -346,18 +338,15 @@ pub const SemaStmt = struct {
                 expr: *SemaExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .print = .{
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
 
@@ -369,18 +358,15 @@ pub const SemaStmt = struct {
                 expr: *SemaExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .expr = .{
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
 
@@ -394,19 +380,16 @@ pub const SemaStmt = struct {
                 expr: ?*SemaExpr,
                 position: Position,
             ) Error!*Self {
-                const stmt = try allocator.create(Self);
-
-                stmt.* = .{
-                    .kind = .{
+                return try createStmt(
+                    allocator,
+                    .{
                         .let = .{
                             .index = index,
                             .expr = expr,
                         },
                     },
-                    .position = position,
-                };
-
-                return stmt;
+                    position,
+                );
             }
         };
 
@@ -415,6 +398,21 @@ pub const SemaStmt = struct {
         expr: Expr,
         let: Let,
     };
+
+    fn createStmt(
+        allocator: Allocator,
+        kind: Kind,
+        position: Position,
+    ) Error!*Self {
+        const stmt = try allocator.create(Self);
+
+        stmt.* = .{
+            .kind = kind,
+            .position = position,
+        };
+
+        return stmt;
+    }
 
     kind: Kind,
     position: Position,
