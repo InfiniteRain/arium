@@ -282,7 +282,6 @@ pub const Compiler = struct {
                 },
                 expr.position,
             ),
-            .invalid => @panic("invalid expr"),
         }
     }
 

@@ -18,7 +18,6 @@ pub const SemaExpr = struct {
             float: f64,
             bool: bool,
             string: []const u8,
-            invalid,
 
             // Takes ownership of heap data (string).
             pub fn create(
@@ -37,7 +36,6 @@ pub const SemaExpr = struct {
                         .float => .float,
                         .bool => .bool,
                         .string => .string,
-                        .invalid => .invalid,
                     },
                     .evals = evals,
                     .position = position,
@@ -431,6 +429,7 @@ pub const SemaType = enum {
     bool,
     string,
     invalid,
+    never,
 
     pub fn stringify(self: Self) []const u8 {
         return switch (self) {
@@ -440,6 +439,7 @@ pub const SemaType = enum {
             .bool => "Bool",
             .string => "String",
             .invalid => "Invalid",
+            .never => "Never",
         };
     }
 };

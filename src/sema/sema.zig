@@ -217,7 +217,7 @@ pub const Sema = struct {
         else
             null;
 
-        if (let.expr == null) {
+        const parsed_expr = let.expr orelse {
             const index = try self.declareVariable(
                 let.is_mutable,
                 false,
@@ -231,15 +231,18 @@ pub const Sema = struct {
                 null,
                 position,
             );
-        }
+        };
 
-        const expr = self.analyzeExpr(let.expr.?, true) catch |err| switch (err) {
-            error.SemaFailure => try SemaExpr.Kind.Literal.create(
-                self.allocator,
-                .invalid,
-                true,
-                position,
-            ),
+        const expr = self.analyzeExpr(parsed_expr, true) catch |err| switch (err) {
+            error.SemaFailure => {
+                _ = try self.declareVariable(
+                    let.is_mutable,
+                    true,
+                    let.name,
+                    .invalid,
+                );
+                return error.SemaFailure;
+            },
             error.OutOfMemory => return error.OutOfMemory,
         };
 
@@ -576,25 +579,16 @@ pub const Sema = struct {
                 evals;
 
             const sema_stmt = self.analyzeStmt(parser_stmt, should_eval) catch |err| switch (err) {
-                error.SemaFailure => try SemaStmt.Kind.Expr.create(
-                    self.allocator,
-                    try SemaExpr.Kind.Literal.create(
-                        self.allocator,
-                        .invalid,
-                        should_eval,
-                        parser_stmt.position,
-                    ),
-                    parser_stmt.position,
-                ),
+                error.SemaFailure => continue,
                 error.OutOfMemory => return error.OutOfMemory,
             };
 
             try sema_stmts.append(sema_stmt);
         }
 
-        if (block.stmts.items.len == 0 or
-            block.ends_with_semicolon or
-            block.stmts.getLast().kind != .expr)
+        if (sema_stmts.items.len == 0 or
+            sema_stmts.getLast().kind != .expr or
+            block.ends_with_semicolon)
         {
             try sema_stmts.append(try self.unitStmt(position, evals));
         }
@@ -920,6 +914,10 @@ pub const Sema = struct {
             return true;
         }
 
+        if (sema_type == .never) {
+            return true;
+        }
+
         return sema_type == target;
     }
 
@@ -1038,6 +1036,7 @@ pub const Sema = struct {
 
             .unit,
             .invalid,
+            .never,
             => unreachable,
         };
     }
@@ -1071,6 +1070,7 @@ pub const Sema = struct {
 
             .string,
             .unit,
+            .never,
             .invalid,
             => unreachable,
         };
