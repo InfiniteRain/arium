@@ -1,0 +1,11 @@
+/// run
+
+let mut variable = 0
+
+for do
+  variable = break
+end
+
+//for do
+  //print(break)
+//0end

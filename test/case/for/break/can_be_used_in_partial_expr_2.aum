@@ -1,0 +1,24 @@
+/// run
+
+let mut i = 0
+
+for i < 10 do
+  print(
+    i + (
+      i + if i >= 5 then 
+        break
+        print("hello world")
+      else 
+        5
+      end
+    )
+  )
+
+  i = i + 1
+end
+
+/// out 5
+/// out 7
+/// out 9
+/// out 11
+/// out 13

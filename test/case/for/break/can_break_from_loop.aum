@@ -1,0 +1,6 @@
+/// run
+
+for do
+  print("hello, world") /// out hello, world
+  break
+end

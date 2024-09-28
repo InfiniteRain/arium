@@ -1,0 +1,9 @@
+/// sema
+
+break /// err_sema 3 break_outside_loop
+
+for do
+  break
+end
+
+break /// err_sema 9 break_outside_loop
