@@ -316,17 +316,15 @@ pub fn printIndentAux(
         printIndentAux(prev.*, writer, false, false);
     }
 
-    // zig fmt: off
     writer.print(
         if (indent.is_last)
             if (is_last and !no_connect)
                 "└─"
             else
                 "  "
-        else 
-            if (is_last and !no_connect)
-                "├─"
-            else
-                "│ ");
-    // zig fmt: on
+        else if (is_last and !no_connect)
+            "├─"
+        else
+            "│ ",
+    );
 }

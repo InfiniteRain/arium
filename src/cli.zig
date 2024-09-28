@@ -132,7 +132,12 @@ fn runFile(
     var compiler_diags = Compiler.Diags.init(allocator);
     defer compiler_diags.deinit();
 
-    Compiler.compile(&memory, sema_block, &compiler_diags) catch |err| switch (err) {
+    Compiler.compile(
+        &memory,
+        &arena_allocator,
+        sema_block,
+        &compiler_diags,
+    ) catch |err| switch (err) {
         error.CompileFailure => {
             error_reporter.reportCompilerDiags(&compiler_diags, err_writer);
             std.posix.exit(65);

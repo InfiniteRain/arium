@@ -204,6 +204,9 @@ pub fn reportSemaDiag(
 
         .break_outside_loop,
         => writer.print("Cannot use break outside of a loop."),
+
+        .continue_outside_loop,
+        => writer.print("Cannot use continue outside of a loop."),
     }
 }
 

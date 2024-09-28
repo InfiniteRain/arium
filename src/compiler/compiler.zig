@@ -11,6 +11,7 @@ const tokenizer_mod = @import("../parser/tokenizer.zig");
 
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const BoundedArray = std.BoundedArray;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
@@ -63,7 +64,7 @@ pub const Compiler = struct {
         conditional_blocks: ?struct {
             then: *SemaExpr,
             @"else": ?*SemaExpr = null,
-            loop_start: ?usize = null,
+            is_loop: bool = false,
         } = null,
     };
 
@@ -73,9 +74,11 @@ pub const Compiler = struct {
     chunk: Chunk,
     diags: ?*Diags,
     break_jumps: *ArrayList(usize),
+    loop_start: usize,
 
     pub fn compile(
         memory: *ManagedMemory,
+        arena_allocator: *ArenaAllocator,
         block: *const SemaExpr,
         diags: ?*Diags,
     ) Error!void {
@@ -90,10 +93,11 @@ pub const Compiler = struct {
         var compiler = Self{
             .vm_state = &vm_state,
             .managed_allocator = managed_allocator,
-            .unmanaged_allocator = memory.backing_allocator,
+            .unmanaged_allocator = arena_allocator.allocator(),
             .chunk = try Chunk.init(managed_allocator),
             .diags = diags,
             .break_jumps = undefined,
+            .loop_start = undefined,
         };
 
         errdefer {
@@ -222,6 +226,7 @@ pub const Compiler = struct {
             .@"if" => |*@"if"| try self.compileIfExpr(@"if"),
             .@"for" => |*@"for"| try self.compileForExpr(@"for", expr),
             .@"break" => |*@"break"| try self.compileBreakExpr(@"break", expr),
+            .@"continue" => |*@"continue"| try self.compileContinueExpr(@"continue", expr),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
@@ -551,21 +556,24 @@ pub const Compiler = struct {
         expr: *const SemaExpr,
     ) Error!void {
         const last_break_jumps = self.break_jumps;
+        const last_loop_start = self.loop_start;
 
         var current_break_jumps = ArrayList(usize).init(self.unmanaged_allocator);
         defer current_break_jumps.clearAndFree();
 
         self.break_jumps = &current_break_jumps;
+        self.loop_start = self.chunk.code.items.len;
 
         try self.compileExpr(@"for".condition, null, .{
             .conditional_blocks = .{
                 .then = @"for".body_block,
-                .loop_start = self.chunk.code.items.len,
+                .is_loop = true,
             },
         });
 
         try self.patchJumps(current_break_jumps);
 
+        self.loop_start = last_loop_start;
         self.break_jumps = last_break_jumps;
 
         if (expr.evals) {
@@ -584,6 +592,18 @@ pub const Compiler = struct {
 
         const offset = try self.writeJump(.jump, expr.position);
         try self.break_jumps.append(offset);
+    }
+
+    fn compileContinueExpr(
+        self: *Self,
+        @"continue": *const SemaExpr.Kind.Continue,
+        expr: *const SemaExpr,
+    ) Error!void {
+        for (0..@"continue".pops) |_| {
+            _ = try self.writeU8(.pop, expr.position);
+        }
+
+        try self.writeNegativeJump(self.loop_start, expr.position);
     }
 
     fn compileCondition(
@@ -624,8 +644,8 @@ pub const Compiler = struct {
         if (ctx.conditional_blocks != null and
             ctx.conditional_blocks.?.@"else" == null)
         {
-            if (ctx.conditional_blocks.?.loop_start) |loop_start| {
-                try self.writeNegativeJump(loop_start, position);
+            if (ctx.conditional_blocks.?.is_loop) {
+                try self.writeNegativeJump(self.loop_start, position);
             }
 
             try self.patchJumps(else_offset);

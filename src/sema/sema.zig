@@ -58,6 +58,7 @@ pub const Sema = struct {
             value_not_assigned: []const u8,
             unexpected_else_type: SemaTypeTuple,
             break_outside_loop,
+            continue_outside_loop,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
@@ -81,6 +82,7 @@ pub const Sema = struct {
                 .unexpected_assignment_type,
                 .unexpected_else_type,
                 .break_outside_loop,
+                .continue_outside_loop,
                 => {},
             }
         }
@@ -310,6 +312,7 @@ pub const Sema = struct {
             .@"if" => |*@"if"| try self.analyzeIfExpr(@"if", expr.position, evals),
             .@"for" => |*@"for"| try self.analyzeForExpr(@"for", expr.position, evals),
             .@"break" => try self.analyzeBreakExpr(expr.position, evals),
+            .@"continue" => try self.analyzeContinueExpr(expr.position, evals),
         };
 
         return sema_expr;
@@ -718,15 +721,15 @@ pub const Sema = struct {
 
         const then_block = try self.analyzeExpr(@"if".then_block, evals);
 
-        var else_block: ?*SemaExpr = null;
+        var else_block_opt: ?*SemaExpr = null;
 
         if (@"if".else_block) |block| {
-            else_block = try self.analyzeExpr(block, evals);
+            else_block_opt = try self.analyzeExpr(block, evals);
         } else if (evals) {
             var else_block_stmts = ArrayList(*SemaStmt).init(self.allocator);
             try else_block_stmts.append(try self.unitStmt(position, evals));
 
-            else_block = try SemaExpr.Kind.Block.create(
+            else_block_opt = try SemaExpr.Kind.Block.create(
                 self.allocator,
                 else_block_stmts,
                 .unit,
@@ -737,14 +740,14 @@ pub const Sema = struct {
 
         if (evals and
             then_block.sema_type != .never and
-            !typeSatisfies(else_block.?.sema_type, then_block.sema_type))
+            !typeSatisfies(else_block_opt.?.sema_type, then_block.sema_type))
         {
             return self.semaFailure(
-                else_block.?.position,
+                else_block_opt.?.position,
                 .{
                     .unexpected_else_type = .{
                         then_block.sema_type,
-                        else_block.?.sema_type,
+                        else_block_opt.?.sema_type,
                     },
                 },
             );
@@ -754,11 +757,14 @@ pub const Sema = struct {
             self.allocator,
             condition,
             then_block,
-            else_block,
-            if (then_block.sema_type == .never)
-                else_block.?.sema_type
+            else_block_opt,
+            if (else_block_opt) |else_block|
+                if (then_block.sema_type == .never)
+                    else_block.sema_type
+                else
+                    then_block.sema_type
             else
-                then_block.sema_type,
+                .unit,
             evals,
             position,
         );
@@ -848,6 +854,26 @@ pub const Sema = struct {
         }
 
         return try SemaExpr.Kind.Break.create(
+            self.allocator,
+            self.pops,
+            evals,
+            position,
+        );
+    }
+
+    fn analyzeContinueExpr(
+        self: *Self,
+        position: Position,
+        evals: bool,
+    ) Error!*SemaExpr {
+        if (!self.is_in_loop) {
+            return self.semaFailure(
+                position,
+                .continue_outside_loop,
+            );
+        }
+
+        return try SemaExpr.Kind.Continue.create(
             self.allocator,
             self.pops,
             evals,

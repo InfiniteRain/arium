@@ -237,6 +237,15 @@ pub const ParsedExpr = struct {
             }
         };
 
+        pub const Continue = struct {
+            pub fn create(
+                allocator: Allocator,
+                position: Position,
+            ) Error!*Self {
+                return try createExpr(allocator, .@"continue", position);
+            }
+        };
+
         fn createExpr(
             allocator: Allocator,
             kind: Kind,
@@ -261,6 +270,7 @@ pub const ParsedExpr = struct {
         @"if": If,
         @"for": For,
         @"break": Break,
+        @"continue": Continue,
     };
 
     kind: Kind,

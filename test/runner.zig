@@ -274,7 +274,12 @@ pub const Runner = struct {
             // diags are owned by the test runner, not the tests.
             var compiler_diags = Compiler.Diags.init(self.allocator);
 
-            Compiler.compile(&memory, sema_block, &compiler_diags) catch |err| switch (err) {
+            Compiler.compile(
+                &memory,
+                &arena_allocator,
+                sema_block,
+                &compiler_diags,
+            ) catch |err| switch (err) {
                 error.CompileFailure => {
                     if (config.expectations.err_compiler.getLen() > 0) {
                         actual.err_compiler = compiler_diags;

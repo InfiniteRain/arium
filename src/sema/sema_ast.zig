@@ -292,6 +292,29 @@ pub const SemaExpr = struct {
             }
         };
 
+        pub const Continue = struct {
+            pops: usize,
+
+            pub fn create(
+                allocator: Allocator,
+                pops: usize,
+                evals: bool,
+                position: Position,
+            ) Error!*Self {
+                return try createExpr(
+                    allocator,
+                    .{
+                        .@"continue" = .{
+                            .pops = pops,
+                        },
+                    },
+                    .never,
+                    evals,
+                    position,
+                );
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
@@ -301,6 +324,7 @@ pub const SemaExpr = struct {
         @"if": If,
         @"for": For,
         @"break": Break,
+        @"continue": Continue,
     };
 
     fn createExpr(
