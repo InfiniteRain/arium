@@ -228,7 +228,7 @@ test "writeByte works for all supported types" {
     // WHEN
     try chunk.writeU8(0, .{ .line = 1, .column = 1 });
     try chunk.writeU8(@as(u8, 1), .{ .line = 2, .column = 2 });
-    try chunk.writeU8(.return_, .{ .line = 3, .column = 3 });
+    try chunk.writeU8(.@"return", .{ .line = 3, .column = 3 });
     try chunk.writeU8(.pop, .{ .line = 4, .column = 4 });
 
     // THEN
@@ -253,8 +253,8 @@ test "writeConstant should work" {
     defer chunk.deinit();
 
     // WHEN
-    try chunk.writeConstant(.{ .int = 10 }, .{ .line = 1, .column = 1 });
-    try chunk.writeConstant(.{ .int = 20 }, .{ .line = 2, .column = 2 });
+    _ = try chunk.writeConstant(.{ .int = 10 }, .{ .line = 1, .column = 1 });
+    _ = try chunk.writeConstant(.{ .int = 20 }, .{ .line = 2, .column = 2 });
 
     // THEN
     try expect(chunk.constants.items.len == 2);
