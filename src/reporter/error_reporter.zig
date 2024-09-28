@@ -81,7 +81,7 @@ pub fn reportParserDiag(
         => |token_kind| {
             writer.print("Expected ");
             reportParserDiagTokenQuoted(token_kind, writer);
-            writer.print(" after the if condition.");
+            writer.print(" after the condition.");
         },
     }
 }

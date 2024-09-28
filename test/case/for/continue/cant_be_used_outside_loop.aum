@@ -1,0 +1,11 @@
+/// sema
+
+continue /// err_sema 3 continue_outside_loop
+
+for do
+  if false then
+    continue
+  end
+end
+
+continue /// err_sema 11 continue_outside_loop

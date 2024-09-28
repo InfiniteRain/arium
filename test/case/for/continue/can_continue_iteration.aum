@@ -1,0 +1,22 @@
+/// run
+
+let mut i = 0
+
+for i < 10 do
+  i = i + 1
+  
+  if i > 3 and i < 6 then
+    continue
+  end
+
+  print(i)
+end
+
+/// out 1
+/// out 2
+/// out 3
+/// out 6
+/// out 7
+/// out 8
+/// out 9
+/// out 10
