@@ -6,7 +6,6 @@ const sema_ast_mod = @import("../sema/sema_ast.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const obj_mod = @import("../state/obj.zig");
-const hash_table_mod = @import("../state/hash_table.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 
 const mem = std.mem;
@@ -14,6 +13,7 @@ const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const BoundedArray = std.BoundedArray;
 const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
 const assert = std.debug.assert;
 const meta = shared.meta;
 const SharedDiags = shared.Diags;
@@ -26,7 +26,6 @@ const SemaStmt = sema_ast_mod.SemaStmt;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
 const Obj = obj_mod.Obj;
-const HashTable = hash_table_mod.HashTable;
 const Position = tokenizer_mod.Position;
 
 pub const Compiler = struct {
@@ -87,7 +86,7 @@ pub const Compiler = struct {
         var vm_state: VmState = undefined;
 
         vm_state.objs = null;
-        vm_state.strings = try HashTable.init(managed_allocator);
+        vm_state.strings = StringHashMap(*Obj.String).init(managed_allocator);
         vm_state.stack = try Stack.init(managed_allocator);
 
         var compiler = Self{

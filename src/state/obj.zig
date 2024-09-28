@@ -18,20 +18,17 @@ pub const Obj = struct {
     pub const String = struct {
         obj: Self,
         chars: []u8,
-        hash: u32,
 
         fn create(
             allocator: Allocator,
             vm_state: *VmState,
             owned_buf: []u8,
-            content_hash: u32,
         ) Error!*String {
             const string_obj = (try Self.create(String, allocator, vm_state)).as(String);
             string_obj.chars = owned_buf;
-            string_obj.hash = content_hash;
 
             vm_state.stack.push(.{ .obj = &string_obj.obj });
-            _ = try vm_state.strings.set(string_obj, .unit);
+            _ = try vm_state.strings.put(owned_buf, string_obj);
             _ = vm_state.stack.pop();
 
             return string_obj;
@@ -42,15 +39,14 @@ pub const Obj = struct {
             vm_state: *VmState,
             owned_buf: []u8,
         ) Error!*String {
-            const content_hash = hash(owned_buf);
-            const interned_opt = vm_state.strings.findString(owned_buf, content_hash);
+            const interned_opt = vm_state.strings.get(owned_buf);
 
             if (interned_opt) |interned| {
                 allocator.free(owned_buf);
                 return interned;
             }
 
-            return try String.create(allocator, vm_state, owned_buf, content_hash);
+            return try String.create(allocator, vm_state, owned_buf);
         }
 
         pub fn createFromCopied(
@@ -58,8 +54,7 @@ pub const Obj = struct {
             vm_state: *VmState,
             buf: []const u8,
         ) Error!*String {
-            const content_hash = hash(buf);
-            const interned_opt = vm_state.strings.findString(buf, content_hash);
+            const interned_opt = vm_state.strings.get(buf);
 
             if (interned_opt) |interned| {
                 return interned;
@@ -68,18 +63,7 @@ pub const Obj = struct {
             const owned_buf = try allocator.alloc(u8, buf.len);
             @memcpy(owned_buf, buf);
 
-            return try String.create(allocator, vm_state, owned_buf, content_hash);
-        }
-
-        fn hash(buf: []const u8) u32 {
-            var current_hash: u32 = 2_166_136_261;
-
-            for (buf) |char| {
-                current_hash ^= char;
-                current_hash *%= 16_777_619;
-            }
-
-            return current_hash;
+            return try String.create(allocator, vm_state, owned_buf);
         }
     };
 

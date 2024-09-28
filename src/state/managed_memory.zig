@@ -3,17 +3,16 @@ const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const obj_mod = @import("obj.zig");
-const hash_table_mod = @import("hash_table.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 
 const Allocator = std.mem.Allocator;
+const StringHashMap = std.StringHashMap;
 const allocPrint = std.fmt.allocPrint;
 const expect = std.testing.expect;
 const Chunk = chunk_mod.Chunk;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
 const Obj = obj_mod.Obj;
-const HashTable = hash_table_mod.HashTable;
 const Position = tokenizer_mod.Position;
 
 pub const VmState = struct {
@@ -21,7 +20,10 @@ pub const VmState = struct {
     ip: [*]u8,
     stack: Stack,
     objs: ?*Obj,
-    strings: HashTable,
+    // todo: this will recalculate hash on removal. we can rewrite this to use
+    // a custom context that accepts a tuple of string and pre-calculated hash
+    // to avoid this issue
+    strings: StringHashMap(*Obj.String),
 };
 
 pub const ManagedMemory = struct {
