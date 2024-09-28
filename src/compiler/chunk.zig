@@ -93,8 +93,6 @@ pub const Chunk = struct {
     positions: ArrayList(Position), // todo: replace with RLE
     constants: ArrayList(Value),
     locals: []Value,
-    last_code_len: usize = 0,
-    current_op_code: OpCode = undefined,
 
     pub fn init(allocator: Allocator) Error!Self {
         return .{
@@ -113,20 +111,19 @@ pub const Chunk = struct {
         self.allocator.free(self.locals);
     }
 
-    pub fn writeU8(self: *Self, data: anytype, position: Position) Error!void {
-        const byte, const is_op_code = resolveU8(data);
-
-        if (is_op_code) {
-            self.last_code_len = self.code.items.len;
-            self.current_op_code = @enumFromInt(byte);
-        }
+    pub fn writeU8(
+        self: *Self,
+        data: anytype,
+        position: Position,
+    ) Error!void {
+        const byte = resolveU8(data);
 
         try self.code.append(byte);
         try self.positions.append(position);
     }
 
     pub fn updateU8(self: *Self, data: anytype, index: usize) Error!void {
-        self.code.items[index] = resolveU8(data)[0];
+        self.code.items[index] = resolveU8(data);
     }
 
     pub fn writeU16(self: *Self, data: u16, position: Position) Error!void {
@@ -162,7 +159,7 @@ pub const Chunk = struct {
         self: *Self,
         offset: usize,
         position: Position,
-    ) error{ OutOfMemory, JumpTooBig }!void {
+    ) error{ OutOfMemory, JumpTooBig }!OpCode {
         const jump = self.code.items.len - offset + 3;
 
         if (jump > math.maxInt(u16)) {
@@ -171,12 +168,15 @@ pub const Chunk = struct {
 
         try self.writeU8(.negative_jump, position);
         try self.writeU16(@intCast(jump), position);
+
+        return .negative_jump;
     }
 
-    pub fn writeConstant(self: *Self, value: Value, position: Position) error{
-        TooManyConstants,
-        OutOfMemory,
-    }!void {
+    pub fn writeConstant(
+        self: *Self,
+        value: Value,
+        position: Position,
+    ) error{ TooManyConstants, OutOfMemory }!OpCode {
         if (self.constants.items.len == limits.max_constants) {
             return error.TooManyConstants;
         }
@@ -186,17 +186,8 @@ pub const Chunk = struct {
         try self.constants.append(value);
         try self.writeU8(.constant, position);
         try self.writeU8(@as(u8, @intCast(index)), position);
-    }
 
-    pub fn eraseLast(self: *Self) error{OutOfMemory}!void {
-        assert(self.code.items.len != self.last_code_len); // called twice in a row
-
-        if (self.current_op_code == .constant) {
-            _ = self.constants.pop();
-        }
-
-        try self.code.resize(self.last_code_len);
-        try self.positions.resize(self.last_code_len);
+        return .constant;
     }
 
     pub fn readU8(self: *const Self, offset: usize) u8 {
@@ -209,7 +200,7 @@ pub const Chunk = struct {
         return (left << 8) | right;
     }
 
-    fn resolveU8(data: anytype) struct { u8, bool } {
+    fn resolveU8(data: anytype) u8 {
         const ByteType = @TypeOf(data);
 
         switch (ByteType) {
@@ -218,10 +209,10 @@ pub const Chunk = struct {
                     @compileError("expected valid OpCode");
                 }
 
-                return .{ @intFromEnum(@as(OpCode, data)), true };
+                return @intFromEnum(@as(OpCode, data));
             },
             comptime_int, u8 => {
-                return .{ data, false };
+                return data;
             },
             else => @compileError("expected byte to be of type OpCode or u8, found " ++ @typeName(ByteType)),
         }

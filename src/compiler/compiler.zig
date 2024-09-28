@@ -39,7 +39,6 @@ pub const Compiler = struct {
     pub const DiagEntry = struct {
         pub const Kind = enum {
             too_many_constants,
-            too_many_branch_jumps,
             jump_too_big,
         };
 
@@ -55,14 +54,12 @@ pub const Compiler = struct {
             is_inverted: bool,
         };
 
-        const BranchOffsets = BoundedArray(usize, 128);
-
         is_root: bool = false,
         is_child_to_logical: bool = false,
         is_current_logical_or: bool = false,
         last_jump: *?JumpInfo,
-        else_branch_offsets: *BranchOffsets,
-        then_branch_offsets: *BranchOffsets,
+        else_branch_offsets: *ArrayList(usize),
+        then_branch_offsets: *ArrayList(usize),
         conditional_blocks: ?struct {
             then: *SemaExpr,
             @"else": ?*SemaExpr = null,
@@ -75,26 +72,28 @@ pub const Compiler = struct {
     unmanaged_allocator: Allocator,
     chunk: Chunk,
     diags: ?*Diags,
+    break_jumps: *ArrayList(usize),
 
     pub fn compile(
         memory: *ManagedMemory,
         block: *const SemaExpr,
         diags: ?*Diags,
     ) Error!void {
-        const allocator = memory.allocator();
+        const managed_allocator = memory.allocator();
 
         var vm_state: VmState = undefined;
 
         vm_state.objs = null;
-        vm_state.strings = try HashTable.init(allocator);
-        vm_state.stack = try Stack.init(allocator);
+        vm_state.strings = try HashTable.init(managed_allocator);
+        vm_state.stack = try Stack.init(managed_allocator);
 
         var compiler = Self{
             .vm_state = &vm_state,
-            .managed_allocator = allocator,
+            .managed_allocator = managed_allocator,
             .unmanaged_allocator = memory.backing_allocator,
-            .chunk = try Chunk.init(allocator),
+            .chunk = try Chunk.init(managed_allocator),
             .diags = diags,
+            .break_jumps = undefined,
         };
 
         errdefer {
@@ -106,13 +105,13 @@ pub const Compiler = struct {
 
             while (current) |obj| {
                 const next = obj.next;
-                obj.destroy(allocator);
+                obj.destroy(managed_allocator);
                 current = next;
             }
         }
 
-        try compiler.compileExpr(block, null);
-        try compiler.chunk.writeU8(.@"return", .{ .line = 0, .column = 0 });
+        try compiler.compileExpr(block, null, null);
+        try compiler.writeU8(.@"return", .{ .line = 0, .column = 0 });
 
         vm_state.chunk = compiler.chunk;
         vm_state.ip = @ptrCast(&compiler.chunk.code.items[0]);
@@ -137,8 +136,8 @@ pub const Compiler = struct {
         assert_stmt: *const SemaStmt.Kind.Assert,
         position: Position,
     ) Error!void {
-        try self.compileExpr(assert_stmt.expr, null);
-        try self.chunk.writeU8(.assert, position);
+        try self.compileExpr(assert_stmt.expr, null, null);
+        try self.writeU8(.assert, position);
     }
 
     fn compilePrintStmt(
@@ -146,15 +145,15 @@ pub const Compiler = struct {
         print: *const SemaStmt.Kind.Print,
         position: Position,
     ) Error!void {
-        try self.compileExpr(print.expr, null);
-        try self.chunk.writeU8(.print, position);
+        try self.compileExpr(print.expr, null, null);
+        try self.writeU8(.print, position);
     }
 
     fn compileExprStmt(
         self: *Self,
         expr: *const SemaStmt.Kind.Expr,
     ) Error!void {
-        try self.compileExpr(expr.expr, null);
+        try self.compileExpr(expr.expr, null, null);
     }
 
     fn compileVariableMutation(
@@ -165,17 +164,17 @@ pub const Compiler = struct {
     ) Error!void {
         const index_u8: u8 = @intCast(index);
 
-        try self.compileExpr(expr, null);
+        try self.compileExpr(expr, null, null);
 
         switch (index_u8) {
-            0 => try self.chunk.writeU8(.store_local_0, position),
-            1 => try self.chunk.writeU8(.store_local_1, position),
-            2 => try self.chunk.writeU8(.store_local_2, position),
-            3 => try self.chunk.writeU8(.store_local_3, position),
-            4 => try self.chunk.writeU8(.store_local_4, position),
+            0 => try self.writeU8(.store_local_0, position),
+            1 => try self.writeU8(.store_local_1, position),
+            2 => try self.writeU8(.store_local_2, position),
+            3 => try self.writeU8(.store_local_3, position),
+            4 => try self.writeU8(.store_local_4, position),
             else => {
-                try self.chunk.writeU8(.store_local, position);
-                try self.chunk.writeU8(index_u8, position);
+                try self.writeU8(.store_local, position);
+                try self.writeU8(index_u8, position);
             },
         }
     }
@@ -184,22 +183,32 @@ pub const Compiler = struct {
         self: *Self,
         expr: *const SemaExpr,
         ctx_opt: ?ExprCtx,
+        ctx_override: anytype,
     ) Error!void {
         var is_branching = false;
         var last_jump: ?ExprCtx.JumpInfo = null;
-        var else_branch_offsets: ExprCtx.BranchOffsets = undefined;
-        var then_branch_offsets: ExprCtx.BranchOffsets = undefined;
-        const ctx = if (ctx_opt) |passed_ctx| passed_ctx else blk: {
-            else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
-            then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
+
+        var else_branch_offsets_opt: ?ArrayList(usize) = null;
+        defer if (else_branch_offsets_opt) |*branches| branches.clearAndFree();
+
+        var then_branch_offsets_opt: ?ArrayList(usize) = null;
+        defer if (then_branch_offsets_opt) |*branches| branches.clearAndFree();
+
+        var ctx = if (ctx_opt) |passed_ctx| passed_ctx else blk: {
+            else_branch_offsets_opt = ArrayList(usize).init(self.unmanaged_allocator);
+            then_branch_offsets_opt = ArrayList(usize).init(self.unmanaged_allocator);
 
             break :blk ExprCtx{
                 .is_root = true,
                 .last_jump = &last_jump,
-                .else_branch_offsets = &else_branch_offsets,
-                .then_branch_offsets = &then_branch_offsets,
+                .else_branch_offsets = &else_branch_offsets_opt.?,
+                .then_branch_offsets = &then_branch_offsets_opt.?,
             };
         };
+
+        if (@TypeOf(ctx_override) != @TypeOf(null)) {
+            ctx = meta.spread(ctx, ctx_override);
+        }
 
         switch (expr.kind) {
             .literal => |*literal| try self.compileLiteralExpr(literal, expr),
@@ -212,14 +221,15 @@ pub const Compiler = struct {
             .assignment => |*assignment| try self.compileAssignmentExpr(assignment, expr),
             .@"if" => |*@"if"| try self.compileIfExpr(@"if"),
             .@"for" => |*@"for"| try self.compileForExpr(@"for", expr),
+            .@"break" => |*@"break"| try self.compileBreakExpr(@"break", expr),
         }
 
         if (!is_branching and ctx.is_child_to_logical) {
             const cmp_op_code = .compare_bool;
             const if_op_code = .if_not_equal;
 
-            try self.chunk.writeU8(.constant_bool_true, expr.position);
-            const offset, const is_inverted = try self.branchOff(
+            try self.writeU8(.constant_bool_true, expr.position);
+            const offset, const is_inverted = try self.compileCondition(
                 cmp_op_code,
                 if_op_code,
                 expr.position,
@@ -227,11 +237,9 @@ pub const Compiler = struct {
             );
 
             if (is_inverted) {
-                ctx.then_branch_offsets.append(offset) catch
-                    return self.tooManyBranchJumps(offset);
+                try ctx.then_branch_offsets.append(offset);
             } else {
-                ctx.else_branch_offsets.append(offset) catch
-                    return self.tooManyBranchJumps(offset);
+                try ctx.else_branch_offsets.append(offset);
             }
         }
     }
@@ -246,31 +254,31 @@ pub const Compiler = struct {
         }
 
         switch (literal.*) {
-            .unit => try self.chunk.writeU8(.constant_unit, expr.position),
+            .unit => try self.writeU8(.constant_unit, expr.position),
             .int => |int| switch (int) {
-                -1 => try self.chunk.writeU8(.constant_int_n1, expr.position),
-                0 => try self.chunk.writeU8(.constant_int_0, expr.position),
-                1 => try self.chunk.writeU8(.constant_int_1, expr.position),
-                2 => try self.chunk.writeU8(.constant_int_2, expr.position),
-                3 => try self.chunk.writeU8(.constant_int_3, expr.position),
-                4 => try self.chunk.writeU8(.constant_int_4, expr.position),
-                5 => try self.chunk.writeU8(.constant_int_5, expr.position),
+                -1 => try self.writeU8(.constant_int_n1, expr.position),
+                0 => try self.writeU8(.constant_int_0, expr.position),
+                1 => try self.writeU8(.constant_int_1, expr.position),
+                2 => try self.writeU8(.constant_int_2, expr.position),
+                3 => try self.writeU8(.constant_int_3, expr.position),
+                4 => try self.writeU8(.constant_int_4, expr.position),
+                5 => try self.writeU8(.constant_int_5, expr.position),
                 else => try self.writeConstant(.{ .int = int }, expr.position),
             },
             .float => |float| {
                 if (float == 0) {
-                    try self.chunk.writeU8(.constant_float_0, expr.position);
+                    try self.writeU8(.constant_float_0, expr.position);
                 } else if (float == 1) {
-                    try self.chunk.writeU8(.constant_float_1, expr.position);
+                    try self.writeU8(.constant_float_1, expr.position);
                 } else if (float == 2) {
-                    try self.chunk.writeU8(.constant_float_2, expr.position);
+                    try self.writeU8(.constant_float_2, expr.position);
                 } else {
                     try self.writeConstant(.{ .float = float }, expr.position);
                 }
             },
             .bool => |bool_| switch (bool_) {
-                true => try self.chunk.writeU8(.constant_bool_true, expr.position),
-                false => try self.chunk.writeU8(.constant_bool_false, expr.position),
+                true => try self.writeU8(.constant_bool_true, expr.position),
+                false => try self.writeU8(.constant_bool_false, expr.position),
             },
             .string => |string| try self.writeConstant(
                 .{
@@ -336,7 +344,7 @@ pub const Compiler = struct {
         }
 
         if (!expr.evals) {
-            try self.chunk.writeU8(.pop, expr.position);
+            try self.writeU8(.pop, expr.position);
         }
     }
 
@@ -346,11 +354,11 @@ pub const Compiler = struct {
         position: Position,
         ctx: ExprCtx,
     ) Error!void {
-        try self.compileExpr(expr.left, null);
-        try self.compileExpr(expr.right, null);
+        try self.compileExpr(expr.left, null, null);
+        try self.compileExpr(expr.right, null, null);
 
         const cmp_op_code, const if_op_code = getComparisonOpCodes(expr);
-        const offset, const is_inverted = try self.branchOff(
+        const offset, const is_inverted = try self.compileCondition(
             cmp_op_code,
             if_op_code,
             position,
@@ -358,37 +366,11 @@ pub const Compiler = struct {
         );
 
         if (!ctx.is_child_to_logical) {
-            if (ctx.conditional_blocks) |blocks| {
-                try self.compileExpr(blocks.then, null);
-            } else {
-                try self.chunk.writeU8(.constant_bool_true, position);
-            }
-
-            if (ctx.conditional_blocks != null and ctx.conditional_blocks.?.@"else" == null) {
-                if (ctx.conditional_blocks.?.loop_start) |loop_start| {
-                    try self.writeNegativeJump(loop_start, position);
-                }
-
-                try self.patchJump(offset);
-                return;
-            }
-
-            const then_offset = try self.writeJump(.jump, position);
-            try self.patchJump(offset);
-
-            if (ctx.conditional_blocks) |blocks| {
-                try self.compileExpr(blocks.@"else".?, null);
-            } else {
-                try self.chunk.writeU8(.constant_bool_false, position);
-            }
-
-            try self.patchJump(then_offset);
+            try self.compileConditionalBranches(offset, position, ctx);
         } else if (is_inverted) {
-            ctx.then_branch_offsets.append(offset) catch
-                return self.tooManyBranchJumps(offset);
+            try ctx.then_branch_offsets.append(offset);
         } else {
-            ctx.else_branch_offsets.append(offset) catch
-                return self.tooManyBranchJumps(offset);
+            try ctx.else_branch_offsets.append(offset);
         }
     }
 
@@ -400,17 +382,21 @@ pub const Compiler = struct {
     ) Error!void {
         const is_current_logical_or = expr.kind == .@"or";
 
-        var new_else_branch_offsets: ExprCtx.BranchOffsets = undefined;
-        var new_then_branch_offsets: ExprCtx.BranchOffsets = undefined;
+        var new_else_branch_offsets_opt: ?ArrayList(usize) = null;
+        defer if (new_else_branch_offsets_opt) |*branches| branches.deinit();
+
+        var new_then_branch_offsets_opt: ?ArrayList(usize) = null;
+        defer if (new_then_branch_offsets_opt) |*branches| branches.deinit();
+
         var else_branch_offsets = ctx.else_branch_offsets;
         var then_branch_offsets = ctx.then_branch_offsets;
 
         if (expr.kind == .@"or") {
-            new_else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
-            else_branch_offsets = &new_else_branch_offsets;
+            new_else_branch_offsets_opt = ArrayList(usize).init(self.unmanaged_allocator);
+            else_branch_offsets = &new_else_branch_offsets_opt.?;
         } else {
-            new_then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
-            then_branch_offsets = &new_then_branch_offsets;
+            new_then_branch_offsets_opt = ArrayList(usize).init(self.unmanaged_allocator);
+            then_branch_offsets = &new_then_branch_offsets_opt.?;
         }
 
         const left_ctx = meta.spread(ctx, .{
@@ -421,7 +407,7 @@ pub const Compiler = struct {
             .then_branch_offsets = then_branch_offsets,
         });
 
-        try self.compileExpr(expr.left, left_ctx);
+        try self.compileExpr(expr.left, left_ctx, null);
 
         if (expr.kind == .@"or") {
             if (ctx.last_jump.* != null and !ctx.last_jump.*.?.is_inverted) {
@@ -437,12 +423,10 @@ pub const Compiler = struct {
             try self.patchJumps(then_branch_offsets);
         }
 
-        const right_ctx = meta.spread(left_ctx, .{
+        try self.compileExpr(expr.right, left_ctx, .{
             .else_branch_offsets = ctx.else_branch_offsets,
             .then_branch_offsets = ctx.then_branch_offsets,
         });
-
-        try self.compileExpr(expr.right, right_ctx);
 
         if (ctx.is_root) {
             // if the deepest branch condition was inverted, invert it back
@@ -452,32 +436,7 @@ pub const Compiler = struct {
             }
 
             try self.patchJumps(ctx.then_branch_offsets);
-
-            if (ctx.conditional_blocks) |blocks| {
-                try self.compileExpr(blocks.then, null);
-            } else {
-                try self.chunk.writeU8(.constant_bool_true, position);
-            }
-
-            if (ctx.conditional_blocks != null and ctx.conditional_blocks.?.@"else" == null) {
-                if (ctx.conditional_blocks.?.loop_start) |loop_start| {
-                    try self.writeNegativeJump(loop_start, position);
-                }
-
-                try self.patchJumps(ctx.else_branch_offsets);
-                return;
-            }
-
-            const then_offset = try self.writeJump(.jump, position);
-            try self.patchJumps(ctx.else_branch_offsets);
-
-            if (ctx.conditional_blocks) |blocks| {
-                try self.compileExpr(blocks.@"else".?, null);
-            } else {
-                try self.chunk.writeU8(.constant_bool_false, position);
-            }
-
-            try self.patchJump(then_offset);
+            try self.compileConditionalBranches(ctx.else_branch_offsets, position, ctx);
         }
     }
 
@@ -486,8 +445,8 @@ pub const Compiler = struct {
         expr: *const SemaExpr.Kind.Binary,
         position: Position,
     ) Error!void {
-        try self.compileExpr(expr.left, null);
-        try self.compileExpr(expr.right, null);
+        try self.compileExpr(expr.left, null, null);
+        try self.compileExpr(expr.right, null, null);
 
         const op_code: OpCode = switch (expr.kind) {
             .add_int => .add_int,
@@ -502,7 +461,7 @@ pub const Compiler = struct {
             else => unreachable,
         };
 
-        try self.chunk.writeU8(op_code, position);
+        try self.writeU8(op_code, position);
     }
 
     fn compileUnaryExpr(
@@ -510,8 +469,8 @@ pub const Compiler = struct {
         unary: *const SemaExpr.Kind.Unary,
         expr: *const SemaExpr,
     ) Error!void {
-        try self.compileExpr(unary.right, null);
-        try self.chunk.writeU8(
+        try self.compileExpr(unary.right, null, null);
+        try self.writeU8(
             switch (unary.kind) {
                 .negate_bool => OpCode.negate_bool,
                 .negate_int => OpCode.negate_int,
@@ -521,7 +480,7 @@ pub const Compiler = struct {
         );
 
         if (!expr.evals) {
-            try self.chunk.writeU8(.pop, expr.position);
+            try self.writeU8(.pop, expr.position);
         }
     }
 
@@ -546,14 +505,14 @@ pub const Compiler = struct {
         const index: u8 = @intCast(variable.index);
 
         switch (index) {
-            0 => try self.chunk.writeU8(.load_local_0, expr.position),
-            1 => try self.chunk.writeU8(.load_local_1, expr.position),
-            2 => try self.chunk.writeU8(.load_local_2, expr.position),
-            3 => try self.chunk.writeU8(.load_local_3, expr.position),
-            4 => try self.chunk.writeU8(.load_local_4, expr.position),
+            0 => try self.writeU8(.load_local_0, expr.position),
+            1 => try self.writeU8(.load_local_1, expr.position),
+            2 => try self.writeU8(.load_local_2, expr.position),
+            3 => try self.writeU8(.load_local_3, expr.position),
+            4 => try self.writeU8(.load_local_4, expr.position),
             else => {
-                try self.chunk.writeU8(.load_local, expr.position);
-                try self.chunk.writeU8(index, expr.position);
+                try self.writeU8(.load_local, expr.position);
+                try self.writeU8(index, expr.position);
             },
         }
     }
@@ -570,7 +529,7 @@ pub const Compiler = struct {
         );
 
         if (expr.evals) {
-            try self.chunk.writeU8(.constant_unit, expr.position);
+            try self.writeU8(.constant_unit, expr.position);
         }
     }
 
@@ -578,15 +537,7 @@ pub const Compiler = struct {
         self: *Self,
         @"if": *const SemaExpr.Kind.If,
     ) Error!void {
-        var last_jump: ?ExprCtx.JumpInfo = null;
-        var else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
-        var then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
-
-        try self.compileExpr(@"if".condition, .{
-            .is_root = true,
-            .last_jump = &last_jump,
-            .else_branch_offsets = &else_branch_offsets,
-            .then_branch_offsets = &then_branch_offsets,
+        try self.compileExpr(@"if".condition, null, .{
             .conditional_blocks = .{
                 .then = @"if".then_block,
                 .@"else" = @"if".else_block,
@@ -599,27 +550,43 @@ pub const Compiler = struct {
         @"for": *const SemaExpr.Kind.For,
         expr: *const SemaExpr,
     ) Error!void {
-        var last_jump: ?ExprCtx.JumpInfo = null;
-        var else_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
-        var then_branch_offsets = ExprCtx.BranchOffsets.init(0) catch unreachable;
+        const last_break_jumps = self.break_jumps;
 
-        try self.compileExpr(@"for".condition, .{
-            .is_root = true,
-            .last_jump = &last_jump,
-            .else_branch_offsets = &else_branch_offsets,
-            .then_branch_offsets = &then_branch_offsets,
+        var current_break_jumps = ArrayList(usize).init(self.unmanaged_allocator);
+        defer current_break_jumps.clearAndFree();
+
+        self.break_jumps = &current_break_jumps;
+
+        try self.compileExpr(@"for".condition, null, .{
             .conditional_blocks = .{
                 .then = @"for".body_block,
                 .loop_start = self.chunk.code.items.len,
             },
         });
 
+        try self.patchJumps(current_break_jumps);
+
+        self.break_jumps = last_break_jumps;
+
         if (expr.evals) {
-            try self.chunk.writeU8(.constant_unit, expr.position);
+            try self.writeU8(.constant_unit, expr.position);
         }
     }
 
-    fn branchOff(
+    fn compileBreakExpr(
+        self: *Self,
+        @"break": *const SemaExpr.Kind.Break,
+        expr: *const SemaExpr,
+    ) Error!void {
+        for (0..@"break".pops) |_| {
+            _ = try self.writeU8(.pop, expr.position);
+        }
+
+        const offset = try self.writeJump(.jump, expr.position);
+        try self.break_jumps.append(offset);
+    }
+
+    fn compileCondition(
         self: *Self,
         cmp_op_code: OpCode,
         if_op_code: OpCode,
@@ -631,11 +598,57 @@ pub const Compiler = struct {
             invertComparisonOpCode(if_op_code)
         else
             if_op_code;
-        try self.chunk.writeU8(cmp_op_code, position);
+        try self.writeU8(cmp_op_code, position);
         const offset = try self.writeJump(final_if_op_code, position);
         ctx.last_jump.* = .{ .index = offset - 1, .is_inverted = invert };
 
         return .{ offset, invert };
+    }
+
+    fn compileConditionalBranches(
+        self: *Self,
+        else_offset: anytype,
+        position: Position,
+        ctx: ExprCtx,
+    ) Error!void {
+        var then_evals_to_never = false;
+
+        if (ctx.conditional_blocks) |blocks| {
+            try self.compileExpr(blocks.then, null, null);
+
+            then_evals_to_never = blocks.then.sema_type == .never;
+        } else {
+            try self.writeU8(.constant_bool_true, position);
+        }
+
+        if (ctx.conditional_blocks != null and
+            ctx.conditional_blocks.?.@"else" == null)
+        {
+            if (ctx.conditional_blocks.?.loop_start) |loop_start| {
+                try self.writeNegativeJump(loop_start, position);
+            }
+
+            try self.patchJumps(else_offset);
+            return;
+        }
+
+        var then_offset: usize = undefined;
+
+        if (!then_evals_to_never) {
+            then_offset = try self.writeJump(.jump, position);
+        }
+
+        try self.patchJumps(else_offset);
+
+        if (ctx.conditional_blocks) |blocks| {
+            try self.compileExpr(blocks.@"else".?, null, null);
+        } else {
+            try self.writeU8(.constant_bool_false, position);
+        }
+
+        if (!then_evals_to_never) {
+            try self.patchJumps(then_offset);
+        }
     }
 
     fn invertComparisonOpCode(op_code: OpCode) OpCode {
@@ -693,32 +706,44 @@ pub const Compiler = struct {
 
         if (last_jump.is_inverted) {
             const offset = ctx.then_branch_offsets.pop();
-            ctx.else_branch_offsets.append(offset) catch
-                return self.tooManyBranchJumps(offset);
+            try ctx.else_branch_offsets.append(offset);
         } else {
             const offset = ctx.else_branch_offsets.pop();
-            ctx.then_branch_offsets.append(offset) catch
-                return self.tooManyBranchJumps(offset);
+            try ctx.then_branch_offsets.append(offset);
         }
+    }
+
+    fn writeU8(self: *Self, data: anytype, position: Position) Error!void {
+        try self.chunk.writeU8(data, position);
     }
 
     fn writeJump(self: *Self, op_code: OpCode, position: Position) Error!usize {
         return try self.chunk.writeJump(op_code, position);
     }
 
-    fn patchJumps(self: *Self, jumps: *ExprCtx.BranchOffsets) Error!void {
-        while (jumps.popOrNull()) |jump| {
-            try self.patchJump(jump);
-        }
-    }
+    fn patchJumps(self: *Self, arg: anytype) Error!void {
+        const Type = @TypeOf(arg);
+        const type_info = @typeInfo(Type);
+        const ChildType = if (type_info == .Pointer)
+            type_info.Pointer.child
+        else
+            Type;
 
-    fn patchJump(self: *Self, offset: usize) Error!void {
-        self.chunk.patchJump(offset) catch |err| switch (err) {
-            error.JumpTooBig => {
-                try self.addDiag(.jump_too_big, self.chunk.positions.items[offset]);
-                return error.CompileFailure;
-            },
-        };
+        const jumps = if (Type == usize)
+            [_]usize{arg}
+        else if (comptime meta.isArrayList(ChildType))
+            arg.items
+        else
+            arg.buffer[0..arg.len];
+
+        for (jumps) |jump| {
+            self.chunk.patchJump(jump) catch |err| switch (err) {
+                error.JumpTooBig => {
+                    try self.addDiag(.jump_too_big, self.chunk.positions.items[jump]);
+                    return error.CompileFailure;
+                },
+            };
+        }
     }
 
     fn writeNegativeJump(
@@ -726,7 +751,10 @@ pub const Compiler = struct {
         offset: usize,
         position: Position,
     ) Error!void {
-        self.chunk.writeNegativeJump(offset, position) catch |err| switch (err) {
+        _ = self.chunk.writeNegativeJump(
+            offset,
+            position,
+        ) catch |err| switch (err) {
             error.JumpTooBig => {
                 try self.addDiag(.jump_too_big, position);
                 return error.CompileFailure;
@@ -736,18 +764,16 @@ pub const Compiler = struct {
     }
 
     fn writeConstant(self: *Self, value: Value, position: Position) Error!void {
-        self.chunk.writeConstant(value, position) catch |err| switch (err) {
+        _ = self.chunk.writeConstant(
+            value,
+            position,
+        ) catch |err| switch (err) {
             error.TooManyConstants => {
                 try self.addDiag(.too_many_constants, position);
                 return error.CompileFailure;
             },
             error.OutOfMemory => return error.OutOfMemory,
         };
-    }
-
-    fn tooManyBranchJumps(self: *Self, offset: usize) Error {
-        try self.addDiag(.too_many_branch_jumps, self.chunk.positions.items[offset]);
-        return error.CompileFailure;
     }
 
     fn addDiag(

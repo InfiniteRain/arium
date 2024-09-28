@@ -97,41 +97,7 @@ pub fn reportParserDiagTokenQuoted(
         .then => writer.print("'then'"),
         .do => writer.print("'do'"),
 
-        .left_paren,
-        .right_paren,
-        .minus,
-        .plus,
-        .slash,
-        .star,
-        .plus_plus,
-        .bang_equal,
-        .equal,
-        .equal_equal,
-        .greater,
-        .greater_equal,
-        .less,
-        .less_equal,
-        .identifier,
-        .int,
-        .float,
-        .string,
-        .true,
-        .false,
-        .not,
-        .@"and",
-        .@"or",
-        .mut,
-        .let,
-        .assert,
-        .print,
-        .new_line,
-        .colon,
-        .semicolon,
-        .comment,
-        .invalid,
-        .@"if",
-        .@"for",
-        => @panic("token kind not implemented"),
+        else => @panic("token kind not implemented"),
     }
 }
 
@@ -235,6 +201,9 @@ pub fn reportSemaDiag(
             "Else branch is expected to be of type {s}, got {s}.",
             .{ sema_types[0].stringify(), sema_types[1].stringify() },
         ),
+
+        .break_outside_loop,
+        => writer.print("Cannot use break outside of a loop."),
     }
 }
 
@@ -258,9 +227,6 @@ pub fn reportCompilerDiag(
     });
 
     switch (diag.kind) {
-        .too_many_branch_jumps,
-        => writer.print("Too many branching jumps is required to be generated for this expression."),
-
         .jump_too_big,
         => writer.print("Required jump is too big."),
 

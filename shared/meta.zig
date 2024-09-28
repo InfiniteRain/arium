@@ -22,7 +22,10 @@ pub fn typeName(T: type) []const u8 {
 pub fn isArrayList(T: type) bool {
     const type_info = @typeInfo(T);
 
-    if (type_info != .Struct or !@hasDecl(T, "Slice")) {
+    if (type_info != .Struct or
+        !@hasDecl(T, "Slice") or
+        @typeInfo(T.Slice) != .Pointer)
+    {
         return false;
     }
 
@@ -48,4 +51,8 @@ pub fn typeInTuple(T: type, tuple: anytype) bool {
     }
 
     return false;
+}
+
+pub fn ReturnType(@"fn": anytype) type {
+    return @typeInfo(@TypeOf(@"fn")).Fn.return_type.?;
 }

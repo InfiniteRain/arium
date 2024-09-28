@@ -228,6 +228,15 @@ pub const ParsedExpr = struct {
             }
         };
 
+        pub const Break = struct {
+            pub fn create(
+                allocator: Allocator,
+                position: Position,
+            ) Error!*Self {
+                return try createExpr(allocator, .@"break", position);
+            }
+        };
+
         fn createExpr(
             allocator: Allocator,
             kind: Kind,
@@ -251,6 +260,7 @@ pub const ParsedExpr = struct {
         assignment: Assigment,
         @"if": If,
         @"for": For,
+        @"break": Break,
     };
 
     kind: Kind,

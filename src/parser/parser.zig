@@ -473,6 +473,10 @@ pub const Parser = struct {
             return try self.parseFor(token.position);
         }
 
+        if (self.match(.@"break", ignore_new_line)) |token| {
+            return try self.parseBreak(token.position);
+        }
+
         if (self.match(.invalid, ignore_new_line)) |token| {
             try self.addDiag(.{ .invalid_token = token.lexeme }, token.position);
         } else {
@@ -590,6 +594,13 @@ pub const Parser = struct {
             self.allocator,
             condition,
             body_block,
+            position,
+        );
+    }
+
+    fn parseBreak(self: *Self, position: Position) Error!*ParsedExpr {
+        return try ParsedExpr.Kind.Break.create(
+            self.allocator,
             position,
         );
     }

@@ -57,6 +57,7 @@ pub const Sema = struct {
             type_not_found: []const u8,
             value_not_assigned: []const u8,
             unexpected_else_type: SemaTypeTuple,
+            break_outside_loop,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
@@ -79,6 +80,7 @@ pub const Sema = struct {
                 .too_many_locals,
                 .unexpected_assignment_type,
                 .unexpected_else_type,
+                .break_outside_loop,
                 => {},
             }
         }
@@ -119,6 +121,7 @@ pub const Sema = struct {
     locals: ArrayList(Local) = undefined,
     current_scope: *Scope = undefined,
     is_in_loop: bool = false,
+    pops: usize = 0,
 
     pub fn init(allocator: *ArenaAllocator) Self {
         return .{
@@ -133,6 +136,7 @@ pub const Sema = struct {
     ) Error!*SemaExpr {
         self.diags = diags;
         self.had_error = false;
+        self.pops = 0;
 
         var current_scope = Scope.init(self.allocator, null);
         self.current_scope = &current_scope;
@@ -296,7 +300,7 @@ pub const Sema = struct {
         expr: *ParsedExpr,
         evals: bool,
     ) Error!*SemaExpr {
-        return switch (expr.kind) {
+        const sema_expr = switch (expr.kind) {
             .literal => |*literal| try self.analyzeLiteralExpr(literal, expr.position, evals),
             .binary => |*binary| try self.analyzeBinaryExpr(binary, expr.position, evals),
             .unary => |*unary| try self.analyzeUnaryExpr(unary, expr.position, evals),
@@ -305,7 +309,10 @@ pub const Sema = struct {
             .assignment => |*assignment| try self.analyzeAssignmentExpr(assignment, expr.position, evals),
             .@"if" => |*@"if"| try self.analyzeIfExpr(@"if", expr.position, evals),
             .@"for" => |*@"for"| try self.analyzeForExpr(@"for", expr.position, evals),
+            .@"break" => try self.analyzeBreakExpr(expr.position, evals),
         };
+
+        return sema_expr;
     }
 
     fn analyzeLiteralExpr(
@@ -319,11 +326,7 @@ pub const Sema = struct {
             .int => |int| .{ .int = int },
             .float => |float| .{ .float = float },
             .bool => |bool_| .{ .bool = bool_ },
-            .string => |string| blk: {
-                const duped_string = try self.allocator.dupe(u8, string);
-
-                break :blk .{ .string = duped_string };
-            },
+            .string => |string| .{ .string = try self.allocator.dupe(u8, string) },
         };
 
         return SemaExpr.Kind.Literal.create(
@@ -341,7 +344,12 @@ pub const Sema = struct {
         evals: bool,
     ) Error!*SemaExpr {
         const left = try self.analyzeExpr(binary.left, true);
+
+        self.pops += 1;
+
         const right = try self.analyzeExpr(binary.right, true);
+
+        self.pops -= 1;
 
         if (left.sema_type == .invalid or right.sema_type == .invalid) {
             return try SemaExpr.Kind.Binary.create(
@@ -570,6 +578,7 @@ pub const Sema = struct {
         self.current_scope = &scope;
 
         var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
+        var is_never = false;
 
         for (block.stmts.items, 0..) |parser_stmt, index| {
             const should_eval =
@@ -584,17 +593,24 @@ pub const Sema = struct {
             };
 
             try sema_stmts.append(sema_stmt);
+
+            if (isNeverStmt(sema_stmt)) {
+                is_never = true;
+                break;
+            }
         }
 
-        if (sema_stmts.items.len == 0 or
+        if (!is_never and (sema_stmts.items.len == 0 or
             sema_stmts.getLast().kind != .expr or
-            block.ends_with_semicolon)
+            block.ends_with_semicolon))
         {
             try sema_stmts.append(try self.unitStmt(position, evals));
         }
 
-        const last_stmt = sema_stmts.items[sema_stmts.items.len - 1];
-        const sema_type = last_stmt.kind.expr.expr.sema_type;
+        const sema_type = if (is_never)
+            .never
+        else
+            sema_stmts.getLast().kind.expr.expr.sema_type;
 
         self.current_scope = self.current_scope.prev.?;
 
@@ -701,6 +717,7 @@ pub const Sema = struct {
         }
 
         const then_block = try self.analyzeExpr(@"if".then_block, evals);
+
         var else_block: ?*SemaExpr = null;
 
         if (@"if".else_block) |block| {
@@ -718,10 +735,18 @@ pub const Sema = struct {
             );
         }
 
-        if (evals and !typeSatisfies(else_block.?.sema_type, then_block.sema_type)) {
+        if (evals and
+            then_block.sema_type != .never and
+            !typeSatisfies(else_block.?.sema_type, then_block.sema_type))
+        {
             return self.semaFailure(
                 else_block.?.position,
-                .{ .unexpected_else_type = .{ then_block.sema_type, else_block.?.sema_type } },
+                .{
+                    .unexpected_else_type = .{
+                        then_block.sema_type,
+                        else_block.?.sema_type,
+                    },
+                },
             );
         }
 
@@ -730,7 +755,10 @@ pub const Sema = struct {
             condition,
             then_block,
             else_block,
-            then_block.sema_type,
+            if (then_block.sema_type == .never)
+                else_block.?.sema_type
+            else
+                then_block.sema_type,
             evals,
             position,
         );
@@ -774,8 +802,8 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        const old_is_in_loop = self.is_in_loop;
-        self.is_in_loop = true;
+        const old_pops = self.pops;
+        self.pops = 0;
 
         const condition = try self.analyzeCondition(
             if (@"for".condition) |condition|
@@ -787,14 +815,41 @@ pub const Sema = struct {
                     position,
                 ),
         );
+
+        const old_is_in_loop = self.is_in_loop;
+
+        self.is_in_loop = true;
+
         const body_block = try self.analyzeExpr(@"for".body_block, false);
 
         self.is_in_loop = old_is_in_loop;
+
+        self.pops = old_pops;
 
         return try SemaExpr.Kind.For.create(
             self.allocator,
             condition,
             body_block,
+            evals,
+            position,
+        );
+    }
+
+    fn analyzeBreakExpr(
+        self: *Self,
+        position: Position,
+        evals: bool,
+    ) Error!*SemaExpr {
+        if (!self.is_in_loop) {
+            return self.semaFailure(
+                position,
+                .break_outside_loop,
+            );
+        }
+
+        return try SemaExpr.Kind.Break.create(
+            self.allocator,
+            self.pops,
             evals,
             position,
         );
@@ -957,6 +1012,15 @@ pub const Sema = struct {
             .divide_float,
             .concat,
             => false,
+        };
+    }
+
+    fn isNeverStmt(stmt: *const SemaStmt) bool {
+        return switch (stmt.kind) {
+            .assert => |assert| assert.expr.sema_type == .never,
+            .print => |print| print.expr.sema_type == .never,
+            .expr => |expr| expr.expr.sema_type == .never,
+            .let => |let| let.expr != null and let.expr.?.sema_type == .never,
         };
     }
 
