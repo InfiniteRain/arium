@@ -1,0 +1,9 @@
+/// run
+
+let mut variable = 0;
+
+print(
+  do
+    variable = 10
+  end
+) /// out unit

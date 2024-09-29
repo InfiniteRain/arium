@@ -346,11 +346,11 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        const left = try self.analyzeExpr(binary.left, true);
+        var left = try self.analyzeExpr(binary.left, true);
 
         self.pops += 1;
 
-        const right = try self.analyzeExpr(binary.right, true);
+        var right = try self.analyzeExpr(binary.right, true);
 
         self.pops -= 1;
 
@@ -388,7 +388,19 @@ pub const Sema = struct {
 
             .@"or",
             .@"and",
-            => try self.analyzeLogicalBinaryExpr(left, right, position),
+            => blk: {
+                const res = try self.analyzeLogicalBinaryExpr(left, right, position);
+
+                if (!isBranching(left)) {
+                    left = try self.wrapInBoolComparison(left);
+                }
+
+                if (!isBranching(right)) {
+                    right = try self.wrapInBoolComparison(right);
+                }
+
+                break :blk res;
+            },
         };
 
         return try SemaExpr.Kind.Binary.create(
@@ -786,20 +798,7 @@ pub const Sema = struct {
         return if (isBranching(condition))
             condition
         else
-            try SemaExpr.Kind.Binary.create(
-                self.allocator,
-                .equal_bool,
-                condition,
-                try SemaExpr.Kind.Literal.create(
-                    self.allocator,
-                    .{ .bool = true },
-                    true,
-                    condition.position,
-                ),
-                .bool,
-                true,
-                condition.position,
-            );
+            try self.wrapInBoolComparison(condition);
     }
 
     fn analyzeForExpr(
@@ -951,6 +950,23 @@ pub const Sema = struct {
                 position,
             ),
             position,
+        );
+    }
+
+    fn wrapInBoolComparison(self: *Self, expr: *SemaExpr) Error!*SemaExpr {
+        return try SemaExpr.Kind.Binary.create(
+            self.allocator,
+            .equal_bool,
+            expr,
+            try SemaExpr.Kind.Literal.create(
+                self.allocator,
+                .{ .bool = true },
+                true,
+                expr.position,
+            ),
+            .bool,
+            true,
+            expr.position,
         );
     }
 

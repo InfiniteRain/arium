@@ -188,7 +188,6 @@ pub const Compiler = struct {
         ctx_opt: ?ExprCtx,
         ctx_override: anytype,
     ) Error!void {
-        var is_branching = false;
         var last_jump: ?ExprCtx.JumpInfo = null;
 
         var else_branch_offsets_opt: ?ArrayList(usize) = null;
@@ -215,9 +214,7 @@ pub const Compiler = struct {
 
         switch (expr.kind) {
             .literal => |*literal| try self.compileLiteralExpr(literal, expr),
-            .binary => |*binary| {
-                is_branching = try self.compileBinaryExpr(binary, expr, ctx);
-            },
+            .binary => |*binary| try self.compileBinaryExpr(binary, expr, ctx),
             .unary => |*unary| try self.compileUnaryExpr(unary, expr),
             .block => |*block| try self.compileBlockExpr(block),
             .variable => |*variable| try self.compileVariableExpr(variable, expr),
@@ -226,25 +223,6 @@ pub const Compiler = struct {
             .@"for" => |*@"for"| try self.compileForExpr(@"for", expr),
             .@"break" => |*@"break"| try self.compileBreakExpr(@"break", expr),
             .@"continue" => |*@"continue"| try self.compileContinueExpr(@"continue", expr),
-        }
-
-        if (!is_branching and ctx.is_child_to_logical) {
-            const cmp_op_code = .compare_bool;
-            const if_op_code = .if_not_equal;
-
-            try self.writeU8(.constant_bool_true, expr.position);
-            const offset, const is_inverted = try self.compileCondition(
-                cmp_op_code,
-                if_op_code,
-                expr.position,
-                ctx,
-            );
-
-            if (is_inverted) {
-                try ctx.then_branch_offsets.append(offset);
-            } else {
-                try ctx.else_branch_offsets.append(offset);
-            }
         }
     }
 
@@ -302,7 +280,7 @@ pub const Compiler = struct {
         binary: *const SemaExpr.Kind.Binary,
         expr: *const SemaExpr,
         ctx: ExprCtx,
-    ) Error!bool {
+    ) Error!void {
         switch (binary.kind) {
             .add_int,
             .add_float,
@@ -313,10 +291,7 @@ pub const Compiler = struct {
             .divide_int,
             .divide_float,
             .concat,
-            => {
-                try self.compileArithmeticBinaryExpr(binary, expr.position);
-                return false;
-            },
+            => try self.compileArithmeticBinaryExpr(binary, expr.position),
 
             .equal_int,
             .equal_float,
@@ -334,17 +309,11 @@ pub const Compiler = struct {
             .less_float,
             .less_equal_int,
             .less_equal_float,
-            => {
-                try self.compileComparisonBinaryExpr(binary, expr.position, ctx);
-                return true;
-            },
+            => try self.compileComparisonBinaryExpr(binary, expr.position, ctx),
 
             .@"or",
             .@"and",
-            => {
-                try self.compileLogicalBinaryExpr(binary, expr.position, ctx);
-                return true;
-            },
+            => try self.compileLogicalBinaryExpr(binary, expr.position, ctx),
         }
 
         if (!expr.evals) {
@@ -359,7 +328,10 @@ pub const Compiler = struct {
         ctx: ExprCtx,
     ) Error!void {
         try self.compileExpr(expr.left, null, null);
-        try self.compileExpr(expr.right, null, null);
+
+        if (expr.right.kind != .literal or expr.right.kind.literal != .bool) {
+            try self.compileExpr(expr.right, null, null);
+        }
 
         const cmp_op_code, const if_op_code = getComparisonOpCodes(expr);
         const offset, const is_inverted = try self.compileCondition(
@@ -607,7 +579,7 @@ pub const Compiler = struct {
 
     fn compileCondition(
         self: *Self,
-        cmp_op_code: OpCode,
+        cmp_op_code_opt: ?OpCode,
         if_op_code: OpCode,
         position: Position,
         ctx: ExprCtx,
@@ -617,7 +589,11 @@ pub const Compiler = struct {
             invertComparisonOpCode(if_op_code)
         else
             if_op_code;
-        try self.writeU8(cmp_op_code, position);
+
+        if (cmp_op_code_opt) |cmp_op_code| {
+            try self.writeU8(cmp_op_code, position);
+        }
+
         const offset = try self.writeJump(final_if_op_code, position);
         ctx.last_jump.* = .{ .index = offset - 1, .is_inverted = invert };
 
@@ -678,17 +654,28 @@ pub const Compiler = struct {
             .if_greater_equal => .if_less,
             .if_less => .if_greater_equal,
             .if_less_equal => .if_greater,
+            .if_true => .if_false,
+            .if_false => .if_true,
             else => @panic("non-comparison opcode provided"),
         };
     }
 
     fn getComparisonOpCodes(
         expr: *const SemaExpr.Kind.Binary,
-    ) struct { OpCode, OpCode } {
-        const cmp_op_code: OpCode, const if_op_code: OpCode = switch (expr.kind) {
+    ) struct { ?OpCode, OpCode } {
+        return switch (expr.kind) {
             .equal_int => .{ .compare_int, .if_not_equal },
             .equal_float => .{ .compare_float, .if_not_equal },
-            .equal_bool => .{ .compare_bool, .if_not_equal },
+            .equal_bool =>
+            // zig fmt: off
+                if (expr.right.kind == .literal and expr.right.kind.literal == .bool)
+                    if (expr.right.kind.literal.bool)
+                        .{ null, .if_false }
+                    else
+                        .{ null, .if_true }
+                else
+                    .{ .compare_bool, .if_not_equal },
+            // zig fmt: on
             .equal_obj => .{ .compare_obj, .if_not_equal },
 
             .not_equal_int => .{ .compare_int, .if_equal },
@@ -710,8 +697,6 @@ pub const Compiler = struct {
 
             else => unreachable,
         };
-
-        return .{ cmp_op_code, if_op_code };
     }
 
     fn invertLastBranchJump(
