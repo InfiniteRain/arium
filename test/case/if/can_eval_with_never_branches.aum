@@ -1,0 +1,31 @@
+/// run
+
+for do
+  print(
+    if true then
+      break
+    else
+      12
+    end
+  )
+end
+
+for do
+  print(
+    if false then
+      12
+    else
+      break
+    end
+  )
+end
+
+for do
+  print(
+    if false then
+      break
+    else
+      break
+    end
+  )
+end
