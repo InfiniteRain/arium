@@ -116,9 +116,9 @@ pub fn reportErrParserMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected parser error(s).\nExpected:\n");
-    reportValue(mismatch.expected.entries, writer);
+    reportValue(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, writer);
+    reportValue(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportErrSemaMismatch(
@@ -126,9 +126,9 @@ pub fn reportErrSemaMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected sema error(s).\nExpected:\n");
-    reportValue(mismatch.expected.entries, writer);
+    reportValue(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, writer);
+    reportValue(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportErrCompilerMismatch(
@@ -136,9 +136,9 @@ pub fn reportErrCompilerMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected compiler error.\nExpected:\n");
-    reportValue(mismatch.expected.entries, writer);
+    reportValue(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, writer);
+    reportValue(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportErrVmMismatch(
@@ -146,9 +146,9 @@ pub fn reportErrVmMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected vm error.\nExpected:\n");
-    reportValue(mismatch.expected.entries, writer);
+    reportValue(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, writer);
+    reportValue(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportOutMismatch(
@@ -163,6 +163,7 @@ pub fn reportOutMismatch(
 
 pub fn reportValue(
     value: anytype,
+    indent: u8,
     writer: *const Writer,
 ) void {
     const Type = @TypeOf(value);
@@ -181,7 +182,7 @@ pub fn reportValue(
     }
 
     if (comptime meta.isArrayList(Type)) {
-        reportArrayList(value, writer);
+        reportArrayList(value, indent, writer);
         return;
     }
 
@@ -204,7 +205,7 @@ pub fn reportValue(
 
         .Union,
         => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
-            reportUnion(value, writer);
+            reportUnion(value, indent, writer);
         } else {
             @compileError(comptimePrint(
                 "union {s} isn't marked as reportable",
@@ -214,7 +215,7 @@ pub fn reportValue(
 
         .Struct,
         => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
-            reportStruct(value, writer);
+            reportStruct(value, indent, writer);
         } else {
             @compileError(comptimePrint(
                 "struct {s} isn't marked as reportable",
@@ -229,7 +230,7 @@ pub fn reportValue(
     }
 }
 
-pub fn reportStruct(value: anytype, writer: *const Writer) void {
+pub fn reportStruct(value: anytype, indent: u8, writer: *const Writer) void {
     const Type = @TypeOf(value);
     const type_info = @typeInfo(Type);
 
@@ -237,7 +238,7 @@ pub fn reportStruct(value: anytype, writer: *const Writer) void {
 
     inline for (type_info.Struct.fields, 0..) |field, index| {
         writer.printf(" .{s} = ", .{field.name});
-        reportValue(@field(value, field.name), writer);
+        reportValue(@field(value, field.name), indent, writer);
 
         if (index != type_info.Struct.fields.len - 1) {
             writer.print(",");
@@ -247,7 +248,7 @@ pub fn reportStruct(value: anytype, writer: *const Writer) void {
     writer.print(" }");
 }
 
-pub fn reportUnion(value: anytype, writer: *const Writer) void {
+pub fn reportUnion(value: anytype, indent: u8, writer: *const Writer) void {
     writer.printf(
         "{s}{{ .{s} = ",
         .{ meta.typeName(@TypeOf(value)), @tagName(value) },
@@ -255,7 +256,7 @@ pub fn reportUnion(value: anytype, writer: *const Writer) void {
 
     inline for (@typeInfo(@TypeOf(value)).Union.fields) |field| {
         if (std.mem.eql(u8, field.name, @tagName(value))) {
-            reportValue(@field(value, field.name), writer);
+            reportValue(@field(value, field.name), indent, writer);
         }
     }
 
@@ -266,16 +267,30 @@ pub fn reportEnum(value: anytype, writer: *const Writer) void {
     writer.printf("{s}.{s}", .{ meta.typeName(@TypeOf(value)), @tagName(value) });
 }
 
-pub fn reportArrayList(value: anytype, writer: *const Writer) void {
-    writer.print("[");
+pub fn reportArrayList(
+    value: anytype,
+    indent: u8,
+    writer: *const Writer,
+) void {
+    writeIndent(indent, writer);
+    writer.print("[\n");
 
     for (value.items, 0..) |item, index| {
-        reportValue(item, writer);
+        writeIndent(indent + 1, writer);
+        reportValue(item, indent, writer);
 
         if (index != value.items.len - 1) {
-            writer.print(", ");
+            writer.print(",");
         }
+        writer.print("\n");
     }
 
+    writeIndent(indent, writer);
     writer.print("]");
+}
+
+pub fn writeIndent(indent: u8, writer: *const Writer) void {
+    for (0..indent * 2) |_| {
+        writer.print(" ");
+    }
 }
