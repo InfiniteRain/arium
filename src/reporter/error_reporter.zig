@@ -207,6 +207,12 @@ pub fn reportSemaDiag(
 
         .continue_outside_loop,
         => writer.print("Cannot use continue outside of a loop."),
+
+        .unexpected_elseif_type,
+        => |sema_types| writer.printf(
+            "Else-if branch is expected to be of type {s}, got {s}.",
+            .{ sema_types[0].stringify(), sema_types[1].stringify() },
+        ),
     }
 }
 

@@ -180,14 +180,19 @@ pub const ParsedExpr = struct {
         };
 
         pub const If = struct {
-            condition: *ParsedExpr,
-            then_block: *ParsedExpr,
+            pub const ConditionalBlock = struct {
+                condition: *ParsedExpr,
+                block: *ParsedExpr,
+            };
+
+            conditional_block: ConditionalBlock,
+            elseif_blocks: ArrayList(ConditionalBlock),
             else_block: ?*ParsedExpr,
 
             pub fn create(
                 allocator: Allocator,
-                condition: *ParsedExpr,
-                then_block: *ParsedExpr,
+                conditional_block: ConditionalBlock,
+                elseif_blocks: ArrayList(ConditionalBlock),
                 else_block: ?*ParsedExpr,
                 position: Position,
             ) Error!*Self {
@@ -195,8 +200,8 @@ pub const ParsedExpr = struct {
                     allocator,
                     .{
                         .@"if" = .{
-                            .condition = condition,
-                            .then_block = then_block,
+                            .conditional_block = conditional_block,
+                            .elseif_blocks = elseif_blocks,
                             .else_block = else_block,
                         },
                     },

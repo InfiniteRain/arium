@@ -562,10 +562,27 @@ pub const Parser = struct {
     ) Error!*ParsedExpr {
         const condition = try self.parseExpr(true);
         const then_token = try self.consume(.then, .{ .expected_token_after_condition = .then });
-        const then_block, const end_token = try self.parseBlock(
-            .{ .end, .@"else" },
+        const then_block, var end_token = try self.parseBlock(
+            .{ .end, .elseif, .@"else" },
             then_token.position,
         );
+        var elseif_blocks =
+            ArrayList(ParsedExpr.Kind.If.ConditionalBlock).init(self.allocator);
+
+        while (end_token.kind == .elseif) {
+            const elseif_condition = try self.parseExpr(true);
+            const elseif_then_token = try self.consume(.then, .{ .expected_token_after_condition = .then });
+            const elseif_block, end_token = try self.parseBlock(
+                .{ .end, .elseif, .@"else" },
+                elseif_then_token.position,
+            );
+
+            try elseif_blocks.append(.{
+                .condition = elseif_condition,
+                .block = elseif_block,
+            });
+        }
+
         const else_block = if (end_token.kind == .@"else")
             (try self.parseBlock(.end, end_token.position))[0]
         else
@@ -573,8 +590,11 @@ pub const Parser = struct {
 
         return try ParsedExpr.Kind.If.create(
             self.allocator,
-            condition,
-            then_block,
+            .{
+                .condition = condition,
+                .block = then_block,
+            },
+            elseif_blocks,
             else_block,
             position,
         );
