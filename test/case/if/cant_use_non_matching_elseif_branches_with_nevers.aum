@@ -1,0 +1,57 @@
+/// sema
+
+for do
+  print(
+    if false then
+      break
+    elseif false then
+      50 
+    elseif true then
+      break
+    else /// err_sema 11 unexpected_else_type int string
+      "str"
+    end
+  )
+end
+
+for do
+  print(
+    if false then
+      50
+    elseif false then
+      break
+    elseif true then /// err_sema 23 unexpected_elseif_type int string
+      "str"
+    else
+      40
+    end
+  )
+end
+
+for do
+  print(
+    if false then
+      break
+    elseif false then
+      "str"
+    elseif true then /// err_sema 37 unexpected_elseif_type string int
+      50
+    else
+      40
+    end
+  )
+end
+
+for do
+  print(
+    if false then
+      break
+    elseif false then
+      "str"
+    elseif true then
+      break
+    else /// err_sema 53 unexpected_else_type string int
+      40
+    end
+  )
+end

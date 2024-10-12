@@ -1,0 +1,49 @@
+/// sema
+
+print(
+  if true then
+    15
+  elseif true then /// err_sema 6 unexpected_elseif_type int unit
+
+  elseif true then
+
+  else
+
+  end
+)
+
+print(
+  if true then
+    15
+  elseif true then
+    10
+  elseif true then /// err_sema 20 unexpected_elseif_type int unit
+
+  else
+
+  end
+)
+
+print(
+  if true then
+    15
+  elseif true then
+    10
+  elseif true then
+    5
+  else /// err_sema 34 unexpected_else_type int unit
+
+  end
+)
+
+print(
+  if true then
+    15
+  elseif true then
+    10
+  elseif true then /// err_sema 44 unexpected_elseif_type int unit
+    
+  else
+    0
+  end
+)

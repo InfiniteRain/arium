@@ -1,0 +1,17 @@
+/// run
+
+print(
+  if true then
+    10
+  elseif true then
+    10
+  end
+) /// out unit
+
+print(
+  if false then
+    10
+  elseif true then
+    10
+  end
+) /// out unit

@@ -1,0 +1,49 @@
+/// run
+
+print(
+  if true then
+    5
+  elseif true then
+    6
+  elseif true then
+    7
+  else
+    8
+  end
+) /// out 5
+
+print(
+  if false then
+    5
+  elseif true then
+    6
+  elseif true then
+    7
+  else
+    8
+  end
+) /// out 6
+
+print(
+  if false then
+    5
+  elseif false then
+    6
+  elseif true then
+    7
+  else
+    8
+  end
+) /// out 7
+
+print(
+  if false then
+    5
+  elseif false then
+    6
+  elseif false then
+    7
+  else
+    8
+  end
+) /// out 8

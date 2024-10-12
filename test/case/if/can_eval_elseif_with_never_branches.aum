@@ -1,0 +1,61 @@
+/// run
+
+for true do
+  print(
+    if true then
+      break
+    elseif true then
+      5
+    elseif true then
+      5
+    else
+      5
+    end
+  )
+  break
+end
+
+for true do
+  print(
+    if true then
+      5
+    elseif true then
+      break
+    elseif true then
+      6
+    else
+      7
+    end
+  ) /// out 5
+  break
+end
+
+for true do
+  print(
+    if true then
+      5
+    elseif true then
+      6
+    elseif true then
+      break
+    else
+      7
+    end
+  ) /// out 5
+  break
+end
+
+for true do
+  print(
+    if true then
+      5
+    elseif true then
+      6
+    elseif true then
+      7
+    else
+      break
+    end
+  ) /// out 5
+  break
+end

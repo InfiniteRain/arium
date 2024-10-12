@@ -1,0 +1,81 @@
+/// run
+
+print(
+  if true then
+    1 
+  elseif true then
+    if true then
+      2 
+    elseif true then
+      3 
+    else
+      4 
+    end
+  else
+    5 
+  end
+) /// out 1
+
+print(
+  if false then
+    1 
+  elseif true then
+    if true then
+      2 
+    elseif true then
+      3 
+    else
+      4 
+    end
+  else
+    5 
+  end
+) /// out 2
+
+print(
+  if false then
+    1 
+  elseif true then
+    if false then
+      2 
+    elseif true then
+      3 
+    else
+      4 
+    end
+  else
+    5 
+  end
+) /// out 3
+
+print(
+  if false then
+    1 
+  elseif true then
+    if false then
+      2 
+    elseif false then
+      3 
+    else
+      4 
+    end
+  else
+    5 
+  end
+) /// out 4
+
+print(
+  if false then
+    1 
+  elseif false then
+    if false then
+      2 
+    elseif false then
+      3 
+    else
+      4 
+    end
+  else
+    5 
+  end
+) /// out 5
