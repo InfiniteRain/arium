@@ -1,8 +1,10 @@
 const std = @import("std");
 const managed_memory_mod = @import("managed_memory.zig");
+const chunk_mod = @import("../compiler/chunk.zig");
 
 const Allocator = std.mem.Allocator;
 const VmState = managed_memory_mod.VmState;
+const Chunk = chunk_mod.Chunk;
 
 pub const Obj = struct {
     const Self = @This();
@@ -13,6 +15,7 @@ pub const Obj = struct {
 
     const Kind = enum {
         string,
+        @"fn",
     };
 
     pub const String = struct {
@@ -67,6 +70,26 @@ pub const Obj = struct {
         }
     };
 
+    pub const Fn = struct {
+        obj: Self,
+        arity: u8,
+        name: ?*String,
+        chunk: Chunk,
+
+        pub fn create(
+            allocator: Allocator,
+            vm_state: *VmState,
+        ) Error!*Fn {
+            const fn_obj = (try Self.create(Fn, allocator, vm_state)).as(Fn);
+
+            fn_obj.arity = 0;
+            fn_obj.name = null;
+            fn_obj.chunk = try Chunk.init(allocator);
+
+            return fn_obj;
+        }
+    };
+
     kind: Kind,
     next: ?*Obj,
 
@@ -84,6 +107,11 @@ pub const Obj = struct {
                 const string = self.as(String);
                 allocator.free(string.chars);
                 allocator.destroy(string);
+            },
+            .@"fn" => {
+                const @"fn" = self.as(Fn);
+                @"fn".chunk.deinit();
+                allocator.destroy(@"fn");
             },
         }
     }
@@ -108,6 +136,7 @@ pub const Obj = struct {
     fn kindTypeToKind(KindType: type) Kind {
         return switch (KindType) {
             String => .string,
+            Fn => .@"fn",
             else => @panic("type is not of valid object"),
         };
     }

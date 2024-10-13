@@ -147,7 +147,7 @@ fn runFile(
 
     if (args.@"dprint-byte-code" > 0) {
         out_writer.print("== CHUNK ==\n");
-        debug_reporter.reportChunk(&memory.vm_state.?.chunk, out_writer);
+        debug_reporter.reportChunk(&memory.vm_state.?.@"fn".chunk, out_writer);
     }
 
     var vm_diags = Vm.Diags.init(allocator);

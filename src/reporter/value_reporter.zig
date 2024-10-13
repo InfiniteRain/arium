@@ -14,6 +14,12 @@ pub fn printValue(value: Value, writer: *const Writer) void {
         .bool => |bool_| writer.printf("{}", .{bool_}),
         .obj => |obj| switch (obj.kind) {
             .string => writer.printf("{s}", .{obj.as(Obj.String).chars}),
+            .@"fn" => writer.printf("<fn {s}>", .{
+                if (obj.as(Obj.Fn).name) |name|
+                    name.chars
+                else
+                    "?",
+            }),
         },
     }
 }

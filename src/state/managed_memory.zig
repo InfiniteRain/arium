@@ -16,7 +16,9 @@ const Obj = obj_mod.Obj;
 const Position = tokenizer_mod.Position;
 
 pub const VmState = struct {
-    chunk: Chunk,
+    const Self = @This();
+
+    @"fn": *Obj.Fn,
     ip: [*]u8,
     stack: Stack,
     objs: ?*Obj,
@@ -24,6 +26,19 @@ pub const VmState = struct {
     // a custom context that accepts a tuple of string and pre-calculated hash
     // to avoid this issue
     strings: StringHashMap(*Obj.String),
+
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.stack.deinit();
+        self.strings.deinit();
+
+        var current = self.objs;
+
+        while (current) |obj| {
+            const next = obj.next;
+            obj.destroy(allocator);
+            current = next;
+        }
+    }
 };
 
 pub const ManagedMemory = struct {
@@ -44,17 +59,7 @@ pub const ManagedMemory = struct {
         const local_allocator = self.allocator();
 
         if (self.vm_state) |*vm_state| {
-            vm_state.chunk.deinit();
-            vm_state.stack.deinit();
-            vm_state.strings.deinit();
-
-            var current = vm_state.objs;
-
-            while (current) |obj| {
-                const next = obj.next;
-                obj.destroy(local_allocator);
-                current = next;
-            }
+            vm_state.deinit(local_allocator);
         }
     }
 

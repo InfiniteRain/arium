@@ -67,13 +67,23 @@ pub const Compiler = struct {
         } = null,
     };
 
-    vm_state: *VmState,
+    const FnCtx = struct {
+        pub const FnKind = enum {
+            @"fn",
+            script,
+        };
+
+        fn_kind: FnKind,
+        @"fn": *Obj.Fn,
+        break_jumps: *ArrayList(usize),
+        loop_start: usize,
+    };
+
     managed_allocator: Allocator,
     unmanaged_allocator: Allocator,
-    chunk: Chunk,
     diags: ?*Diags,
-    break_jumps: *ArrayList(usize),
-    loop_start: usize,
+    vm_state: *VmState,
+    fn_ctx: FnCtx,
 
     pub fn compile(
         memory: *ManagedMemory,
@@ -82,6 +92,7 @@ pub const Compiler = struct {
         diags: ?*Diags,
     ) Error!void {
         const managed_allocator = memory.allocator();
+        const unmanaged_allocator = arena_allocator.allocator();
 
         var vm_state: VmState = undefined;
 
@@ -89,37 +100,52 @@ pub const Compiler = struct {
         vm_state.strings = StringHashMap(*Obj.String).init(managed_allocator);
         vm_state.stack = try Stack.init(managed_allocator);
 
+        errdefer vm_state.deinit(managed_allocator);
+
         var compiler = Self{
-            .vm_state = &vm_state,
             .managed_allocator = managed_allocator,
-            .unmanaged_allocator = arena_allocator.allocator(),
-            .chunk = try Chunk.init(managed_allocator),
+            .unmanaged_allocator = unmanaged_allocator,
             .diags = diags,
+            .vm_state = &vm_state,
+            .fn_ctx = undefined,
+        };
+
+        const @"fn" = compiler.compileFn(&vm_state, .script, block) catch |err| {
+            std.debug.print("{any}\n", .{err});
+            return err;
+        };
+
+        vm_state.@"fn" = @"fn";
+        vm_state.ip = @ptrCast(&@"fn".chunk.code.items[0]);
+
+        memory.vm_state = vm_state;
+    }
+
+    fn compileFn(
+        self: *Self,
+        vm_state: *VmState,
+        fn_kind: FnCtx.FnKind,
+        block: *const SemaExpr,
+    ) Error!*Obj.Fn {
+        const prev_fn_ctx = self.fn_ctx;
+        const @"fn" = try Obj.Fn.create(
+            self.managed_allocator,
+            vm_state,
+        );
+
+        self.fn_ctx = .{
+            .fn_kind = fn_kind,
+            .@"fn" = @"fn",
             .break_jumps = undefined,
             .loop_start = undefined,
         };
 
-        errdefer {
-            compiler.chunk.deinit();
-            vm_state.stack.deinit();
-            vm_state.strings.deinit();
+        try self.compileExpr(block, null, null);
+        try self.writeU8(.@"return", .{ .line = 0, .column = 0 });
 
-            var current = vm_state.objs;
+        self.fn_ctx = prev_fn_ctx;
 
-            while (current) |obj| {
-                const next = obj.next;
-                obj.destroy(managed_allocator);
-                current = next;
-            }
-        }
-
-        try compiler.compileExpr(block, null, null);
-        try compiler.writeU8(.@"return", .{ .line = 0, .column = 0 });
-
-        vm_state.chunk = compiler.chunk;
-        vm_state.ip = @ptrCast(&compiler.chunk.code.items[0]);
-
-        memory.vm_state = vm_state;
+        return @"fn";
     }
 
     fn compileStmt(
@@ -189,13 +215,8 @@ pub const Compiler = struct {
         ctx_override: anytype,
     ) Error!void {
         var last_jump: ?ExprCtx.JumpInfo = null;
-
         var else_branch_offsets_opt: ?ArrayList(usize) = null;
-        defer if (else_branch_offsets_opt) |*branches| branches.clearAndFree();
-
         var then_branch_offsets_opt: ?ArrayList(usize) = null;
-        defer if (then_branch_offsets_opt) |*branches| branches.clearAndFree();
-
         var ctx = if (ctx_opt) |passed_ctx| passed_ctx else blk: {
             else_branch_offsets_opt = ArrayList(usize).init(self.unmanaged_allocator);
             then_branch_offsets_opt = ArrayList(usize).init(self.unmanaged_allocator);
@@ -357,13 +378,8 @@ pub const Compiler = struct {
         ctx: ExprCtx,
     ) Error!void {
         const is_current_logical_or = expr.kind == .@"or";
-
         var new_else_branch_offsets_opt: ?ArrayList(usize) = null;
-        defer if (new_else_branch_offsets_opt) |*branches| branches.deinit();
-
         var new_then_branch_offsets_opt: ?ArrayList(usize) = null;
-        defer if (new_then_branch_offsets_opt) |*branches| branches.deinit();
-
         var else_branch_offsets = ctx.else_branch_offsets;
         var then_branch_offsets = ctx.then_branch_offsets;
 
@@ -526,14 +542,12 @@ pub const Compiler = struct {
         @"for": *const SemaExpr.Kind.For,
         expr: *const SemaExpr,
     ) Error!void {
-        const last_break_jumps = self.break_jumps;
-        const last_loop_start = self.loop_start;
-
+        const last_break_jumps = self.fn_ctx.break_jumps;
+        const last_loop_start = self.fn_ctx.loop_start;
         var current_break_jumps = ArrayList(usize).init(self.unmanaged_allocator);
-        defer current_break_jumps.clearAndFree();
 
-        self.break_jumps = &current_break_jumps;
-        self.loop_start = self.chunk.code.items.len;
+        self.fn_ctx.break_jumps = &current_break_jumps;
+        self.fn_ctx.loop_start = self.fn_ctx.@"fn".chunk.code.items.len;
 
         try self.compileExpr(@"for".condition, null, .{
             .conditional_blocks = .{
@@ -544,8 +558,8 @@ pub const Compiler = struct {
 
         try self.patchJumps(current_break_jumps);
 
-        self.loop_start = last_loop_start;
-        self.break_jumps = last_break_jumps;
+        self.fn_ctx.loop_start = last_loop_start;
+        self.fn_ctx.break_jumps = last_break_jumps;
 
         if (expr.evals) {
             try self.writeU8(.constant_unit, expr.position);
@@ -562,7 +576,7 @@ pub const Compiler = struct {
         }
 
         const offset = try self.writeJump(.jump, expr.position);
-        try self.break_jumps.append(offset);
+        try self.fn_ctx.break_jumps.append(offset);
     }
 
     fn compileContinueExpr(
@@ -574,7 +588,7 @@ pub const Compiler = struct {
             _ = try self.writeU8(.pop, expr.position);
         }
 
-        try self.writeNegativeJump(self.loop_start, expr.position);
+        try self.writeNegativeJump(self.fn_ctx.loop_start, expr.position);
     }
 
     fn compileCondition(
@@ -620,7 +634,7 @@ pub const Compiler = struct {
             ctx.conditional_blocks.?.@"else" == null)
         {
             if (ctx.conditional_blocks.?.is_loop) {
-                try self.writeNegativeJump(self.loop_start, position);
+                try self.writeNegativeJump(self.fn_ctx.loop_start, position);
             }
 
             try self.patchJumps(else_offset);
@@ -704,9 +718,9 @@ pub const Compiler = struct {
         ctx: ExprCtx,
     ) Error!void {
         const last_jump = ctx.last_jump.*.?;
-        const if_op_code: OpCode = @enumFromInt(self.chunk.code.items[last_jump.index]);
+        const if_op_code: OpCode = @enumFromInt(self.getChunk().code.items[last_jump.index]);
 
-        try self.chunk.updateU8(invertComparisonOpCode(if_op_code), last_jump.index);
+        try self.getChunk().updateU8(invertComparisonOpCode(if_op_code), last_jump.index);
 
         if (last_jump.is_inverted) {
             const offset = ctx.then_branch_offsets.pop();
@@ -717,12 +731,16 @@ pub const Compiler = struct {
         }
     }
 
+    fn getChunk(self: *Self) *Chunk {
+        return &self.fn_ctx.@"fn".chunk;
+    }
+
     fn writeU8(self: *Self, data: anytype, position: Position) Error!void {
-        try self.chunk.writeU8(data, position);
+        try self.getChunk().writeU8(data, position);
     }
 
     fn writeJump(self: *Self, op_code: OpCode, position: Position) Error!usize {
-        return try self.chunk.writeJump(op_code, position);
+        return try self.getChunk().writeJump(op_code, position);
     }
 
     fn patchJumps(self: *Self, arg: anytype) Error!void {
@@ -741,9 +759,9 @@ pub const Compiler = struct {
             arg.buffer[0..arg.len];
 
         for (jumps) |jump| {
-            self.chunk.patchJump(jump) catch |err| switch (err) {
+            self.getChunk().patchJump(jump) catch |err| switch (err) {
                 error.JumpTooBig => {
-                    try self.addDiag(.jump_too_big, self.chunk.positions.items[jump]);
+                    try self.addDiag(.jump_too_big, self.getChunk().positions.items[jump]);
                     return error.CompileFailure;
                 },
             };
@@ -755,7 +773,7 @@ pub const Compiler = struct {
         offset: usize,
         position: Position,
     ) Error!void {
-        _ = self.chunk.writeNegativeJump(
+        _ = self.getChunk().writeNegativeJump(
             offset,
             position,
         ) catch |err| switch (err) {
@@ -768,7 +786,7 @@ pub const Compiler = struct {
     }
 
     fn writeConstant(self: *Self, value: Value, position: Position) Error!void {
-        _ = self.chunk.writeConstant(
+        _ = self.getChunk().writeConstant(
             value,
             position,
         ) catch |err| switch (err) {

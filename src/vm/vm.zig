@@ -94,7 +94,7 @@ pub const Vm = struct {
                 const size = (@intFromPtr(stack.top) - @intFromPtr(&stack.items[0])) / @sizeOf(Value);
                 const values = stack.items[0..size];
 
-                callback(writer, values, &vm_state.chunk, ip_offset);
+                callback(writer, values, &vm_state.@"fn".chunk, ip_offset);
             }
 
             const op_code = self.readOpCode();
@@ -383,7 +383,7 @@ pub const Vm = struct {
     }
 
     fn chunk(self: *Self) *Chunk {
-        return &self.state.chunk;
+        return &self.state.@"fn".chunk;
     }
 
     fn getOffset(self: *Self) usize {
