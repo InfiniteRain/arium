@@ -125,7 +125,7 @@ pub const Sema = struct {
     locals: ArrayList(Local) = undefined,
     current_scope: *Scope = undefined,
     is_in_loop: bool = false,
-    pops: usize = 0,
+    break_pops: usize = 0,
 
     pub fn init(allocator: *ArenaAllocator) Self {
         return .{
@@ -140,7 +140,7 @@ pub const Sema = struct {
     ) Error!*SemaExpr {
         self.diags = diags;
         self.had_error = false;
-        self.pops = 0;
+        self.break_pops = 0;
 
         var current_scope = Scope.init(self.allocator, null);
         self.current_scope = &current_scope;
@@ -350,11 +350,11 @@ pub const Sema = struct {
     ) Error!*SemaExpr {
         var left = try self.analyzeExpr(binary.left, true);
 
-        self.pops += 1;
+        self.break_pops += 1;
 
         var right = try self.analyzeExpr(binary.right, true);
 
-        self.pops -= 1;
+        self.break_pops -= 1;
 
         if (left.sema_type == .invalid or right.sema_type == .invalid) {
             return try SemaExpr.Kind.Binary.create(
@@ -850,8 +850,8 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        const old_pops = self.pops;
-        self.pops = 0;
+        const old_pops = self.break_pops;
+        self.break_pops = 0;
 
         const condition = try self.analyzeCondition(
             if (@"for".condition) |condition|
@@ -872,7 +872,7 @@ pub const Sema = struct {
 
         self.is_in_loop = old_is_in_loop;
 
-        self.pops = old_pops;
+        self.break_pops = old_pops;
 
         return try SemaExpr.Kind.For.create(
             self.allocator,
@@ -897,7 +897,7 @@ pub const Sema = struct {
 
         return try SemaExpr.Kind.Break.create(
             self.allocator,
-            self.pops,
+            self.break_pops,
             evals,
             position,
         );
@@ -917,7 +917,7 @@ pub const Sema = struct {
 
         return try SemaExpr.Kind.Continue.create(
             self.allocator,
-            self.pops,
+            self.break_pops,
             evals,
             position,
         );
