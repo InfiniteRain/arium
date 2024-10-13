@@ -4,9 +4,11 @@ const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const obj_mod = @import("obj.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
+const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
+const BoundedArray = std.BoundedArray;
 const allocPrint = std.fmt.allocPrint;
 const expect = std.testing.expect;
 const Chunk = chunk_mod.Chunk;
@@ -15,11 +17,17 @@ const Value = value_mod.Value;
 const Obj = obj_mod.Obj;
 const Position = tokenizer_mod.Position;
 
+pub const CallFrame = struct {
+    @"fn": *Obj.Fn,
+    ip: [*]u8,
+    stack: [*]Value,
+    locals_count: u8,
+};
+
 pub const VmState = struct {
     const Self = @This();
 
-    @"fn": *Obj.Fn,
-    ip: [*]u8,
+    call_frames: BoundedArray(CallFrame, limits.max_frames),
     stack: Stack,
     objs: ?*Obj,
     // todo: this will recalculate hash on removal. we can rewrite this to use

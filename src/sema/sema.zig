@@ -95,37 +95,46 @@ pub const Sema = struct {
 
     pub const Diags = SharedDiags(DiagEntry);
 
-    const Scope = struct {
-        allocator: Allocator,
-        prev: ?*Scope = null,
-        types_map: StringHashMap(SemaType),
-        locals_map: StringHashMap(usize),
-        locals_top: usize,
+    const FnCtx = struct {
+        const Scope = struct {
+            allocator: Allocator,
+            prev: ?*Scope = null,
+            types_map: StringHashMap(SemaType),
+            locals_map: StringHashMap(usize),
+            locals_top: usize,
 
-        fn init(allocator: Allocator, prev_opt: ?*Scope) Scope {
-            return .{
-                .allocator = allocator,
-                .prev = prev_opt,
-                .types_map = StringHashMap(SemaType).init(allocator),
-                .locals_map = StringHashMap(usize).init(allocator),
-                .locals_top = if (prev_opt) |prev| prev.locals_top else 0,
-            };
-        }
+            fn init(allocator: Allocator, prev_opt: ?*Scope) Scope {
+                return .{
+                    .allocator = allocator,
+                    .prev = prev_opt,
+                    .types_map = StringHashMap(SemaType).init(allocator),
+                    .locals_map = StringHashMap(usize).init(allocator),
+                    .locals_top = if (prev_opt) |prev| prev.locals_top else 0,
+                };
+            }
+        };
+
+        const Local = struct {
+            sema_type: ?SemaType,
+            is_mutable: bool,
+            is_assigned: bool,
+        };
+
+        locals: ArrayList(Local) = undefined,
+        current_scope: *Scope = undefined,
+        is_in_loop: bool = false,
+        break_pops: usize = 0,
     };
 
-    const Local = struct {
-        sema_type: ?SemaType,
-        is_mutable: bool,
-        is_assigned: bool,
+    pub const Result = struct {
+        block: *SemaExpr,
+        locals_count: u8,
     };
 
     allocator: Allocator,
     diags: ?*Diags = null,
     had_error: bool = false,
-    locals: ArrayList(Local) = undefined,
-    current_scope: *Scope = undefined,
-    is_in_loop: bool = false,
-    break_pops: usize = 0,
+    fn_ctx: FnCtx = undefined,
 
     pub fn init(allocator: *ArenaAllocator) Self {
         return .{
@@ -137,23 +146,22 @@ pub const Sema = struct {
         self: *Self,
         block: *ParsedExpr,
         diags: ?*Diags,
-    ) Error!*SemaExpr {
+    ) Error!Result {
         self.diags = diags;
         self.had_error = false;
-        self.break_pops = 0;
 
-        var current_scope = Scope.init(self.allocator, null);
-        self.current_scope = &current_scope;
+        var current_scope = FnCtx.Scope.init(self.allocator, null);
 
-        self.is_in_loop = false;
+        self.fn_ctx = .{
+            .locals = ArrayList(FnCtx.Local).init(self.allocator),
+            .current_scope = &current_scope,
+        };
 
         // todo: is this the best place for this?
-        try self.current_scope.types_map.put("Int", .int);
-        try self.current_scope.types_map.put("Float", .float);
-        try self.current_scope.types_map.put("Bool", .bool);
-        try self.current_scope.types_map.put("String", .string);
-
-        self.locals = ArrayList(Local).init(self.allocator);
+        try self.fn_ctx.current_scope.types_map.put("Int", .int);
+        try self.fn_ctx.current_scope.types_map.put("Float", .float);
+        try self.fn_ctx.current_scope.types_map.put("Bool", .bool);
+        try self.fn_ctx.current_scope.types_map.put("String", .string);
 
         const sema_block = try self.analyzeExpr(block, false);
 
@@ -161,7 +169,10 @@ pub const Sema = struct {
             return error.SemaFailure;
         }
 
-        return sema_block;
+        return .{
+            .block = sema_block,
+            .locals_count = @intCast(self.fn_ctx.locals.items.len),
+        };
     }
 
     fn analyzeStmt(self: *Self, stmt: *ParsedStmt, evals: bool) Error!*SemaStmt {
@@ -254,7 +265,7 @@ pub const Sema = struct {
             error.OutOfMemory => return error.OutOfMemory,
         };
 
-        if (self.current_scope.locals_top >= limits.max_locals) {
+        if (self.fn_ctx.current_scope.locals_top >= limits.max_locals) {
             try self.addDiag(position, .too_many_locals);
         }
 
@@ -350,11 +361,11 @@ pub const Sema = struct {
     ) Error!*SemaExpr {
         var left = try self.analyzeExpr(binary.left, true);
 
-        self.break_pops += 1;
+        self.fn_ctx.break_pops += 1;
 
         var right = try self.analyzeExpr(binary.right, true);
 
-        self.break_pops -= 1;
+        self.fn_ctx.break_pops -= 1;
 
         if (left.sema_type == .invalid or right.sema_type == .invalid) {
             return try SemaExpr.Kind.Binary.create(
@@ -590,9 +601,9 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        var scope = Scope.init(self.allocator, self.current_scope);
+        var scope = FnCtx.Scope.init(self.allocator, self.fn_ctx.current_scope);
 
-        self.current_scope = &scope;
+        self.fn_ctx.current_scope = &scope;
 
         var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
         var is_never = false;
@@ -629,7 +640,7 @@ pub const Sema = struct {
         else
             sema_stmts.getLast().kind.expr.expr.sema_type;
 
-        self.current_scope = self.current_scope.prev.?;
+        self.fn_ctx.current_scope = self.fn_ctx.current_scope.prev.?;
 
         return try SemaExpr.Kind.Block.create(
             self.allocator,
@@ -691,7 +702,7 @@ pub const Sema = struct {
 
         const right = try self.analyzeExpr(assignment.right, true);
 
-        self.locals.items[index].is_assigned = true;
+        self.fn_ctx.locals.items[index].is_assigned = true;
 
         if (local.sema_type != null and !typeSatisfies(right.sema_type, local.sema_type.?)) {
             return self.semaFailure(
@@ -699,7 +710,7 @@ pub const Sema = struct {
                 .{ .unexpected_assignment_type = .{ local.sema_type.?, right.sema_type } },
             );
         } else if (local.sema_type == null) {
-            self.locals.items[index].sema_type = right.sema_type;
+            self.fn_ctx.locals.items[index].sema_type = right.sema_type;
         }
 
         return try SemaExpr.Kind.Assignment.create(
@@ -850,8 +861,8 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        const old_pops = self.break_pops;
-        self.break_pops = 0;
+        const prev_pops = self.fn_ctx.break_pops;
+        self.fn_ctx.break_pops = 0;
 
         const condition = try self.analyzeCondition(
             if (@"for".condition) |condition|
@@ -864,15 +875,14 @@ pub const Sema = struct {
                 ),
         );
 
-        const old_is_in_loop = self.is_in_loop;
+        const prev_is_in_loop = self.fn_ctx.is_in_loop;
 
-        self.is_in_loop = true;
+        self.fn_ctx.is_in_loop = true;
 
         const body_block = try self.analyzeExpr(@"for".body_block, false);
 
-        self.is_in_loop = old_is_in_loop;
-
-        self.break_pops = old_pops;
+        self.fn_ctx.is_in_loop = prev_is_in_loop;
+        self.fn_ctx.break_pops = prev_pops;
 
         return try SemaExpr.Kind.For.create(
             self.allocator,
@@ -888,7 +898,7 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        if (!self.is_in_loop) {
+        if (!self.fn_ctx.is_in_loop) {
             return self.semaFailure(
                 position,
                 .break_outside_loop,
@@ -897,7 +907,7 @@ pub const Sema = struct {
 
         return try SemaExpr.Kind.Break.create(
             self.allocator,
-            self.break_pops,
+            self.fn_ctx.break_pops,
             evals,
             position,
         );
@@ -908,7 +918,7 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        if (!self.is_in_loop) {
+        if (!self.fn_ctx.is_in_loop) {
             return self.semaFailure(
                 position,
                 .continue_outside_loop,
@@ -917,7 +927,7 @@ pub const Sema = struct {
 
         return try SemaExpr.Kind.Continue.create(
             self.allocator,
-            self.break_pops,
+            self.fn_ctx.break_pops,
             evals,
             position,
         );
@@ -927,7 +937,7 @@ pub const Sema = struct {
         self: *Self,
         name: []const u8,
     ) ?SemaType {
-        var current_scope: ?*Scope = self.current_scope;
+        var current_scope: ?*FnCtx.Scope = self.fn_ctx.current_scope;
 
         while (current_scope) |scope| {
             if (scope.types_map.get(name)) |sema_type| {
@@ -947,20 +957,20 @@ pub const Sema = struct {
         name: []const u8,
         sema_type: ?SemaType,
     ) error{OutOfMemory}!usize {
-        const scope = self.current_scope;
-        const local: Local = .{
+        const scope = self.fn_ctx.current_scope;
+        const local: FnCtx.Local = .{
             .sema_type = sema_type,
             .is_mutable = is_mutable,
             .is_assigned = is_assigned,
         };
 
-        if (scope.locals_top == self.locals.items.len) {
-            try self.locals.append(local);
+        if (scope.locals_top == self.fn_ctx.locals.items.len) {
+            try self.fn_ctx.locals.append(local);
         } else {
-            self.locals.items[scope.locals_top] = local;
+            self.fn_ctx.locals.items[scope.locals_top] = local;
         }
 
-        try self.current_scope.locals_map.put(name, scope.locals_top);
+        try self.fn_ctx.current_scope.locals_map.put(name, scope.locals_top);
         scope.locals_top += 1;
 
         return scope.locals_top - 1;
@@ -969,12 +979,12 @@ pub const Sema = struct {
     fn getVariable(
         self: *Self,
         name: []const u8,
-    ) ?struct { usize, Local } {
-        var current_scope: ?*Scope = self.current_scope;
+    ) ?struct { usize, FnCtx.Local } {
+        var current_scope: ?*FnCtx.Scope = self.fn_ctx.current_scope;
 
         while (current_scope) |scope| {
             if (scope.locals_map.get(name)) |index| {
-                return .{ index, self.locals.items[index] };
+                return .{ index, self.fn_ctx.locals.items[index] };
             }
 
             current_scope = scope.prev;

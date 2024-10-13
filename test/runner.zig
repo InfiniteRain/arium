@@ -251,7 +251,7 @@ pub const Runner = struct {
             // diags are owned by the test runner, not the tests.
             var sema_diags = Sema.Diags.init(self.allocator);
 
-            const sema_block = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
+            const sema_result = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
                 error.SemaFailure => {
                     if (config.expectations.err_sema.getLen() > 0) {
                         actual.err_sema = sema_diags;
@@ -277,7 +277,7 @@ pub const Runner = struct {
             Compiler.compile(
                 &memory,
                 &arena_allocator,
-                sema_block,
+                sema_result,
                 &compiler_diags,
             ) catch |err| switch (err) {
                 error.CompileFailure => {

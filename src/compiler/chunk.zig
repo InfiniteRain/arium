@@ -92,7 +92,6 @@ pub const Chunk = struct {
     code: ArrayList(u8),
     positions: ArrayList(Position), // todo: replace with RLE
     constants: ArrayList(Value),
-    locals: []Value,
 
     pub fn init(allocator: Allocator) Error!Self {
         return .{
@@ -100,7 +99,6 @@ pub const Chunk = struct {
             .code = ArrayList(u8).init(allocator),
             .positions = ArrayList(Position).init(allocator),
             .constants = ArrayList(Value).init(allocator),
-            .locals = try allocator.alloc(Value, limits.max_locals),
         };
     }
 
@@ -108,7 +106,6 @@ pub const Chunk = struct {
         self.code.deinit();
         self.positions.deinit();
         self.constants.deinit();
-        self.allocator.free(self.locals);
     }
 
     pub fn writeU8(

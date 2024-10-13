@@ -14,8 +14,9 @@ const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
 const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
-const ManagedMemory = managed_memory_mod.ManagedMemory;
+const CallFrame = managed_memory_mod.CallFrame;
 const VmState = managed_memory_mod.VmState;
+const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Value = value_mod.Value;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
@@ -81,6 +82,8 @@ pub const Vm = struct {
     }
 
     fn run(self: *Self) Error!void {
+        const frame = self.getCallFrame();
+
         while (true) {
             const ip_offset = self.getOffset();
 
@@ -91,10 +94,11 @@ pub const Vm = struct {
                 const writer = self.config.debug_writer.?;
                 const vm_state = self.memory.vm_state.?;
                 const stack = vm_state.stack;
-                const size = (@intFromPtr(stack.top) - @intFromPtr(&stack.items[0])) / @sizeOf(Value);
-                const values = stack.items[0..size];
+                const start = (@intFromPtr(frame.stack) - @intFromPtr(&stack.items[0])) / @sizeOf(Value) + frame.locals_count;
+                const end = (@intFromPtr(stack.top) - @intFromPtr(&stack.items[0])) / @sizeOf(Value);
+                const values = stack.items[start..end];
 
-                callback(writer, values, &vm_state.@"fn".chunk, ip_offset);
+                callback(writer, values, &frame.@"fn".chunk, ip_offset);
             }
 
             const op_code = self.readOpCode();
@@ -231,7 +235,7 @@ pub const Vm = struct {
                     const a = self.pop().int;
 
                     if (a == 0) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .if_not_equal => {
@@ -239,7 +243,7 @@ pub const Vm = struct {
                     const a = self.pop().int;
 
                     if (a != 0) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .if_greater => {
@@ -247,7 +251,7 @@ pub const Vm = struct {
                     const a = self.pop().int;
 
                     if (a > 0) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .if_greater_equal => {
@@ -255,7 +259,7 @@ pub const Vm = struct {
                     const a = self.pop().int;
 
                     if (a >= 0) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .if_less => {
@@ -263,7 +267,7 @@ pub const Vm = struct {
                     const a = self.pop().int;
 
                     if (a < 0) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .if_less_equal => {
@@ -271,7 +275,7 @@ pub const Vm = struct {
                     const a = self.pop().int;
 
                     if (a <= 0) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .if_true => {
@@ -279,7 +283,7 @@ pub const Vm = struct {
                     const a = self.pop().bool;
 
                     if (a) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .if_false => {
@@ -287,16 +291,16 @@ pub const Vm = struct {
                     const a = self.pop().bool;
 
                     if (!a) {
-                        self.state.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .jump => {
                     const offset = self.readU16();
-                    self.state.ip += offset;
+                    frame.ip += offset;
                 },
                 .negative_jump => {
                     const offset = self.readU16();
-                    self.state.ip -= offset;
+                    frame.ip -= offset;
                 },
 
                 .assert => {
@@ -316,7 +320,8 @@ pub const Vm = struct {
                     self.out_writer.print("\n");
                 },
                 .@"return" => {
-                    assert(self.state.stack.top == @as([*]Value, @ptrCast(&self.state.stack.items[0])));
+                    assert(self.state.stack.top - frame.locals_count ==
+                        @as([*]Value, @ptrCast(&self.state.stack.items[0])));
                     return;
                 },
                 .pop => _ = self.pop(),
@@ -351,8 +356,9 @@ pub const Vm = struct {
     }
 
     fn readU8(self: *Self) u8 {
-        const byte = self.state.ip[0];
-        self.state.ip += 1;
+        const frame = self.getCallFrame();
+        const byte = frame.ip[0];
+        frame.ip += 1;
         return byte;
     }
 
@@ -375,19 +381,26 @@ pub const Vm = struct {
     }
 
     fn storeLocal(self: *Self, index: usize, value: Value) void {
-        self.chunk().locals[index] = value;
+        self.getCallFrame().stack[index] = value;
     }
 
     fn loadLocal(self: *Self, index: usize) Value {
-        return self.chunk().locals[index];
+        return self.getCallFrame().stack[index];
     }
 
     fn chunk(self: *Self) *Chunk {
-        return &self.state.@"fn".chunk;
+        const frame = self.getCallFrame();
+        return &frame.@"fn".chunk;
+    }
+
+    fn getCallFrame(self: *Self) *CallFrame {
+        var call_frames = &self.memory.vm_state.?.call_frames;
+        return &call_frames.slice()[call_frames.len - 1];
     }
 
     fn getOffset(self: *Self) usize {
-        return @intFromPtr(self.memory.vm_state.?.ip) - @intFromPtr(&self.chunk().code.items[0]);
+        const frame = self.getCallFrame();
+        return @intFromPtr(frame.ip) - @intFromPtr(&frame.@"fn".chunk.code.items[0]);
     }
 
     fn getPosition(self: *Self, offset: usize) Position {

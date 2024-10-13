@@ -114,7 +114,7 @@ fn runFile(
     var sema_diags = Sema.Diags.init(allocator);
     defer sema_diags.deinit();
 
-    const sema_block = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
+    const sema_result = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
             error_reporter.reportSemaDiags(&sema_diags, err_writer);
             std.posix.exit(65);
@@ -123,7 +123,7 @@ fn runFile(
     };
 
     if (args.@"dprint-sema-ast" > 0) {
-        debug_ast_reporter.printAstNode(sema_block, null, out_writer);
+        debug_ast_reporter.printAstNode(sema_result.block, null, out_writer);
     }
 
     var memory = ManagedMemory.init(allocator);
@@ -135,7 +135,7 @@ fn runFile(
     Compiler.compile(
         &memory,
         &arena_allocator,
-        sema_block,
+        sema_result,
         &compiler_diags,
     ) catch |err| switch (err) {
         error.CompileFailure => {
@@ -147,7 +147,10 @@ fn runFile(
 
     if (args.@"dprint-byte-code" > 0) {
         out_writer.print("== CHUNK ==\n");
-        debug_reporter.reportChunk(&memory.vm_state.?.@"fn".chunk, out_writer);
+        debug_reporter.reportChunk(
+            &memory.vm_state.?.call_frames.slice()[0].@"fn".chunk,
+            out_writer,
+        );
     }
 
     var vm_diags = Vm.Diags.init(allocator);

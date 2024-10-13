@@ -2,11 +2,13 @@ const std = @import("std");
 const shared = @import("shared");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const chunk_mod = @import("chunk.zig");
+const sema_mod = @import("../sema/sema.zig");
 const sema_ast_mod = @import("../sema/sema_ast.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const obj_mod = @import("../state/obj.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
+const limits = @import("../limits.zig");
 
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -17,10 +19,12 @@ const StringHashMap = std.StringHashMap;
 const assert = std.debug.assert;
 const meta = shared.meta;
 const SharedDiags = shared.Diags;
-const ManagedMemory = managed_memory_mod.ManagedMemory;
+const CallFrame = managed_memory_mod.CallFrame;
 const VmState = managed_memory_mod.VmState;
+const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
+const Sema = sema_mod.Sema;
 const SemaExpr = sema_ast_mod.SemaExpr;
 const SemaStmt = sema_ast_mod.SemaStmt;
 const Stack = stack_mod.Stack;
@@ -88,7 +92,7 @@ pub const Compiler = struct {
     pub fn compile(
         memory: *ManagedMemory,
         arena_allocator: *ArenaAllocator,
-        block: *const SemaExpr,
+        sema_result: Sema.Result,
         diags: ?*Diags,
     ) Error!void {
         const managed_allocator = memory.allocator();
@@ -99,6 +103,9 @@ pub const Compiler = struct {
         vm_state.objs = null;
         vm_state.strings = StringHashMap(*Obj.String).init(managed_allocator);
         vm_state.stack = try Stack.init(managed_allocator);
+        vm_state.stack.top += sema_result.locals_count;
+        vm_state.call_frames = BoundedArray(CallFrame, limits.max_frames)
+            .init(0) catch unreachable;
 
         errdefer vm_state.deinit(managed_allocator);
 
@@ -110,13 +117,18 @@ pub const Compiler = struct {
             .fn_ctx = undefined,
         };
 
-        const @"fn" = compiler.compileFn(&vm_state, .script, block) catch |err| {
-            std.debug.print("{any}\n", .{err});
-            return err;
-        };
+        const @"fn" = try compiler.compileFn(
+            &vm_state,
+            .script,
+            sema_result.block,
+        );
 
-        vm_state.@"fn" = @"fn";
-        vm_state.ip = @ptrCast(&@"fn".chunk.code.items[0]);
+        vm_state.call_frames.append(.{
+            .@"fn" = @"fn",
+            .ip = @ptrCast(&@"fn".chunk.code.items[0]),
+            .stack = @ptrCast(&vm_state.stack.items[0]),
+            .locals_count = sema_result.locals_count,
+        }) catch unreachable;
 
         memory.vm_state = vm_state;
     }
