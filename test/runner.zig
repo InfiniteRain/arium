@@ -110,7 +110,10 @@ pub const Runner = struct {
         Token.Kind,
         Sema.DiagEntry,
         Sema.DiagEntry.Kind,
+        Sema.DiagEntry.ArityMismatch,
+        Sema.DiagEntry.ArgTypeMismatch,
         SemaType,
+        SemaType.Fn,
         Sema.DiagEntry.SemaTypeTuple,
         Compiler.DiagEntry,
         Compiler.DiagEntry.Kind,
@@ -251,7 +254,7 @@ pub const Runner = struct {
             // diags are owned by the test runner, not the tests.
             var sema_diags = Sema.Diags.init(self.allocator);
 
-            const sema_result = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
+            const sema_fn = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
                 error.SemaFailure => {
                     if (config.expectations.err_sema.getLen() > 0) {
                         actual.err_sema = sema_diags;
@@ -277,7 +280,7 @@ pub const Runner = struct {
             Compiler.compile(
                 &memory,
                 &arena_allocator,
-                sema_result,
+                sema_fn,
                 &compiler_diags,
             ) catch |err| switch (err) {
                 error.CompileFailure => {
@@ -425,6 +428,10 @@ pub const Runner = struct {
             return verifyArrayList(expectation, actual);
         }
 
+        if (type_info == .Pointer and type_info.Pointer.size == .One) {
+            return verifyValue(expectation.*, actual.*);
+        }
+
         switch (type_info) {
             .Void,
             => return true,
@@ -536,6 +543,10 @@ pub const Runner = struct {
                         Parser.DiagEntry.Kind,
                         Sema.DiagEntry.Kind,
                         Sema.DiagEntry.SemaTypeTuple,
+                        Sema.DiagEntry.ArityMismatch,
+                        Sema.DiagEntry.ArgTypeMismatch,
+                        SemaType,
+                        SemaType.Fn,
                     },
                 ),
             }));

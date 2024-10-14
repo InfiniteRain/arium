@@ -315,6 +315,56 @@ pub const SemaExpr = struct {
             }
         };
 
+        pub const Return = struct {
+            right: *Self,
+
+            pub fn create(
+                allocator: Allocator,
+                right: *Self,
+                evals: bool,
+                position: Position,
+            ) Error!*Self {
+                return try createExpr(
+                    allocator,
+                    .{
+                        .@"return" = .{
+                            .right = right,
+                        },
+                    },
+                    .never,
+                    evals,
+                    position,
+                );
+            }
+        };
+
+        pub const Call = struct {
+            callee: *Self,
+            args: ArrayList(*Self),
+
+            pub fn create(
+                allocator: Allocator,
+                callee: *Self,
+                args: ArrayList(*Self),
+                sema_type: SemaType,
+                evals: bool,
+                position: Position,
+            ) Error!*Self {
+                return try createExpr(
+                    allocator,
+                    .{
+                        .call = .{
+                            .callee = callee,
+                            .args = args,
+                        },
+                    },
+                    sema_type,
+                    evals,
+                    position,
+                );
+            }
+        };
+
         literal: Literal,
         binary: Binary,
         unary: Unary,
@@ -325,6 +375,8 @@ pub const SemaExpr = struct {
         @"for": For,
         @"break": Break,
         @"continue": Continue,
+        @"return": Return,
+        call: Call,
     };
 
     fn createExpr(
@@ -441,10 +493,40 @@ pub const SemaStmt = struct {
             }
         };
 
+        pub const Fn = struct {
+            name: ?[]const u8,
+            index: ?usize,
+            locals_count: u8,
+            body: *SemaExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                name_opt: ?[]const u8,
+                index: ?usize,
+                locals_count: u8,
+                body: *SemaExpr,
+                position: Position,
+            ) Error!*Self {
+                return try createStmt(
+                    allocator,
+                    .{
+                        .@"fn" = .{
+                            .name = if (name_opt) |name| try allocator.dupe(u8, name) else null,
+                            .index = index,
+                            .locals_count = locals_count,
+                            .body = body,
+                        },
+                    },
+                    position,
+                );
+            }
+        };
+
         assert: Assert,
         print: Print,
         expr: Expr,
         let: Let,
+        @"fn": Fn,
     };
 
     fn createStmt(
@@ -466,26 +548,39 @@ pub const SemaStmt = struct {
     position: Position,
 };
 
-pub const SemaType = enum {
+pub const SemaType = union(enum) {
     const Self = @This();
+
+    pub const Error = Allocator.Error;
+
+    pub const Fn = struct {
+        arg_types: ArrayList(Self),
+        return_type: *Self,
+
+        pub fn init(
+            allocator: Allocator,
+            arg_types: ArrayList(Self),
+            return_type: Self,
+        ) Error!Self {
+            const sema_type = try allocator.create(Self);
+
+            sema_type.* = return_type;
+
+            return .{
+                .@"fn" = .{
+                    .arg_types = arg_types,
+                    .return_type = sema_type,
+                },
+            };
+        }
+    };
 
     unit,
     int,
     float,
     bool,
     string,
+    @"fn": Fn,
     invalid,
     never,
-
-    pub fn stringify(self: Self) []const u8 {
-        return switch (self) {
-            .unit => "Unit",
-            .int => "Int",
-            .float => "Float",
-            .bool => "Bool",
-            .string => "String",
-            .invalid => "Invalid",
-            .never => "Never",
-        };
-    }
 };

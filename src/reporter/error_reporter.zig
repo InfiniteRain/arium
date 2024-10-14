@@ -5,6 +5,7 @@ const sema_mod = @import("../sema/sema.zig");
 const tokenizer_mod = @import("../parser/tokenizer.zig");
 const compiler_mod = @import("../compiler/compiler.zig");
 const vm_mod = @import("../vm/vm.zig");
+const type_reporter = @import("type_reporter.zig");
 
 const Writer = shared.Writer;
 const Parser = parser_mod.Parser;
@@ -59,7 +60,7 @@ pub fn reportParserDiag(
         .int_literal_overflows,
         => writer.print("Integer literal value overflows."),
 
-        .expected_name,
+        .expected_name_after_let,
         => writer.print("Expected name after 'let'."),
 
         .expected_equal_after_name,
@@ -83,6 +84,21 @@ pub fn reportParserDiag(
             reportParserDiagTokenQuoted(token_kind, writer);
             writer.print(" after the condition.");
         },
+
+        .expected_name_after_fn,
+        => writer.print("Expected name after 'let'."),
+
+        .expected_left_paren_before_args,
+        => writer.print("Expected '(' before argument list."),
+
+        .expected_right_paren_after_args,
+        => writer.print("Expected ')' after argument list."),
+
+        .expected_colon_after_arg,
+        => writer.print("Expected ':' after argument."),
+
+        .expected_colon_after_args,
+        => writer.print("Expected ':' after argument list."),
     }
 }
 
@@ -122,58 +138,73 @@ pub fn reportSemaDiag(
 
     switch (diag.kind) {
         .expected_expr_type,
-        => |sema_type| writer.printf(
-            "Expected expression to be {s}.",
-            .{sema_type.stringify()},
-        ),
+        => |sema_type| {
+            writer.print("Expected expression to be ");
+            type_reporter.printType(sema_type, writer);
+            writer.print(".");
+        },
 
         .unexpected_arithmetic_type,
-        => |sema_type| writer.printf(
-            "Can't perform arithmetic operation on {s}.",
-            .{sema_type.stringify()},
-        ),
+        => |sema_type| {
+            writer.print("Can't perform arithmetic operation on ");
+            type_reporter.printType(sema_type, writer);
+            writer.print(".");
+        },
 
         .unexpected_operand_type,
-        => |sema_types| writer.printf(
-            "Operand is expected to be of type {s}, got {s}.",
-            .{ sema_types[0].stringify(), sema_types[1].stringify() },
-        ),
+        => |sema_types| {
+            writer.print("Operand is expected to be of type ");
+            type_reporter.printType(sema_types[0], writer);
+            writer.print(", got ");
+            type_reporter.printType(sema_types[1], writer);
+            writer.print(".");
+        },
 
         .unexpected_concat_type,
-        => |sema_types| writer.printf(
-            "Can't perform concatenation on values of types {s} and {s}.",
-            .{ sema_types[0].stringify(), sema_types[1].stringify() },
-        ),
+        => |sema_types| {
+            writer.print("Can't perform concatenation on values of types ");
+            type_reporter.printType(sema_types[0], writer);
+            writer.print(" and ");
+            type_reporter.printType(sema_types[1], writer);
+            writer.print(".");
+        },
 
         .unexpected_equality_type,
-        => |sema_types| writer.printf(
-            "Can't perform equality between values of types {s} and {s}.",
-            .{ sema_types[0].stringify(), sema_types[1].stringify() },
-        ),
+        => |sema_types| {
+            writer.print("Can't perform equality between values of types ");
+            type_reporter.printType(sema_types[0], writer);
+            writer.print(" and ");
+            type_reporter.printType(sema_types[1], writer);
+            writer.print(".");
+        },
 
         .unexpected_comparison_type,
-        => |sema_type| writer.printf(
-            "Can't perform comparison operation on value of type {s}.",
-            .{sema_type.stringify()},
-        ),
+        => |sema_type| {
+            writer.print("Can't perform comparison operation on value of type ");
+            type_reporter.printType(sema_type, writer);
+            writer.print(".");
+        },
 
         .unexpected_logical_type,
-        => |sema_type| writer.printf(
-            "Can't perform logical operation on value of type {s}.",
-            .{sema_type.stringify()},
-        ),
+        => |sema_type| {
+            writer.print("Can't perform logical operation on value of type ");
+            type_reporter.printType(sema_type, writer);
+            writer.print(".");
+        },
 
         .unexpected_logical_negation_type,
-        => |sema_type| writer.printf(
-            "Can't perform logical negation on value of type {s}.",
-            .{sema_type.stringify()},
-        ),
+        => |sema_type| {
+            writer.print("Can't perform logical negation on value of type ");
+            type_reporter.printType(sema_type, writer);
+            writer.print(".");
+        },
 
         .unexpected_arithmetic_negation_type,
-        => |sema_type| writer.printf(
-            "Can't perform arithmetic negation on value of type {s}.",
-            .{sema_type.stringify()},
-        ),
+        => |sema_type| {
+            writer.print("Can't perform arithmetic negation on value of type ");
+            type_reporter.printType(sema_type, writer);
+            writer.print(".");
+        },
 
         .too_many_locals,
         => writer.print("Too many locals declared in chunk."),
@@ -182,10 +213,13 @@ pub fn reportSemaDiag(
         => |name| writer.printf("Can't find value '{s}' in this scope.", .{name}),
 
         .unexpected_assignment_type,
-        => |sema_types| writer.printf(
-            "Can't assign value of type {s} to variable of type {s}.",
-            .{ sema_types[1].stringify(), sema_types[0].stringify() },
-        ),
+        => |sema_types| {
+            writer.print("Can't assign value of type ");
+            type_reporter.printType(sema_types[1], writer);
+            writer.print(" to variable of type ");
+            type_reporter.printType(sema_types[0], writer);
+            writer.print(".");
+        },
 
         .immutable_mutation,
         => |name| writer.printf("Can't assign twice to immutable variable '{s}'.", .{name}),
@@ -197,10 +231,13 @@ pub fn reportSemaDiag(
         => |name| writer.printf("Can't use variable '{s}' before assigning it a value.", .{name}),
 
         .unexpected_else_type,
-        => |sema_types| writer.printf(
-            "Else branch is expected to be of type {s}, got {s}.",
-            .{ sema_types[0].stringify(), sema_types[1].stringify() },
-        ),
+        => |sema_types| {
+            writer.print("Else branch is expected to be of type ");
+            type_reporter.printType(sema_types[0], writer);
+            writer.print(", got ");
+            type_reporter.printType(sema_types[1], writer);
+            writer.print(".");
+        },
 
         .break_outside_loop,
         => writer.print("Cannot use break outside of a loop."),
@@ -209,10 +246,43 @@ pub fn reportSemaDiag(
         => writer.print("Cannot use continue outside of a loop."),
 
         .unexpected_elseif_type,
-        => |sema_types| writer.printf(
-            "Else-if branch is expected to be of type {s}, got {s}.",
-            .{ sema_types[0].stringify(), sema_types[1].stringify() },
+        => |sema_types| {
+            writer.print("Else-if branch is expected to be of type ");
+            type_reporter.printType(sema_types[0], writer);
+            writer.print(", got ");
+            type_reporter.printType(sema_types[1], writer);
+            writer.print(".");
+        },
+
+        .unexpected_return_type,
+        => |sema_types| {
+            writer.print("Return value is expected to be of type ");
+            type_reporter.printType(sema_types[0], writer);
+            writer.print(", got ");
+            type_reporter.printType(sema_types[1], writer);
+            writer.print(".");
+        },
+
+        .not_callable,
+        => writer.print("Expression is not callable."),
+
+        .arity_mismatch,
+        => |info| writer.printf(
+            "Callable expects {} arguments, got {}.",
+            .{ info[0], info[1] },
         ),
+
+        .unexpected_arg_type,
+        => |info| {
+            writer.printf("Argument {} is expected to be of type ", .{info[0]});
+            type_reporter.printType(info[1], writer);
+            writer.print(", got ");
+            type_reporter.printType(info[2], writer);
+            writer.print(".");
+        },
+
+        .not_all_branches_return,
+        => writer.print("Not all branches return from this function."),
     }
 }
 

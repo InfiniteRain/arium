@@ -15,8 +15,12 @@ pub fn createClone(
     const type_info = @typeInfo(Type);
     const type_name = @typeName(Type);
 
-    if (type_info == .Pointer and type_info.Pointer.size == .Slice) {
-        return try cloneSlice(allocator, value, allowlist);
+    if (type_info == .Pointer) {
+        switch (type_info.Pointer.size) {
+            .Slice => return try cloneSlice(allocator, value, allowlist),
+            .One => return try cloneOne(allocator, value, allowlist),
+            else => {},
+        }
     }
 
     if (comptime meta.isArrayList(Type)) {
@@ -69,6 +73,19 @@ pub fn cloneSlice(
     }
 
     return new_buffer;
+}
+
+pub fn cloneOne(
+    allocator: Allocator,
+    value: anytype,
+    allowlist: anytype,
+) Allocator.Error!@TypeOf(value) {
+    const type_info = @typeInfo(@TypeOf(value));
+    const new_instance = try allocator.create(type_info.Pointer.child);
+
+    new_instance.* = try createClone(allocator, value.*, allowlist);
+
+    return new_instance;
 }
 
 pub fn cloneArrayList(

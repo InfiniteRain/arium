@@ -35,12 +35,17 @@ pub const Parser = struct {
             expected_left_paren_before_expr,
             expected_right_paren_after_expr,
             int_literal_overflows,
-            expected_name,
+            expected_name_after_let,
             expected_equal_after_name,
             invalid_assignment_target,
             expected_type,
             variable_name_not_lower_case: []const u8,
             expected_token_after_condition: Token.Kind,
+            expected_name_after_fn,
+            expected_left_paren_before_args,
+            expected_right_paren_after_args,
+            expected_colon_after_arg,
+            expected_colon_after_args,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
@@ -56,11 +61,16 @@ pub const Parser = struct {
                 .expected_left_paren_before_expr,
                 .expected_right_paren_after_expr,
                 .int_literal_overflows,
-                .expected_name,
+                .expected_name_after_let,
                 .expected_equal_after_name,
                 .invalid_assignment_target,
                 .expected_type,
                 .expected_token_after_condition,
+                .expected_name_after_fn,
+                .expected_left_paren_before_args,
+                .expected_right_paren_after_args,
+                .expected_colon_after_arg,
+                .expected_colon_after_args,
                 => {},
             }
         }
@@ -97,6 +107,10 @@ pub const Parser = struct {
     fn parseStmt(self: *Self) Error!*ParsedStmt {
         errdefer self.synchronize();
 
+        if (self.match(.@"fn", false)) |token| {
+            return try self.parseFnStmt(token.position);
+        }
+
         if (self.match(.let, false)) |token| {
             return try self.parseLetStmt(token.position);
         }
@@ -112,9 +126,52 @@ pub const Parser = struct {
         return try self.parseExprStmt(self.peek().position);
     }
 
+    fn parseFnStmt(self: *Self, position: Position) Error!*ParsedStmt {
+        const name_token = try self.consume(.identifier, .expected_name_after_fn);
+
+        if (!ascii.isLower(name_token.lexeme[0])) {
+            try self.addDiag(.{ .variable_name_not_lower_case = name_token.lexeme }, position);
+        }
+
+        var args = ArrayList(ParsedStmt.Kind.Fn.Arg).init(self.allocator);
+
+        _ = try self.consume(.left_paren, .expected_left_paren_before_args);
+
+        while (self.match(.identifier, true)) |identifier_token| {
+            _ = try self.consume(.colon, .expected_colon_after_arg);
+            const arg_type = try self.parseType();
+
+            try args.append(.{
+                .name = try self.allocator.dupe(u8, identifier_token.lexeme),
+                .type = arg_type,
+                .name_position = identifier_token.position,
+                .type_position = arg_type.position,
+            });
+
+            if (self.match(.comma, true) == null or self.peek().kind == .right_paren) {
+                break;
+            }
+        }
+
+        _ = try self.consume(.right_paren, .expected_right_paren_after_args);
+        _ = try self.consume(.colon, .expected_colon_after_args);
+
+        const return_type = try self.parseType();
+        const body, _ = try self.parseBlock(.end, position);
+
+        return ParsedStmt.Kind.Fn.create(
+            self.allocator,
+            name_token.lexeme,
+            args,
+            return_type,
+            body,
+            position,
+        );
+    }
+
     fn parseLetStmt(self: *Self, position: Position) Error!*ParsedStmt {
         const is_mutable = self.match(.mut, false) != null;
-        const name_token = try self.consume(.identifier, .expected_name);
+        const name_token = try self.consume(.identifier, .expected_name_after_let);
 
         if (!ascii.isLower(name_token.lexeme[0])) {
             try self.addDiag(.{ .variable_name_not_lower_case = name_token.lexeme }, position);
@@ -138,7 +195,7 @@ pub const Parser = struct {
     }
 
     fn parseType(self: *Self) Error!*ParsedType {
-        if (self.match(.identifier, false)) |token| {
+        if (self.match(.identifier, true)) |token| {
             return ParsedType.Kind.Identifier.create(
                 self.allocator,
                 token.lexeme,
@@ -146,10 +203,10 @@ pub const Parser = struct {
             );
         }
 
-        if (self.match(.invalid, false)) |token| {
+        if (self.match(.invalid, true)) |token| {
             try self.addDiag(.{ .invalid_token = token.lexeme }, token.position);
         } else {
-            try self.addDiag(.expected_expression, self.peek().position);
+            try self.addDiag(.expected_type, self.peek().position);
         }
 
         return error.ParseFailure;
@@ -397,7 +454,41 @@ pub const Parser = struct {
             );
         }
 
-        return try self.parsePrimary(ignore_new_line);
+        return try self.parseCall(ignore_new_line);
+    }
+
+    fn parseCall(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
+        var expr = try self.parsePrimary(ignore_new_line);
+
+        while (self.match(.left_paren, ignore_new_line)) |left_paren| {
+            var args = ArrayList(*ParsedExpr).init(self.allocator);
+
+            while (self.match(.right_paren, true) == null) {
+                try args.append(try self.parseExpr(true));
+
+                if (self.match(.comma, true) != null or
+                    self.peek().kind == .right_paren)
+                {
+                    continue;
+                }
+
+                try self.addDiag(
+                    .expected_right_paren_after_args,
+                    self.peek().position,
+                );
+
+                return error.ParseFailure;
+            }
+
+            expr = try ParsedExpr.Kind.Call.create(
+                self.allocator,
+                expr,
+                args,
+                left_paren.position,
+            );
+        }
+
+        return expr;
     }
 
     fn parsePrimary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
@@ -479,6 +570,10 @@ pub const Parser = struct {
 
         if (self.match(.@"continue", ignore_new_line)) |token| {
             return try self.parseContinue(token.position);
+        }
+
+        if (self.match(.@"return", ignore_new_line)) |token| {
+            return try self.parseReturn(token.position);
         }
 
         if (self.match(.invalid, ignore_new_line)) |token| {
@@ -632,6 +727,20 @@ pub const Parser = struct {
     fn parseContinue(self: *Self, position: Position) Error!*ParsedExpr {
         return try ParsedExpr.Kind.Continue.create(
             self.allocator,
+            position,
+        );
+    }
+
+    fn parseReturn(self: *Self, position: Position) Error!*ParsedExpr {
+        var right: ?*ParsedExpr = null;
+
+        if (self.matchStmtTerminator() == .none) {
+            right = try self.parseExpr(false);
+        }
+
+        return try ParsedExpr.Kind.Return.create(
+            self.allocator,
+            right,
             position,
         );
     }

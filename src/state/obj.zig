@@ -72,18 +72,20 @@ pub const Obj = struct {
 
     pub const Fn = struct {
         obj: Self,
-        arity: u8,
         name: ?*String,
+        locals_count: u8,
         chunk: Chunk,
 
         pub fn create(
             allocator: Allocator,
             vm_state: *VmState,
+            name: ?*String,
+            locals_count: u8,
         ) Error!*Fn {
             const fn_obj = (try Self.create(Fn, allocator, vm_state)).as(Fn);
 
-            fn_obj.arity = 0;
-            fn_obj.name = null;
+            fn_obj.name = name;
+            fn_obj.locals_count = locals_count;
             fn_obj.chunk = try Chunk.init(allocator);
 
             return fn_obj;

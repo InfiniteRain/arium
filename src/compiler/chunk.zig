@@ -76,6 +76,7 @@ pub const OpCode = enum(u8) {
 
     assert,
     print,
+    call,
     @"return",
     pop,
     _,

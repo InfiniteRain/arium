@@ -251,6 +251,49 @@ pub const ParsedExpr = struct {
             }
         };
 
+        pub const Return = struct {
+            right: ?*ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                right: ?*ParsedExpr,
+                position: Position,
+            ) Error!*Self {
+                return try createExpr(
+                    allocator,
+                    .{
+                        .@"return" = .{
+                            .right = right,
+                        },
+                    },
+                    position,
+                );
+            }
+        };
+
+        pub const Call = struct {
+            callee: *ParsedExpr,
+            args: ArrayList(*ParsedExpr),
+
+            pub fn create(
+                allocator: Allocator,
+                callee: *ParsedExpr,
+                args: ArrayList(*ParsedExpr),
+                position: Position,
+            ) Error!*Self {
+                return try createExpr(
+                    allocator,
+                    .{
+                        .call = .{
+                            .callee = callee,
+                            .args = args,
+                        },
+                    },
+                    position,
+                );
+            }
+        };
+
         fn createExpr(
             allocator: Allocator,
             kind: Kind,
@@ -276,6 +319,8 @@ pub const ParsedExpr = struct {
         @"for": For,
         @"break": Break,
         @"continue": Continue,
+        @"return": Return,
+        call: Call,
     };
 
     kind: Kind,
@@ -377,6 +422,42 @@ pub const ParsedStmt = struct {
             }
         };
 
+        pub const Fn = struct {
+            pub const Arg = struct {
+                name: []const u8,
+                type: *ParsedType,
+                name_position: Position,
+                type_position: Position,
+            };
+
+            name: []const u8,
+            args: ArrayList(Arg),
+            return_type: *ParsedType,
+            body: *ParsedExpr,
+
+            pub fn create(
+                allocator: Allocator,
+                name: []const u8,
+                args: ArrayList(Arg),
+                return_type: *ParsedType,
+                body: *ParsedExpr,
+                position: Position,
+            ) Error!*Self {
+                return try createStmt(
+                    allocator,
+                    .{
+                        .@"fn" = .{
+                            .name = try allocator.dupe(u8, name),
+                            .args = args,
+                            .return_type = return_type,
+                            .body = body,
+                        },
+                    },
+                    position,
+                );
+            }
+        };
+
         fn createStmt(
             allocator: Allocator,
             kind: Kind,
@@ -396,6 +477,7 @@ pub const ParsedStmt = struct {
         assert: Assert,
         expr: Expr,
         let: Let,
+        @"fn": Fn,
     };
 
     kind: Kind,

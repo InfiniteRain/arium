@@ -110,56 +110,64 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
     const Type = @TypeOf(field);
     const type_info = @typeInfo(Type);
 
-    switch (Type) {
-        ArrayList(*SemaStmt),
-        ArrayList(*const SemaStmt),
-        ArrayList(*ParsedStmt),
-        ArrayList(*const ParsedStmt),
-        => printArrayList(field, indent, writer),
+    if (comptime meta.isArrayList(Type)) {
+        printArrayList(field, indent, writer);
+        return;
+    }
 
-        []u8,
-        []const u8,
-        => writer.print(field),
+    if (type_info == .Pointer and type_info.Pointer.size == .One) {
+        switch (Type) {
+            *SemaExpr,
+            *const SemaExpr,
+            *SemaStmt,
+            *const SemaStmt,
+            *ParsedExpr,
+            *const ParsedExpr,
+            *ParsedStmt,
+            *const ParsedStmt,
+            => printAstNode(field, indent, writer),
 
-        *SemaExpr,
-        *const SemaExpr,
-        *SemaStmt,
-        *const SemaStmt,
-        *ParsedExpr,
-        *const ParsedExpr,
-        *ParsedStmt,
-        *const ParsedStmt,
-        => printAstNode(field, indent, writer),
-
-        else => switch (type_info) {
-            .Bool,
-            .Int,
-            => writer.printf("{}", .{field}),
-
-            .Float,
-            => writer.printf("{d}", .{field}),
-
-            .Union,
-            => printUnion(field, indent, false, null, writer),
-
-            .Struct,
-            => printStruct(field, indent, multiline, writer),
-
-            .Enum,
-            => printEnum(field, writer),
-
-            .Optional,
-            => if (field) |unwrapped| {
-                printField(unwrapped, indent, multiline, writer);
-            } else {
-                writer.print("null");
+            else => {
+                writer.print("*");
+                printField(field.*, indent, multiline, writer);
             },
+        }
+        return;
+    }
 
-            else => @panic(comptimePrint(
-                "no reporting is implemented for {s} / {s}",
-                .{ @typeName(Type), @tagName(type_info) },
-            )),
+    if (Type == []u8 or Type == []const u8) {
+        writer.print(field);
+        return;
+    }
+
+    switch (type_info) {
+        .Bool,
+        .Int,
+        => writer.printf("{}", .{field}),
+
+        .Float,
+        => writer.printf("{d}", .{field}),
+
+        .Union,
+        => printUnion(field, indent, false, null, writer),
+
+        .Struct,
+        => printStruct(field, indent, multiline, writer),
+
+        .Enum,
+        => printEnum(field, writer),
+
+        .Optional,
+        => if (field) |unwrapped| {
+            printField(unwrapped, indent, multiline, writer);
+        } else {
+            writer.print("null");
         },
+
+        else => @compileError(comptimePrint(
+            "no reporting is implemented for {s} / {s}",
+            .{ @typeName(Type), @tagName(type_info) },
+        )),
     }
 }
 
@@ -278,6 +286,11 @@ pub fn printEnum(
 }
 
 fn printArrayList(field: anytype, indent: Indent, writer: *const Writer) void {
+    if (field.items.len == 0) {
+        writer.print("[]");
+        return;
+    }
+
     writer.print("[\n");
 
     for (field.items, 0..) |item, index| {

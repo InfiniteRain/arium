@@ -19,6 +19,7 @@ const StringHashMap = std.StringHashMap;
 const assert = std.debug.assert;
 const meta = shared.meta;
 const SharedDiags = shared.Diags;
+const Writer = shared.Writer;
 const CallFrame = managed_memory_mod.CallFrame;
 const VmState = managed_memory_mod.VmState;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
@@ -92,7 +93,7 @@ pub const Compiler = struct {
     pub fn compile(
         memory: *ManagedMemory,
         arena_allocator: *ArenaAllocator,
-        sema_result: Sema.Result,
+        sema_fn: *const SemaStmt.Kind.Fn,
         diags: ?*Diags,
     ) Error!void {
         const managed_allocator = memory.allocator();
@@ -103,7 +104,7 @@ pub const Compiler = struct {
         vm_state.objs = null;
         vm_state.strings = StringHashMap(*Obj.String).init(managed_allocator);
         vm_state.stack = try Stack.init(managed_allocator);
-        vm_state.stack.top += sema_result.locals_count;
+        vm_state.stack.top += sema_fn.locals_count;
         vm_state.call_frames = BoundedArray(CallFrame, limits.max_frames)
             .init(0) catch unreachable;
 
@@ -117,47 +118,21 @@ pub const Compiler = struct {
             .fn_ctx = undefined,
         };
 
-        const @"fn" = try compiler.compileFn(
+        const @"fn" = try compiler.compileFnAux(
             &vm_state,
+            null,
             .script,
-            sema_result.block,
+            sema_fn.body,
+            sema_fn.locals_count,
         );
 
         vm_state.call_frames.append(.{
             .@"fn" = @"fn",
             .ip = @ptrCast(&@"fn".chunk.code.items[0]),
             .stack = @ptrCast(&vm_state.stack.items[0]),
-            .locals_count = sema_result.locals_count,
         }) catch unreachable;
 
         memory.vm_state = vm_state;
-    }
-
-    fn compileFn(
-        self: *Self,
-        vm_state: *VmState,
-        fn_kind: FnCtx.FnKind,
-        block: *const SemaExpr,
-    ) Error!*Obj.Fn {
-        const prev_fn_ctx = self.fn_ctx;
-        const @"fn" = try Obj.Fn.create(
-            self.managed_allocator,
-            vm_state,
-        );
-
-        self.fn_ctx = .{
-            .fn_kind = fn_kind,
-            .@"fn" = @"fn",
-            .break_jumps = undefined,
-            .loop_start = undefined,
-        };
-
-        try self.compileExpr(block, null, null);
-        try self.writeU8(.@"return", .{ .line = 0, .column = 0 });
-
-        self.fn_ctx = prev_fn_ctx;
-
-        return @"fn";
     }
 
     fn compileStmt(
@@ -169,6 +144,7 @@ pub const Compiler = struct {
             .print => |*print| try self.compilePrintStmt(print, stmt.position),
             .expr => |*expr| try self.compileExprStmt(expr),
             .let => |*let| if (let.expr) |expr| try self.compileVariableMutation(let.index, expr, stmt.position),
+            .@"fn" => |*@"fn"| try self.compileFn(@"fn", stmt.position),
         }
     }
 
@@ -200,12 +176,14 @@ pub const Compiler = struct {
     fn compileVariableMutation(
         self: *Self,
         index: usize,
-        expr: *const SemaExpr,
+        expr_opt: ?*const SemaExpr,
         position: Position,
     ) Error!void {
         const index_u8: u8 = @intCast(index);
 
-        try self.compileExpr(expr, null, null);
+        if (expr_opt) |expr| {
+            try self.compileExpr(expr, null, null);
+        }
 
         switch (index_u8) {
             0 => try self.writeU8(.store_local_0, position),
@@ -218,6 +196,66 @@ pub const Compiler = struct {
                 try self.writeU8(index_u8, position);
             },
         }
+    }
+
+    fn compileFn(
+        self: *Self,
+        @"fn": *const SemaStmt.Kind.Fn,
+        position: Position,
+    ) Error!void {
+        const fn_obj = try self.compileFnAux(
+            self.vm_state,
+            @"fn".name,
+            .@"fn",
+            @"fn".body,
+            @"fn".locals_count,
+        );
+
+        if (@"fn".index) |index| {
+            try self.writeConstant(.{ .obj = &fn_obj.obj }, position);
+            try self.compileVariableMutation(index, null, position);
+        }
+    }
+
+    fn compileFnAux(
+        self: *Self,
+        vm_state: *VmState,
+        name_opt: ?[]const u8,
+        fn_kind: FnCtx.FnKind,
+        block: *const SemaExpr,
+        locals_count: u8,
+    ) Error!*Obj.Fn {
+        const @"fn" = try Obj.Fn.create(
+            self.managed_allocator,
+            vm_state,
+            if (name_opt) |name|
+                try Obj.String.createFromCopied(
+                    self.managed_allocator,
+                    self.vm_state,
+                    name,
+                )
+            else
+                null,
+            locals_count,
+        );
+
+        {
+            const prev_fn_ctx = self.fn_ctx;
+
+            self.fn_ctx = .{
+                .fn_kind = fn_kind,
+                .@"fn" = @"fn",
+                .break_jumps = undefined,
+                .loop_start = undefined,
+            };
+            defer self.fn_ctx = prev_fn_ctx;
+
+            try self.compileExpr(block, null, null);
+            try self.writeU8(.constant_unit, .{});
+            try self.writeU8(.@"return", .{});
+        }
+
+        return @"fn";
     }
 
     fn compileExpr(
@@ -256,6 +294,8 @@ pub const Compiler = struct {
             .@"for" => |*@"for"| try self.compileForExpr(@"for", expr),
             .@"break" => |*@"break"| try self.compileBreakExpr(@"break", expr),
             .@"continue" => |*@"continue"| try self.compileContinueExpr(@"continue", expr),
+            .@"return" => |*@"return"| try self.compileReturnExpr(@"return", expr),
+            .call => |*call| try self.compileCallExpr(call, expr),
         }
     }
 
@@ -554,24 +594,28 @@ pub const Compiler = struct {
         @"for": *const SemaExpr.Kind.For,
         expr: *const SemaExpr,
     ) Error!void {
-        const last_break_jumps = self.fn_ctx.break_jumps;
-        const last_loop_start = self.fn_ctx.loop_start;
         var current_break_jumps = ArrayList(usize).init(self.unmanaged_allocator);
 
-        self.fn_ctx.break_jumps = &current_break_jumps;
-        self.fn_ctx.loop_start = self.fn_ctx.@"fn".chunk.code.items.len;
+        {
+            const prev_break_jumps = self.fn_ctx.break_jumps;
 
-        try self.compileExpr(@"for".condition, null, .{
-            .conditional_blocks = .{
-                .then = @"for".body_block,
-                .is_loop = true,
-            },
-        });
+            self.fn_ctx.break_jumps = &current_break_jumps;
+            defer self.fn_ctx.break_jumps = prev_break_jumps;
 
-        try self.patchJumps(current_break_jumps);
+            const prev_loop_start = self.fn_ctx.loop_start;
 
-        self.fn_ctx.loop_start = last_loop_start;
-        self.fn_ctx.break_jumps = last_break_jumps;
+            self.fn_ctx.loop_start = self.fn_ctx.@"fn".chunk.code.items.len;
+            defer self.fn_ctx.loop_start = prev_loop_start;
+
+            try self.compileExpr(@"for".condition, null, .{
+                .conditional_blocks = .{
+                    .then = @"for".body_block,
+                    .is_loop = true,
+                },
+            });
+
+            try self.patchJumps(current_break_jumps);
+        }
 
         if (expr.evals) {
             try self.writeU8(.constant_unit, expr.position);
@@ -601,6 +645,37 @@ pub const Compiler = struct {
         }
 
         try self.writeNegativeJump(self.fn_ctx.loop_start, expr.position);
+    }
+
+    fn compileReturnExpr(
+        self: *Self,
+        @"return": *const SemaExpr.Kind.Return,
+        expr: *const SemaExpr,
+    ) Error!void {
+        try self.compileExpr(@"return".right, null, null);
+        try self.writeU8(.@"return", expr.position);
+    }
+
+    fn compileCallExpr(
+        self: *Self,
+        call: *const SemaExpr.Kind.Call,
+        expr: *const SemaExpr,
+    ) Error!void {
+        try self.compileExpr(call.callee, null, null);
+
+        for (call.args.items) |arg| {
+            try self.compileExpr(arg, null, null);
+        }
+
+        _ = try self.writeU8(.call, expr.position);
+        _ = try self.writeU8(
+            @as(u8, @intCast(call.args.items.len)),
+            expr.position,
+        );
+
+        if (!expr.evals) {
+            _ = try self.writeU8(.pop, expr.position);
+        }
     }
 
     fn compileCondition(

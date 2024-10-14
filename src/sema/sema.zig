@@ -35,10 +35,11 @@ pub const Sema = struct {
     };
 
     pub const DiagEntry = struct {
-        pub const SemaTypeTuple = struct {
-            SemaType,
-            SemaType,
-        };
+        pub const SemaTypeTuple = struct { SemaType, SemaType };
+
+        pub const ArityMismatch = struct { u8, u8 };
+
+        pub const ArgTypeMismatch = struct { u8, SemaType, SemaType };
 
         pub const Kind = union(enum) {
             expected_expr_type: SemaType,
@@ -60,6 +61,11 @@ pub const Sema = struct {
             break_outside_loop,
             continue_outside_loop,
             unexpected_elseif_type: SemaTypeTuple,
+            unexpected_return_type: SemaTypeTuple,
+            not_callable,
+            arity_mismatch: ArityMismatch,
+            unexpected_arg_type: ArgTypeMismatch,
+            not_all_branches_return,
         };
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
@@ -72,20 +78,57 @@ pub const Sema = struct {
 
                 .expected_expr_type,
                 .unexpected_arithmetic_type,
-                .unexpected_operand_type,
-                .unexpected_concat_type,
-                .unexpected_equality_type,
                 .unexpected_comparison_type,
                 .unexpected_logical_type,
                 .unexpected_logical_negation_type,
                 .unexpected_arithmetic_negation_type,
-                .too_many_locals,
+                => |*sema_type| {
+                    deinitSemaType(allocator, sema_type);
+                },
+
+                .unexpected_operand_type,
+                .unexpected_concat_type,
+                .unexpected_equality_type,
                 .unexpected_assignment_type,
                 .unexpected_else_type,
+                .unexpected_elseif_type,
+                .unexpected_return_type,
+                => |*sema_types| {
+                    deinitSemaType(allocator, &sema_types[0]);
+                    deinitSemaType(allocator, &sema_types[1]);
+                },
+
+                .unexpected_arg_type,
+                => |*info| {
+                    deinitSemaType(allocator, &info[1]);
+                    deinitSemaType(allocator, &info[2]);
+                },
+
+                .too_many_locals,
                 .break_outside_loop,
                 .continue_outside_loop,
-                .unexpected_elseif_type,
+                .not_callable,
+                .arity_mismatch,
+                .not_all_branches_return,
                 => {},
+            }
+        }
+
+        fn deinitSemaType(allocator: Allocator, sema_type: *SemaType) void {
+            switch (sema_type.*) {
+                .unit,
+                .int,
+                .float,
+                .bool,
+                .string,
+                .invalid,
+                .never,
+                => {},
+
+                .@"fn" => |*@"fn"| {
+                    @"fn".arg_types.clearAndFree();
+                    allocator.destroy(@"fn".return_type);
+                },
             }
         }
 
@@ -97,7 +140,6 @@ pub const Sema = struct {
 
     const FnCtx = struct {
         const Scope = struct {
-            allocator: Allocator,
             prev: ?*Scope = null,
             types_map: StringHashMap(SemaType),
             locals_map: StringHashMap(usize),
@@ -105,7 +147,6 @@ pub const Sema = struct {
 
             fn init(allocator: Allocator, prev_opt: ?*Scope) Scope {
                 return .{
-                    .allocator = allocator,
                     .prev = prev_opt,
                     .types_map = StringHashMap(SemaType).init(allocator),
                     .locals_map = StringHashMap(usize).init(allocator),
@@ -120,21 +161,18 @@ pub const Sema = struct {
             is_assigned: bool,
         };
 
+        prev: ?*FnCtx = null,
         locals: ArrayList(Local) = undefined,
         current_scope: *Scope = undefined,
         is_in_loop: bool = false,
         break_pops: usize = 0,
-    };
-
-    pub const Result = struct {
-        block: *SemaExpr,
-        locals_count: u8,
+        return_type: SemaType,
     };
 
     allocator: Allocator,
     diags: ?*Diags = null,
     had_error: bool = false,
-    fn_ctx: FnCtx = undefined,
+    fn_ctx: *FnCtx = undefined,
 
     pub fn init(allocator: *ArenaAllocator) Self {
         return .{
@@ -146,33 +184,39 @@ pub const Sema = struct {
         self: *Self,
         block: *ParsedExpr,
         diags: ?*Diags,
-    ) Error!Result {
+    ) Error!*SemaStmt.Kind.Fn {
         self.diags = diags;
         self.had_error = false;
 
         var current_scope = FnCtx.Scope.init(self.allocator, null);
-
-        self.fn_ctx = .{
+        var fn_ctx = FnCtx{
             .locals = ArrayList(FnCtx.Local).init(self.allocator),
             .current_scope = &current_scope,
+            .return_type = .unit,
         };
+
+        self.fn_ctx = &fn_ctx;
 
         // todo: is this the best place for this?
         try self.fn_ctx.current_scope.types_map.put("Int", .int);
         try self.fn_ctx.current_scope.types_map.put("Float", .float);
         try self.fn_ctx.current_scope.types_map.put("Bool", .bool);
         try self.fn_ctx.current_scope.types_map.put("String", .string);
+        try self.fn_ctx.current_scope.types_map.put("Unit", .unit);
 
-        const sema_block = try self.analyzeExpr(block, false);
+        const sema_fn = try self.analyzeFnStmtAux(
+            "",
+            null,
+            null,
+            block,
+            .{},
+        );
 
         if (self.had_error) {
             return error.SemaFailure;
         }
 
-        return .{
-            .block = sema_block,
-            .locals_count = @intCast(self.fn_ctx.locals.items.len),
-        };
+        return &sema_fn.kind.@"fn";
     }
 
     fn analyzeStmt(self: *Self, stmt: *ParsedStmt, evals: bool) Error!*SemaStmt {
@@ -181,6 +225,7 @@ pub const Sema = struct {
             .print => |*print| try self.analyzePrintStmt(print, stmt.position),
             .expr => |*expr| try self.analyzeExprStmt(expr, stmt.position, evals),
             .let => |*let| try self.analyzeLetStmt(let, stmt.position),
+            .@"fn" => |*@"fn"| try self.analyzeFnStmt(@"fn", stmt.position),
         };
     }
 
@@ -295,9 +340,116 @@ pub const Sema = struct {
         );
     }
 
+    fn analyzeFnStmt(
+        self: *Self,
+        @"fn": *ParsedStmt.Kind.Fn,
+        position: Position,
+    ) Error!*SemaStmt {
+        return self.analyzeFnStmtAux(
+            @"fn".name,
+            @"fn".args,
+            @"fn".return_type,
+            @"fn".body,
+            position,
+        ) catch |err| {
+            if (err == error.SemaFailure) {
+                _ = try self.declareVariable(false, true, @"fn".name, .invalid);
+            }
+
+            return err;
+        };
+    }
+
+    fn analyzeFnStmtAux(
+        self: *Self,
+        name: []const u8,
+        args_opt: ?ArrayList(ParsedStmt.Kind.Fn.Arg),
+        parsed_return_type_opt: ?*ParsedType,
+        parsed_body: *ParsedExpr,
+        position: Position,
+    ) Error!*SemaStmt {
+        const return_type = if (parsed_return_type_opt) |parsed_return_type|
+            try self.analyzeType(parsed_return_type)
+        else
+            .unit;
+
+        var arg_types = ArrayList(SemaType).init(self.allocator);
+
+        if (args_opt) |args| {
+            for (args.items) |arg| {
+                try arg_types.append(try self.analyzeType(arg.type));
+            }
+        }
+
+        const fn_type = try SemaType.Fn.init(self.allocator, arg_types, return_type);
+        const prev_fn_ctx = self.fn_ctx;
+        var current_scope = FnCtx.Scope.init(self.allocator, null);
+        var fn_ctx = FnCtx{
+            .locals = ArrayList(FnCtx.Local).init(self.allocator),
+            .current_scope = &current_scope,
+            .return_type = return_type,
+            .prev = prev_fn_ctx,
+        };
+
+        var body: *SemaExpr = undefined;
+        var locals_count: u8 = undefined;
+
+        {
+            self.fn_ctx = &fn_ctx;
+            defer self.fn_ctx = prev_fn_ctx;
+
+            _ = try self.declareFn(name, fn_type);
+
+            if (args_opt) |args| {
+                for (args.items, arg_types.items) |arg, arg_type| {
+                    _ = try self.declareVariable(
+                        false,
+                        true,
+                        arg.name,
+                        arg_type,
+                    );
+                }
+            }
+
+            body = try self.analyzeExpr(parsed_body, false);
+
+            if (return_type != .unit) {
+                var has_never = false;
+
+                for (body.kind.block.stmts.items) |stmt| {
+                    if (isNeverStmt(stmt)) {
+                        has_never = true;
+                        break;
+                    }
+                }
+
+                if (!has_never) {
+                    return self.semaFailure(position, .not_all_branches_return);
+                }
+            }
+
+            locals_count = @intCast(self.fn_ctx.locals.items.len);
+        }
+
+        const index = if (name.len > 0)
+            try self.declareFn(name, fn_type)
+        else
+            null;
+
+        return try SemaStmt.Kind.Fn.create(
+            self.allocator,
+            name,
+            index,
+            @intCast(locals_count),
+            body,
+            position,
+        );
+    }
+
     fn analyzeType(self: *Self, parsed_type: *ParsedType) Error!SemaType {
         return switch (parsed_type.kind) {
-            .identifier => |identifier| try self.analyzeIdentifierType(identifier, parsed_type.position),
+            .identifier,
+            => |identifier| try self.analyzeIdentifierType(identifier, parsed_type.position),
         };
     }
 
@@ -326,6 +478,8 @@ pub const Sema = struct {
             .@"for" => |*@"for"| try self.analyzeForExpr(@"for", expr.position, evals),
             .@"break" => try self.analyzeBreakExpr(expr.position, evals),
             .@"continue" => try self.analyzeContinueExpr(expr.position, evals),
+            .@"return" => |*@"return"| try self.analyzeReturnExpr(@"return", expr.position, evals),
+            .call => |*call| try self.analyzeCallExpr(call, expr.position, evals),
         };
 
         return sema_expr;
@@ -728,7 +882,7 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        return self.analyzeIfElseExpr(
+        return self.analyzeIfAux(
             @"if".conditional_block,
             @"if".elseif_blocks.items[0..],
             @"if".else_block,
@@ -738,7 +892,7 @@ pub const Sema = struct {
         );
     }
 
-    fn analyzeIfElseExpr(
+    fn analyzeIfAux(
         self: *Self,
         conditional_block: ParsedExpr.Kind.If.ConditionalBlock,
         elseif_blocks: []ParsedExpr.Kind.If.ConditionalBlock,
@@ -784,7 +938,7 @@ pub const Sema = struct {
         }
 
         const else_block = if (elseif_blocks.len > 0)
-            try self.analyzeIfElseExpr(
+            try self.analyzeIfAux(
                 elseif_blocks[0],
                 elseif_blocks[1..],
                 else_block_opt,
@@ -861,28 +1015,35 @@ pub const Sema = struct {
         position: Position,
         evals: bool,
     ) Error!*SemaExpr {
-        const prev_pops = self.fn_ctx.break_pops;
-        self.fn_ctx.break_pops = 0;
+        var condition: *SemaExpr = undefined;
+        var body_block: *SemaExpr = undefined;
 
-        const condition = try self.analyzeCondition(
-            if (@"for".condition) |condition|
-                condition
-            else
-                try ParsedExpr.Kind.Literal.create(
-                    self.allocator,
-                    .{ .bool = true },
-                    position,
-                ),
-        );
+        {
+            const prev_pops = self.fn_ctx.break_pops;
 
-        const prev_is_in_loop = self.fn_ctx.is_in_loop;
+            self.fn_ctx.break_pops = 0;
+            defer self.fn_ctx.break_pops = prev_pops;
 
-        self.fn_ctx.is_in_loop = true;
+            condition = try self.analyzeCondition(
+                if (@"for".condition) |unwrapped|
+                    unwrapped
+                else
+                    try ParsedExpr.Kind.Literal.create(
+                        self.allocator,
+                        .{ .bool = true },
+                        position,
+                    ),
+            );
 
-        const body_block = try self.analyzeExpr(@"for".body_block, false);
+            {
+                const prev_is_in_loop = self.fn_ctx.is_in_loop;
 
-        self.fn_ctx.is_in_loop = prev_is_in_loop;
-        self.fn_ctx.break_pops = prev_pops;
+                self.fn_ctx.is_in_loop = true;
+                defer self.fn_ctx.is_in_loop = prev_is_in_loop;
+
+                body_block = try self.analyzeExpr(@"for".body_block, false);
+            }
+        }
 
         return try SemaExpr.Kind.For.create(
             self.allocator,
@@ -933,18 +1094,131 @@ pub const Sema = struct {
         );
     }
 
+    fn analyzeReturnExpr(
+        self: *Self,
+        @"return": *const ParsedExpr.Kind.Return,
+        position: Position,
+        evals: bool,
+    ) Error!*SemaExpr {
+        const sema_right: *SemaExpr = if (@"return".right) |right|
+            self.analyzeExpr(right, true) catch |err| switch (err) {
+                error.SemaFailure => return try SemaExpr.Kind.Return.create(
+                    self.allocator,
+                    try self.unitLiteral(position, evals),
+                    evals,
+                    position,
+                ),
+                else => return err,
+            }
+        else
+            try self.unitLiteral(position, true);
+
+        if (!typeSatisfies(sema_right.sema_type, self.fn_ctx.return_type)) {
+            try self.addDiag(
+                position,
+                .{
+                    .unexpected_return_type = .{
+                        self.fn_ctx.return_type,
+                        sema_right.sema_type,
+                    },
+                },
+            );
+        }
+
+        return try SemaExpr.Kind.Return.create(
+            self.allocator,
+            sema_right,
+            evals,
+            position,
+        );
+    }
+
+    fn analyzeCallExpr(
+        self: *Self,
+        call: *const ParsedExpr.Kind.Call,
+        position: Position,
+        evals: bool,
+    ) Error!*SemaExpr {
+        const callee = try self.analyzeExpr(call.callee, true);
+
+        if (callee.sema_type == .invalid) {
+            return SemaExpr.Kind.Call.create(
+                self.allocator,
+                callee,
+                ArrayList(*SemaExpr).init(self.allocator),
+                .invalid,
+                evals,
+                position,
+            );
+        }
+
+        if (callee.sema_type != .@"fn") {
+            return self.semaFailure(position, .not_callable);
+        }
+
+        const arg_types = callee.sema_type.@"fn".arg_types;
+
+        if (arg_types.items.len != call.args.items.len) {
+            return self.semaFailure(
+                position,
+                .{
+                    .arity_mismatch = .{
+                        @intCast(arg_types.items.len),
+                        @intCast(call.args.items.len),
+                    },
+                },
+            );
+        }
+
+        var sema_args = ArrayList(*SemaExpr).init(self.allocator);
+
+        for (arg_types.items, call.args.items, 1..) |arg_type, arg, index| {
+            const arg_expr = try self.analyzeExpr(arg, true);
+
+            if (!typeSatisfies(arg_expr.sema_type, arg_type)) {
+                return self.semaFailure(
+                    arg.position,
+                    .{
+                        .unexpected_arg_type = .{
+                            @intCast(index),
+                            arg_type,
+                            arg_expr.sema_type,
+                        },
+                    },
+                );
+            }
+
+            try sema_args.append(arg_expr);
+        }
+
+        return SemaExpr.Kind.Call.create(
+            self.allocator,
+            callee,
+            sema_args,
+            callee.sema_type.@"fn".return_type.*,
+            evals,
+            position,
+        );
+    }
+
     fn getType(
         self: *Self,
         name: []const u8,
     ) ?SemaType {
-        var current_scope: ?*FnCtx.Scope = self.fn_ctx.current_scope;
+        var current_fn_ctx: ?*FnCtx = self.fn_ctx;
 
-        while (current_scope) |scope| {
-            if (scope.types_map.get(name)) |sema_type| {
-                return sema_type;
+        while (current_fn_ctx) |fn_ctx| {
+            var current_scope: ?*FnCtx.Scope = fn_ctx.current_scope;
+
+            while (current_scope) |scope| {
+                if (scope.types_map.get(name)) |sema_type| {
+                    return sema_type;
+                }
+
+                current_scope = scope.prev;
             }
 
-            current_scope = scope.prev;
+            current_fn_ctx = fn_ctx.prev;
         }
 
         return null;
@@ -956,7 +1230,7 @@ pub const Sema = struct {
         is_assigned: bool,
         name: []const u8,
         sema_type: ?SemaType,
-    ) error{OutOfMemory}!usize {
+    ) Allocator.Error!usize {
         const scope = self.fn_ctx.current_scope;
         const local: FnCtx.Local = .{
             .sema_type = sema_type,
@@ -974,6 +1248,19 @@ pub const Sema = struct {
         scope.locals_top += 1;
 
         return scope.locals_top - 1;
+    }
+
+    fn declareFn(
+        self: *Self,
+        name: []const u8,
+        sema_type: ?SemaType,
+    ) Allocator.Error!usize {
+        return try self.declareVariable(
+            false,
+            true,
+            name,
+            sema_type,
+        );
     }
 
     fn getVariable(
@@ -996,12 +1283,16 @@ pub const Sema = struct {
     fn unitStmt(self: *Self, position: Position, evals: bool) Error!*SemaStmt {
         return try SemaStmt.Kind.Expr.create(
             self.allocator,
-            try SemaExpr.Kind.Literal.create(
-                self.allocator,
-                .unit,
-                evals,
-                position,
-            ),
+            try self.unitLiteral(position, evals),
+            position,
+        );
+    }
+
+    fn unitLiteral(self: *Self, position: Position, evals: bool) Error!*SemaExpr {
+        return try SemaExpr.Kind.Literal.create(
+            self.allocator,
+            .unit,
+            evals,
             position,
         );
     }
@@ -1052,6 +1343,10 @@ pub const Sema = struct {
                     .{
                         DiagEntry.Kind,
                         DiagEntry.SemaTypeTuple,
+                        DiagEntry.ArityMismatch,
+                        DiagEntry.ArgTypeMismatch,
+                        SemaType,
+                        SemaType.Fn,
                     },
                 ),
                 .position = position,
@@ -1068,7 +1363,41 @@ pub const Sema = struct {
             return true;
         }
 
-        return sema_type == target;
+        switch (sema_type) {
+            .unit,
+            .int,
+            .float,
+            .bool,
+            .string,
+            .invalid,
+            .never,
+            => return @intFromEnum(sema_type) == @intFromEnum(target),
+
+            .@"fn" => |@"fn"| {
+                if (target != .@"fn") {
+                    return false;
+                }
+
+                if (!typeSatisfies(@"fn".return_type.*, target.@"fn".return_type.*)) {
+                    return false;
+                }
+
+                if (@"fn".arg_types.items.len != target.@"fn".arg_types.items.len) {
+                    return false;
+                }
+
+                for (
+                    @"fn".arg_types.items,
+                    target.@"fn".arg_types.items,
+                ) |type_arg, target_arg| {
+                    if (!typeSatisfies(type_arg, target_arg)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+        }
     }
 
     fn isBranching(expr: *SemaExpr) bool {
@@ -1116,6 +1445,7 @@ pub const Sema = struct {
             .print => |print| print.expr.sema_type == .never,
             .expr => |expr| expr.expr.sema_type == .never,
             .let => |let| let.expr != null and let.expr.?.sema_type == .never,
+            .@"fn" => false,
         };
     }
 
@@ -1194,6 +1524,7 @@ pub const Sema = struct {
             },
 
             .unit,
+            .@"fn",
             .invalid,
             .never,
             => unreachable,
@@ -1229,6 +1560,7 @@ pub const Sema = struct {
 
             .string,
             .unit,
+            .@"fn",
             .never,
             .invalid,
             => unreachable,

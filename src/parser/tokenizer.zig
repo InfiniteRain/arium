@@ -27,11 +27,13 @@ const token_trie = generateTrie(.{
     .{ "for", .@"for" },
     .{ "break", .@"break" },
     .{ "continue", .@"continue" },
+    .{ "fn", .@"fn" },
+    .{ "return", .@"return" },
 });
 
 pub const Position = struct {
-    line: u64,
-    column: u64,
+    line: u64 = 0,
+    column: u64 = 0,
 };
 
 pub const Token = struct {
@@ -66,8 +68,11 @@ pub const Token = struct {
         @"or",
         do,
         end,
+
         mut,
         let,
+        @"fn",
+        @"return",
 
         assert,
         print,
@@ -82,6 +87,7 @@ pub const Token = struct {
         new_line,
         colon,
         semicolon,
+        comma,
         comment,
         eof,
         invalid,
@@ -145,6 +151,7 @@ pub const Tokenizer = struct {
             '"' => self.string(),
             ';' => self.makeToken(.semicolon),
             ':' => self.makeToken(.colon),
+            ',' => self.makeToken(.comma),
             '\n' => makeNewLineToken(old_line, old_column),
             else => {
                 if (Self.isAlpha(char)) {

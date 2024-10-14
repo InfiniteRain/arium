@@ -25,7 +25,10 @@ const ReportableTypes = .{
     Parser.DiagEntry.Kind,
     Sema.DiagEntry,
     Sema.DiagEntry.Kind,
+    Sema.DiagEntry.ArityMismatch,
+    Sema.DiagEntry.ArgTypeMismatch,
     SemaType,
+    SemaType.Fn,
     Sema.DiagEntry.SemaTypeTuple,
     Compiler.DiagEntry,
     Compiler.DiagEntry.Kind,
@@ -116,9 +119,9 @@ pub fn reportErrParserMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected parser error(s).\nExpected:\n");
-    reportValue(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportErrSemaMismatch(
@@ -126,9 +129,9 @@ pub fn reportErrSemaMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected sema error(s).\nExpected:\n");
-    reportValue(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportErrCompilerMismatch(
@@ -136,9 +139,9 @@ pub fn reportErrCompilerMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected compiler error.\nExpected:\n");
-    reportValue(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportErrVmMismatch(
@@ -146,9 +149,9 @@ pub fn reportErrVmMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected vm error.\nExpected:\n");
-    reportValue(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, writer);
     writer.print("\nActual:\n");
-    reportValue(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(mismatch.actual.entries, 0, writer);
 }
 
 pub fn reportOutMismatch(
@@ -161,9 +164,26 @@ pub fn reportOutMismatch(
     });
 }
 
-pub fn reportValue(
+fn reportValueMultiline(
     value: anytype,
     indent: u8,
+    writer: *const Writer,
+) void {
+    reportValueAux(value, indent, true, writer);
+}
+
+fn reportValue(
+    value: anytype,
+    indent: u8,
+    writer: *const Writer,
+) void {
+    reportValueAux(value, indent, false, writer);
+}
+
+fn reportValueAux(
+    value: anytype,
+    indent: u8,
+    multiline: bool,
     writer: *const Writer,
 ) void {
     const Type = @TypeOf(value);
@@ -182,7 +202,13 @@ pub fn reportValue(
     }
 
     if (comptime meta.isArrayList(Type)) {
-        reportArrayList(value, indent, writer);
+        reportArrayList(value, indent + 1, multiline, writer);
+        return;
+    }
+
+    if (type_info == .Pointer and type_info.Pointer.size == .One) {
+        writer.print("*");
+        reportValue(value.*, indent, writer);
         return;
     }
 
@@ -270,22 +296,35 @@ pub fn reportEnum(value: anytype, writer: *const Writer) void {
 pub fn reportArrayList(
     value: anytype,
     indent: u8,
+    multiline: bool,
     writer: *const Writer,
 ) void {
-    writeIndent(indent, writer);
-    writer.print("[\n");
+    writer.print("[");
+
+    if (multiline) {
+        writer.print("\n");
+    }
 
     for (value.items, 0..) |item, index| {
-        writeIndent(indent + 1, writer);
+        if (multiline) {
+            writeIndent(indent, writer);
+        }
+
         reportValue(item, indent, writer);
 
         if (index != value.items.len - 1) {
             writer.print(",");
         }
-        writer.print("\n");
+
+        if (multiline) {
+            writer.print("\n");
+        }
     }
 
-    writeIndent(indent, writer);
+    if (indent > 1 and multiline) {
+        writeIndent(indent - 1, writer);
+    }
+
     writer.print("]");
 }
 

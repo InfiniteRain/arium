@@ -100,7 +100,10 @@ pub const Config = struct {
         Token.Kind,
         Sema.DiagEntry.Kind,
         Sema.DiagEntry.SemaTypeTuple,
+        Sema.DiagEntry.ArityMismatch,
+        Sema.DiagEntry.ArgTypeMismatch,
         SemaType,
+        SemaType.Fn,
         Compiler.DiagEntry.Kind,
         Vm.DiagEntry.Kind,
     };
@@ -266,7 +269,7 @@ pub const Config = struct {
             .kind = diag,
             .position = .{
                 .line = line,
-                .column = 0, // not part of the check for now
+                // column is not part of the check for now
             },
         });
     }
@@ -284,6 +287,10 @@ pub const Config = struct {
 
         if (comptime meta.isArrayList(T)) {
             return try parseArrayList(T, ctx);
+        }
+
+        if (type_info == .Pointer and type_info.Pointer.size == .One) {
+            return try parseOne(T, ctx);
         }
 
         switch (type_info) {
@@ -314,19 +321,15 @@ pub const Config = struct {
             },
 
             .Struct,
-            => |@"struct"| {
-                if (!@"struct".is_tuple) {
-                    @compileError("can't parse non-tuple structs");
-                }
-
+            => {
                 if (!comptime meta.typeInTuple(T, ParsableTypes)) {
                     @compileError(comptimePrint(
-                        "tuple {s} isn't marked as parsable",
+                        "stuct {s} isn't marked as parsable",
                         .{type_name},
                     ));
                 }
 
-                return try parseTuple(T, ctx);
+                return try parseStruct(T, ctx);
             },
 
             else => @compileError(comptimePrint(
@@ -336,7 +339,17 @@ pub const Config = struct {
         }
     }
 
-    fn parseTuple(T: type, ctx: *DirectiveCtx) DirectiveError!T {
+    fn parseOne(T: type, ctx: *DirectiveCtx) DirectiveError!T {
+        const type_info = @typeInfo(T);
+        const ChildType = type_info.Pointer.child;
+        const new_instance = try ctx.allocator.create(ChildType);
+
+        new_instance.* = try parseType(ChildType, ctx);
+
+        return new_instance;
+    }
+
+    fn parseStruct(T: type, ctx: *DirectiveCtx) DirectiveError!T {
         const type_info = @typeInfo(T);
         var tuple: T = undefined;
 
@@ -401,6 +414,10 @@ pub const Config = struct {
         const parent_split_iter = ctx.split_iter;
 
         while (split_iter.next()) |segment| {
+            if (segment.len == 0) {
+                continue;
+            }
+
             var inner_split_iter = std.mem.splitScalar(u8, segment, ' ');
 
             ctx.split_iter = &inner_split_iter;

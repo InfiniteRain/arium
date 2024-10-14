@@ -179,6 +179,7 @@ pub fn reportInstruction(
 
         .store_local,
         .load_local,
+        .call,
         => reportByteInstruction(chunk, writer, offset),
 
         _ => @panic("unknown instruction"),

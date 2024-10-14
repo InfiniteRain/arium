@@ -21,7 +21,6 @@ pub const CallFrame = struct {
     @"fn": *Obj.Fn,
     ip: [*]u8,
     stack: [*]Value,
-    locals_count: u8,
 };
 
 pub const VmState = struct {
