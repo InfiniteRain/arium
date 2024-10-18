@@ -3,45 +3,84 @@ const value_mod = @import("value.zig");
 const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const Value = value_mod.Value;
 
 pub const Stack = struct {
     const Self = @This();
 
-    const Error = error{OutOfMemory};
+    const Error = error{
+        StackOverflow,
+    } || Allocator.Error;
 
     allocator: Allocator,
-    items: []Value,
-    top: [*]Value,
+    values: ArrayList(Value),
+    top: u32,
 
-    pub fn init(allocator: Allocator) Error!Self {
-        const items = try allocator.alloc(Value, limits.max_stack);
+    pub fn init(allocator: Allocator, capacity: u32) Allocator.Error!Self {
+        var values = ArrayList(Value).init(allocator);
+        try values.resize(capacity);
 
         return .{
             .allocator = allocator,
-            .items = items,
-            .top = @ptrCast(&items[0]),
+            .values = values,
+            .top = capacity,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.allocator.free(self.items);
+        self.values.clearAndFree();
     }
 
-    pub fn push(self: *Self, value: Value) void {
-        self.top[0] = value;
+    pub fn push(self: *Self, value: Value) Error!void {
+        if (self.top == self.values.items.len) {
+            if (self.top + 1 > limits.max_stack) {
+                return error.StackOverflow;
+            }
+
+            try self.values.append(value);
+        } else {
+            self.values.items[self.top] = value;
+        }
+
         self.top += 1;
     }
 
     pub fn pop(self: *Self) Value {
-        assert(self.top != @as([*]Value, @ptrCast(&self.items[0])));
+        assert(self.top != 0);
 
         self.top -= 1;
-        return self.top[0];
+        return self.values.items[self.top];
     }
 
-    pub fn peek(self: *const Self, distance: usize) Value {
-        return (self.top - 1 - distance)[0];
+    pub fn peek(self: *const Self, distance: u32) Value {
+        return self.values.items[self.top - 1 - distance];
+    }
+
+    pub fn increaseTop(self: *Self, distance: u32) Error!void {
+        const new_capacity = self.top + distance;
+
+        if (new_capacity > limits.max_stack) {
+            return error.StackOverflow;
+        }
+
+        if (new_capacity > self.values.items.len) {
+            try self.values.resize(new_capacity);
+        }
+
+        self.top += distance;
+    }
+
+    pub fn decreaseTop(self: *Self, distance: u32) void {
+        self.top -= distance;
+    }
+
+    pub fn getAt(self: *Self, index: u32) Value {
+        return self.values.items[index];
+    }
+
+    pub fn setAt(self: *Self, index: u32, value: Value) void {
+        self.values.items[index] = value;
     }
 };

@@ -10,6 +10,7 @@ const value_reporter = @import("../reporter/value_reporter.zig");
 const debug_reporter = @import("../reporter/debug_reporter.zig");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
 const SharedDiags = shared.Diags;
@@ -36,6 +37,7 @@ pub const Vm = struct {
     pub const DiagEntry = struct {
         pub const Kind = enum {
             assertion_fail,
+            stack_overflow,
         };
 
         kind: Kind,
@@ -78,286 +80,415 @@ pub const Vm = struct {
             .diags = diags,
         };
 
-        try vm.run();
+        const should_trace_execution =
+            config.debugExecutionIteration != null and
+            config.debug_writer != null;
+
+        if (should_trace_execution) {
+            try vm.run(true);
+        } else {
+            try vm.run(false);
+        }
     }
 
-    fn run(self: *Self) Error!void {
-        var frame = self.getCallFrame();
+    fn run(self: *Self, comptime trace_execution: bool) Error!void {
+        var frames = ArrayList(CallFrame).init(self.allocator);
+        defer frames.clearAndFree();
+
+        try frames.append(.{
+            .ip = 0,
+            .stack_bottom = 0,
+        });
+
+        var stack = try Stack.init(
+            self.allocator,
+            self.state.@"fn".locals_count,
+        );
+        defer stack.deinit();
+
+        stack.setAt(0, .{ .obj = &self.state.@"fn".obj });
+
+        self.state.stack = &stack;
+        defer self.state.stack = null;
+
+        var frame, var @"fn" = getCallFrame(&stack, &frames);
 
         while (true) {
-            const ip_offset = getOffset(frame);
+            const inst_ip = frame.ip;
 
-            // todo: extract it so that the check isnt executed every cycle
-            if (self.config.debugExecutionIteration != null and
-                self.config.debug_writer != null)
-            {
+            if (trace_execution) {
                 const callback = self.config.debugExecutionIteration.?;
                 const writer = self.config.debug_writer.?;
-                const vm_state = self.memory.vm_state.?;
-                const stack = vm_state.stack;
-                const end = (@intFromPtr(stack.top) - @intFromPtr(frame.stack)) / @sizeOf(Value);
-                const values = frame.stack[frame.@"fn".locals_count..end];
 
-                callback(writer, values, &frame.@"fn".chunk, ip_offset);
+                callback(
+                    writer,
+                    stack.values.items[frame.stack_bottom +
+                        @"fn".locals_count .. stack.top],
+                    &@"fn".chunk,
+                    inst_ip,
+                );
             }
 
-            const op_code = readOpCode(frame);
+            const op_code = readOpCode(frame, @"fn");
 
             switch (op_code) {
-                .constant => {
-                    const index = readU8(frame);
-                    self.push(chunk(frame).constants.items[index]);
+                .constant,
+                => {
+                    const index = readU8(frame, @"fn");
+                    try self.push(
+                        &stack,
+                        &frames,
+                        @"fn".chunk.constants.items[index],
+                    );
                 },
-                .constant_unit => self.push(.unit),
-                .constant_bool_false => self.push(.{ .bool = false }),
-                .constant_bool_true => self.push(.{ .bool = true }),
-                .constant_int_n1 => self.push(.{ .int = -1 }),
-                .constant_int_0 => self.push(.{ .int = 0 }),
-                .constant_int_1 => self.push(.{ .int = 1 }),
-                .constant_int_2 => self.push(.{ .int = 2 }),
-                .constant_int_3 => self.push(.{ .int = 3 }),
-                .constant_int_4 => self.push(.{ .int = 4 }),
-                .constant_int_5 => self.push(.{ .int = 5 }),
-                .constant_float_0 => self.push(.{ .float = 0 }),
-                .constant_float_1 => self.push(.{ .float = 1 }),
-                .constant_float_2 => self.push(.{ .float = 2 }),
+
+                .constant_unit,
+                => try self.push(&stack, &frames, .unit),
+
+                .constant_bool_false,
+                => try self.push(&stack, &frames, .{ .bool = false }),
+
+                .constant_bool_true,
+                => try self.push(&stack, &frames, .{ .bool = true }),
+
+                .constant_int_n1,
+                => try self.push(&stack, &frames, .{ .int = -1 }),
+
+                .constant_int_0,
+                => try self.push(&stack, &frames, .{ .int = 0 }),
+
+                .constant_int_1,
+                => try self.push(&stack, &frames, .{ .int = 1 }),
+
+                .constant_int_2,
+                => try self.push(&stack, &frames, .{ .int = 2 }),
+
+                .constant_int_3,
+                => try self.push(&stack, &frames, .{ .int = 3 }),
+
+                .constant_int_4,
+                => try self.push(&stack, &frames, .{ .int = 4 }),
+
+                .constant_int_5,
+                => try self.push(&stack, &frames, .{ .int = 5 }),
+
+                .constant_float_0,
+                => try self.push(&stack, &frames, .{ .float = 0 }),
+
+                .constant_float_1,
+                => try self.push(&stack, &frames, .{ .float = 1 }),
+
+                .constant_float_2,
+                => try self.push(&stack, &frames, .{ .float = 2 }),
 
                 .store_local => {
-                    const index = readU8(frame);
-                    const a = self.pop();
+                    const index = readU8(frame, @"fn");
+                    const a = pop(&stack);
 
-                    storeLocal(frame, index, a);
+                    storeLocal(&stack, frame, index, a);
                 },
-                .store_local_0 => storeLocal(frame, 0, self.pop()),
-                .store_local_1 => storeLocal(frame, 1, self.pop()),
-                .store_local_2 => storeLocal(frame, 2, self.pop()),
-                .store_local_3 => storeLocal(frame, 3, self.pop()),
-                .store_local_4 => storeLocal(frame, 4, self.pop()),
+
+                .store_local_0,
+                => storeLocal(&stack, frame, 0, pop(&stack)),
+
+                .store_local_1,
+                => storeLocal(&stack, frame, 1, pop(&stack)),
+
+                .store_local_2,
+                => storeLocal(&stack, frame, 2, pop(&stack)),
+
+                .store_local_3,
+                => storeLocal(&stack, frame, 3, pop(&stack)),
+
+                .store_local_4,
+                => storeLocal(&stack, frame, 4, pop(&stack)),
+
                 .load_local => {
-                    const index = readU8(frame);
-                    const value = loadLocal(frame, index);
+                    const index = readU8(frame, @"fn");
+                    const value = loadLocal(&stack, frame, index);
 
-                    self.push(value);
+                    try self.push(&stack, &frames, value);
                 },
-                .load_local_0 => self.push(loadLocal(frame, 0)),
-                .load_local_1 => self.push(loadLocal(frame, 1)),
-                .load_local_2 => self.push(loadLocal(frame, 2)),
-                .load_local_3 => self.push(loadLocal(frame, 3)),
-                .load_local_4 => self.push(loadLocal(frame, 4)),
 
-                .negate_bool => self.push(.{ .bool = !self.pop().bool }),
-                .negate_int => self.push(.{ .int = -self.pop().int }),
-                .negate_float => self.push(.{ .float = -self.pop().float }),
+                .load_local_0,
+                => try self.push(&stack, &frames, loadLocal(&stack, frame, 0)),
+
+                .load_local_1,
+                => try self.push(&stack, &frames, loadLocal(&stack, frame, 1)),
+
+                .load_local_2,
+                => try self.push(&stack, &frames, loadLocal(&stack, frame, 2)),
+
+                .load_local_3,
+                => try self.push(&stack, &frames, loadLocal(&stack, frame, 3)),
+
+                .load_local_4,
+                => try self.push(&stack, &frames, loadLocal(&stack, frame, 4)),
+
+                .negate_bool,
+                => try self.push(
+                    &stack,
+                    &frames,
+                    .{ .bool = !pop(&stack).bool },
+                ),
+
+                .negate_int,
+                => try self.push(
+                    &stack,
+                    &frames,
+                    .{ .int = -pop(&stack).int },
+                ),
+
+                .negate_float,
+                => try self.push(
+                    &stack,
+                    &frames,
+                    .{ .float = -pop(&stack).float },
+                ),
+
                 .add_int => {
-                    const b = self.pop().int;
-                    const a = self.pop().int;
+                    const b = pop(&stack).int;
+                    const a = pop(&stack).int;
 
-                    self.push(.{ .int = a + b });
+                    try self.push(&stack, &frames, .{ .int = a + b });
                 },
+
                 .add_float => {
-                    const b = self.pop().float;
-                    const a = self.pop().float;
+                    const b = pop(&stack).float;
+                    const a = pop(&stack).float;
 
-                    self.push(.{ .float = a + b });
+                    try self.push(&stack, &frames, .{ .float = a + b });
                 },
+
                 .subtract_int => {
-                    const b = self.pop().int;
-                    const a = self.pop().int;
+                    const b = pop(&stack).int;
+                    const a = pop(&stack).int;
 
-                    self.push(.{ .int = a - b });
+                    try self.push(&stack, &frames, .{ .int = a - b });
                 },
+
                 .subtract_float => {
-                    const b = self.pop().float;
-                    const a = self.pop().float;
+                    const b = pop(&stack).float;
+                    const a = pop(&stack).float;
 
-                    self.push(.{ .float = a - b });
+                    try self.push(&stack, &frames, .{ .float = a - b });
                 },
+
                 .multiply_int => {
-                    const b = self.pop().int;
-                    const a = self.pop().int;
+                    const b = pop(&stack).int;
+                    const a = pop(&stack).int;
 
-                    self.push(.{ .int = a * b });
+                    try self.push(&stack, &frames, .{ .int = a * b });
                 },
+
                 .multiply_float => {
-                    const b = self.pop().float;
-                    const a = self.pop().float;
+                    const b = pop(&stack).float;
+                    const a = pop(&stack).float;
 
-                    self.push(.{ .float = a * b });
+                    try self.push(&stack, &frames, .{ .float = a * b });
                 },
+
                 .divide_int => {
-                    const b = self.pop().int;
-                    const a = self.pop().int;
+                    const b = pop(&stack).int;
+                    const a = pop(&stack).int;
 
-                    self.push(.{ .int = @divFloor(a, b) });
+                    try self.push(&stack, &frames, .{ .int = @divFloor(a, b) });
                 },
+
                 .divide_float => {
-                    const b = self.pop().float;
-                    const a = self.pop().float;
+                    const b = pop(&stack).float;
+                    const a = pop(&stack).float;
 
-                    self.push(.{ .float = a / b });
+                    try self.push(&stack, &frames, .{ .float = a / b });
                 },
 
-                .concat => try self.concat(),
+                .concat => try self.concat(&stack, &frames),
 
                 .compare_int => {
-                    const b = self.pop().int;
-                    const a = self.pop().int;
+                    const b = pop(&stack).int;
+                    const a = pop(&stack).int;
 
-                    self.push(.{ .int = a - b });
+                    try self.push(&stack, &frames, .{ .int = a - b });
                 },
+
                 .compare_float => {
-                    const b = self.pop().float;
-                    const a = self.pop().float;
+                    const b = pop(&stack).float;
+                    const a = pop(&stack).float;
 
                     if (a > b) {
-                        self.push(.{ .int = 1 });
+                        try self.push(&stack, &frames, .{ .int = 1 });
                     } else if (a < b) {
-                        self.push(.{ .int = -1 });
+                        try self.push(&stack, &frames, .{ .int = -1 });
                     } else {
-                        self.push(.{ .int = 0 });
+                        try self.push(&stack, &frames, .{ .int = 0 });
                     }
                 },
+
                 .compare_bool => {
-                    const b: i64 = @intFromBool(self.pop().bool);
-                    const a: i64 = @intFromBool(self.pop().bool);
+                    const b: i64 = @intFromBool(pop(&stack).bool);
+                    const a: i64 = @intFromBool(pop(&stack).bool);
 
-                    self.push(.{ .int = a - b });
+                    try self.push(&stack, &frames, .{ .int = a - b });
                 },
-                .compare_obj => {
-                    const b: i64 = @intCast(@intFromPtr(self.pop().obj));
-                    const a: i64 = @intCast(@intFromPtr(self.pop().obj));
 
-                    self.push(.{ .int = a - b });
+                .compare_obj => {
+                    const b: i64 = @intCast(@intFromPtr(pop(&stack).obj));
+                    const a: i64 = @intCast(@intFromPtr(pop(&stack).obj));
+
+                    try self.push(&stack, &frames, .{ .int = a - b });
                 },
 
                 .if_equal => {
-                    const offset = readU16(frame);
-                    const a = self.pop().int;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).int;
 
                     if (a == 0) {
                         frame.ip += offset;
                     }
                 },
+
                 .if_not_equal => {
-                    const offset = readU16(frame);
-                    const a = self.pop().int;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).int;
 
                     if (a != 0) {
                         frame.ip += offset;
                     }
                 },
+
                 .if_greater => {
-                    const offset = readU16(frame);
-                    const a = self.pop().int;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).int;
 
                     if (a > 0) {
                         frame.ip += offset;
                     }
                 },
+
                 .if_greater_equal => {
-                    const offset = readU16(frame);
-                    const a = self.pop().int;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).int;
 
                     if (a >= 0) {
                         frame.ip += offset;
                     }
                 },
+
                 .if_less => {
-                    const offset = readU16(frame);
-                    const a = self.pop().int;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).int;
 
                     if (a < 0) {
                         frame.ip += offset;
                     }
                 },
+
                 .if_less_equal => {
-                    const offset = readU16(frame);
-                    const a = self.pop().int;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).int;
 
                     if (a <= 0) {
                         frame.ip += offset;
                     }
                 },
+
                 .if_true => {
-                    const offset = readU16(frame);
-                    const a = self.pop().bool;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).bool;
 
                     if (a) {
                         frame.ip += offset;
                     }
                 },
+
                 .if_false => {
-                    const offset = readU16(frame);
-                    const a = self.pop().bool;
+                    const offset = readU16(frame, @"fn");
+                    const a = pop(&stack).bool;
 
                     if (!a) {
                         frame.ip += offset;
                     }
                 },
+
                 .jump => {
-                    const offset = readU16(frame);
+                    const offset = readU16(frame, @"fn");
                     frame.ip += offset;
                 },
+
                 .negative_jump => {
-                    const offset = readU16(frame);
+                    const offset = readU16(frame, @"fn");
                     frame.ip -= offset;
                 },
 
                 .assert => {
-                    const a = self.pop().bool;
+                    const a = pop(&stack).bool;
 
                     if (!a) {
-                        try self.panic(
+                        return self.panic(
                             .assertion_fail,
-                            getPosition(frame, ip_offset),
+                            getPosition(@"fn", inst_ip),
                         );
-                        return error.Panic;
                     }
                 },
+
                 .print => {
-                    const value = self.pop();
+                    const value = pop(&stack);
                     value_reporter.printValue(value, self.out_writer);
                     self.out_writer.print("\n");
                 },
+
                 .call => {
-                    const arg_count = readU8(frame);
-                    const callee = (self.state.stack.top - arg_count - 1)[0];
-                    const @"fn" = callee.obj.as(Obj.Fn);
+                    const arg_count = readU8(frame, @"fn");
+                    const callee = stack.peek(arg_count);
+                    const new_fn = callee.obj.as(Obj.Fn);
 
-                    // todo: stack overflow
+                    try addCallFrame(.{
+                        .ip = 0,
+                        .stack_bottom = stack.top - arg_count - 1,
+                    }, &frames);
 
-                    self.addCallFrame(.{
-                        .@"fn" = @"fn",
-                        .ip = @ptrCast(&@"fn".chunk.code.items[0]),
-                        .stack = self.state.stack.top - arg_count - 1,
-                    });
+                    stack.increaseTop(
+                        new_fn.locals_count - arg_count - 1,
+                    ) catch |err| switch (err) {
+                        error.StackOverflow,
+                        => return self.stackOverflowPanic(&frames, &stack),
 
-                    self.state.stack.top += @"fn".locals_count - arg_count - 1;
-                    frame = self.getCallFrame();
+                        error.OutOfMemory,
+                        => return error.OutOfMemory,
+                    };
+                    frame, @"fn" = getCallFrame(&stack, &frames);
                 },
+
                 .@"return" => {
-                    assert(self.state.stack.top - (frame.@"fn".locals_count + 1) == self.getCallFrame().stack);
+                    assert(stack.top - (@"fn".locals_count + 1) ==
+                        getCallFrame(&stack, &frames)[0].stack_bottom);
 
-                    const value = self.pop();
-                    const locals_count = frame.@"fn".locals_count;
+                    const value = pop(&stack);
+                    const locals_count = @"fn".locals_count;
 
-                    if (self.popCallFrame() == .is_last) {
+                    if (popCallFrame(&frames) == .is_last) {
                         return;
                     }
 
-                    self.state.stack.top -= locals_count;
-                    frame = self.getCallFrame();
-                    self.push(value);
+                    stack.decreaseTop(locals_count);
+                    frame, @"fn" = getCallFrame(&stack, &frames);
+                    try self.push(&stack, &frames, value);
                 },
-                .pop => _ = self.pop(),
+
+                .pop => _ = pop(&stack),
+
                 _ => @panic("invalid op code"),
             }
         }
     }
 
-    fn concat(self: *Self) Error!void {
-        const b = self.peek(0).obj.as(Obj.String);
-        const a = self.peek(1).obj.as(Obj.String);
+    fn concat(
+        self: *Self,
+        stack: *Stack,
+        frames: *ArrayList(CallFrame),
+    ) Error!void {
+        const b = peek(stack, 0).obj.as(Obj.String);
+        const a = peek(stack, 1).obj.as(Obj.String);
 
         const new_length = a.chars.len + b.chars.len;
         const new_chars = try self.allocator.alloc(u8, new_length);
@@ -370,86 +501,100 @@ pub const Vm = struct {
             new_chars,
         );
 
-        _ = self.pop();
-        _ = self.pop();
+        _ = pop(stack);
+        _ = pop(stack);
 
-        self.push(.{ .obj = &result.obj });
+        try self.push(stack, frames, .{ .obj = &result.obj });
     }
 
-    fn readOpCode(frame: *CallFrame) OpCode {
-        return @enumFromInt(readU8(frame));
+    fn readOpCode(frame: *CallFrame, @"fn": *Obj.Fn) OpCode {
+        return @enumFromInt(readU8(frame, @"fn"));
     }
 
-    fn readU8(frame: *CallFrame) u8 {
-        const byte = frame.ip[0];
+    fn readU8(frame: *CallFrame, @"fn": *Obj.Fn) u8 {
+        const byte = @"fn".chunk.code.items[frame.ip];
         frame.ip += 1;
         return byte;
     }
 
-    fn readU16(frame: *CallFrame) u16 {
-        const left: u16 = readU8(frame);
-        const right = readU8(frame);
+    fn readU16(frame: *CallFrame, @"fn": *Obj.Fn) u16 {
+        const left: u16 = readU8(frame, @"fn");
+        const right = readU8(frame, @"fn");
         return (left << 8) | right;
     }
 
-    fn push(self: *Self, value: Value) void {
-        self.state.stack.push(value);
+    fn push(
+        self: *Self,
+        stack: *Stack,
+        frames: *ArrayList(CallFrame),
+        value: Value,
+    ) Error!void {
+        stack.push(value) catch |err| switch (err) {
+            error.StackOverflow => {
+                return self.stackOverflowPanic(frames, stack);
+            },
+            error.OutOfMemory => return error.OutOfMemory,
+        };
     }
 
-    fn peek(self: *Self, distance: usize) Value {
-        return self.state.stack.peek(distance);
+    fn peek(stack: *Stack, distance: u32) Value {
+        return stack.peek(distance);
     }
 
-    fn pop(self: *Self) Value {
-        return self.state.stack.pop();
+    fn pop(stack: *Stack) Value {
+        return stack.pop();
     }
 
-    fn storeLocal(frame: *CallFrame, index: usize, value: Value) void {
-        frame.stack[index] = value;
+    fn storeLocal(
+        stack: *Stack,
+        frame: *CallFrame,
+        index: u32,
+        value: Value,
+    ) void {
+        stack.setAt(frame.stack_bottom + index, value);
     }
 
-    fn loadLocal(frame: *CallFrame, index: usize) Value {
-        return frame.stack[index];
+    fn loadLocal(stack: *Stack, frame: *CallFrame, index: u32) Value {
+        return stack.getAt(frame.stack_bottom + index);
     }
 
-    fn chunk(frame: *CallFrame) *Chunk {
-        return &frame.@"fn".chunk;
+    fn getCallFrame(
+        stack: *Stack,
+        frames: *ArrayList(CallFrame),
+    ) struct { *CallFrame, *Obj.Fn } {
+        const call_frame = &frames.items[frames.items.len - 1];
+        const @"fn" = stack.getAt(call_frame.stack_bottom).obj.as(Obj.Fn);
+
+        return .{ call_frame, @"fn" };
     }
 
-    fn getCallFrame(self: *Self) *CallFrame {
-        var call_frames = &self.memory.vm_state.?.call_frames;
-        return &call_frames.slice()[call_frames.len - 1];
+    fn addCallFrame(
+        frame: CallFrame,
+        frames: *ArrayList(CallFrame),
+    ) Allocator.Error!void {
+        try frames.append(frame);
     }
 
-    fn addCallFrame(self: *Self, frame: CallFrame) void {
-        self.memory.vm_state.?.call_frames.append(frame) catch unreachable;
-        // todo: check out of bounds
-    }
+    fn popCallFrame(
+        frames: *ArrayList(CallFrame),
+    ) enum { is_last, is_not_last } {
+        _ = frames.pop();
 
-    fn popCallFrame(self: *Self) enum { is_last, is_not_last } {
-        const call_frames = &self.memory.vm_state.?.call_frames;
-
-        _ = call_frames.pop();
-
-        return if (call_frames.len == 0)
+        return if (frames.items.len == 0)
             .is_last
         else
             .is_not_last;
     }
 
-    fn getOffset(frame: *CallFrame) usize {
-        return @intFromPtr(frame.ip) - @intFromPtr(&frame.@"fn".chunk.code.items[0]);
-    }
-
-    fn getPosition(frame: *CallFrame, offset: usize) Position {
-        return chunk(frame).positions.items[offset];
+    fn getPosition(@"fn": *Obj.Fn, offset: usize) Position {
+        return @"fn".chunk.positions.items[offset];
     }
 
     fn panic(
         self: *Self,
         diag_kind: DiagEntry.Kind,
         position: Position,
-    ) Error!void {
+    ) error{ Panic, OutOfMemory } {
         if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to
             // use diags.allocator instead of self.allocator. this is
@@ -461,5 +606,22 @@ pub const Vm = struct {
                 .kind = diag_kind,
             });
         }
+        return error.Panic;
+    }
+
+    fn stackOverflowPanic(
+        self: *Self,
+        frames: *ArrayList(CallFrame),
+        stack: *Stack,
+    ) error{ Panic, OutOfMemory } {
+        if (frames.items.len == 0) {
+            @panic("call frames array is empty");
+        }
+
+        const frame = frames.items[frames.items.len - 1];
+        const @"fn" = stack.getAt(frame.stack_bottom).obj.as(Obj.Fn);
+        const positions = @"fn".chunk.positions.items;
+
+        return self.panic(.stack_overflow, positions[frame.ip]);
     }
 };

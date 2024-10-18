@@ -99,15 +99,12 @@ pub const Compiler = struct {
         const managed_allocator = memory.allocator();
         const unmanaged_allocator = arena_allocator.allocator();
 
-        var vm_state: VmState = undefined;
-
-        vm_state.objs = null;
-        vm_state.strings = StringHashMap(*Obj.String).init(managed_allocator);
-        vm_state.stack = try Stack.init(managed_allocator);
-        vm_state.stack.top += sema_fn.locals_count;
-        vm_state.call_frames = BoundedArray(CallFrame, limits.max_frames)
-            .init(0) catch unreachable;
-
+        var vm_state: VmState = .{
+            .@"fn" = undefined,
+            .stack = null,
+            .objs = null,
+            .strings = StringHashMap(*Obj.String).init(managed_allocator),
+        };
         errdefer vm_state.deinit(managed_allocator);
 
         var compiler = Self{
@@ -118,19 +115,13 @@ pub const Compiler = struct {
             .fn_ctx = undefined,
         };
 
-        const @"fn" = try compiler.compileFnAux(
+        vm_state.@"fn" = try compiler.compileFnAux(
             &vm_state,
             null,
             .script,
             sema_fn.body,
             sema_fn.locals_count,
         );
-
-        vm_state.call_frames.append(.{
-            .@"fn" = @"fn",
-            .ip = @ptrCast(&@"fn".chunk.code.items[0]),
-            .stack = @ptrCast(&vm_state.stack.items[0]),
-        }) catch unreachable;
 
         memory.vm_state = vm_state;
     }

@@ -236,7 +236,7 @@ pub const Sema = struct {
     ) Error!*SemaStmt {
         const expr = try self.analyzeExpr(assert.expr, true);
 
-        if (typeSatisfies(expr.sema_type, .bool)) {
+        if (!typeSatisfies(expr.sema_type, .bool)) {
             return self.semaFailure(
                 position,
                 .{ .expected_expr_type = .bool },

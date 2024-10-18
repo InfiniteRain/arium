@@ -30,9 +30,14 @@ pub const Obj = struct {
             const string_obj = (try Self.create(String, allocator, vm_state)).as(String);
             string_obj.chars = owned_buf;
 
-            vm_state.stack.push(.{ .obj = &string_obj.obj });
-            _ = try vm_state.strings.put(owned_buf, string_obj);
-            _ = vm_state.stack.pop();
+            const prev_gc_lock_status = vm_state.gc_lock_status;
+
+            {
+                vm_state.gc_lock_status = .locked;
+                defer vm_state.gc_lock_status = prev_gc_lock_status;
+
+                _ = try vm_state.strings.put(owned_buf, string_obj);
+            }
 
             return string_obj;
         }

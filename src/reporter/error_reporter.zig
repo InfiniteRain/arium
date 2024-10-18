@@ -336,5 +336,8 @@ pub fn reportVmDiag(
     switch (diag.kind) {
         .assertion_fail,
         => writer.print("Assertion failed."),
+
+        .stack_overflow,
+        => writer.print("Stack overflow."),
     }
 }

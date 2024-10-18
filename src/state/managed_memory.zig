@@ -8,7 +8,7 @@ const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
-const BoundedArray = std.BoundedArray;
+const ArrayList = std.ArrayList;
 const allocPrint = std.fmt.allocPrint;
 const expect = std.testing.expect;
 const Chunk = chunk_mod.Chunk;
@@ -18,24 +18,24 @@ const Obj = obj_mod.Obj;
 const Position = tokenizer_mod.Position;
 
 pub const CallFrame = struct {
-    @"fn": *Obj.Fn,
-    ip: [*]u8,
-    stack: [*]Value,
+    ip: u32,
+    stack_bottom: u32,
 };
 
 pub const VmState = struct {
     const Self = @This();
 
-    call_frames: BoundedArray(CallFrame, limits.max_frames),
-    stack: Stack,
-    objs: ?*Obj,
+    @"fn": *Obj.Fn,
+    stack: ?*Stack = null,
+    objs: ?*Obj = null,
     // todo: this will recalculate hash on removal. we can rewrite this to use
     // a custom context that accepts a tuple of string and pre-calculated hash
     // to avoid this issue
     strings: StringHashMap(*Obj.String),
 
+    gc_lock_status: enum { locked, unlocked } = .unlocked,
+
     pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.stack.deinit();
         self.strings.deinit();
 
         var current = self.objs;
@@ -53,7 +53,6 @@ pub const ManagedMemory = struct {
 
     backing_allocator: Allocator,
     bytes_allocated: usize = 0,
-    is_gc_active: bool = false,
     vm_state: ?VmState = null,
 
     pub fn init(backing_allocator: Allocator) Self {
