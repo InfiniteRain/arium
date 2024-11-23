@@ -84,14 +84,20 @@ pub const Vm = struct {
             config.debugExecutionIteration != null and
             config.debug_writer != null;
 
+        // `vm.run` takes a comptime argument, which means that a runtime value
+        // cannot be passed directly. The function is monomorphized depending on the
+        // argument, so we have to branch and use an enum literal here.
         if (should_trace_execution) {
-            try vm.run(true);
+            try vm.run(.trace_execution);
         } else {
-            try vm.run(false);
+            try vm.run(.dont_trace_execution);
         }
     }
 
-    fn run(self: *Self, comptime trace_execution: bool) Error!void {
+    fn run(self: *Self, comptime trace_execution_status: enum {
+        trace_execution,
+        dont_trace_execution,
+    }) Error!void {
         var frames = ArrayList(CallFrame).init(self.allocator);
         defer frames.clearAndFree();
 
@@ -116,7 +122,7 @@ pub const Vm = struct {
         while (true) {
             const inst_ip = frame.ip;
 
-            if (trace_execution) {
+            if (trace_execution_status == .trace_execution) {
                 const callback = self.config.debugExecutionIteration.?;
                 const writer = self.config.debug_writer.?;
 
