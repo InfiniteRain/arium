@@ -428,18 +428,18 @@ pub const Runner = struct {
             return verifyArrayList(expectation, actual);
         }
 
-        if (type_info == .Pointer and type_info.Pointer.size == .One) {
+        if (type_info == .pointer and type_info.pointer.size == .one) {
             return verifyValue(expectation.*, actual.*);
         }
 
         switch (type_info) {
-            .Void,
+            .void,
             => return true,
 
-            .Int,
+            .int,
             => return expectation == actual,
 
-            .Enum,
+            .@"enum",
             => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
                 return expectation == actual;
             } else {
@@ -449,7 +449,7 @@ pub const Runner = struct {
                 ));
             },
 
-            .Union,
+            .@"union",
             => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
                 return verifyUnion(expectation, actual);
             } else {
@@ -459,7 +459,7 @@ pub const Runner = struct {
                 ));
             },
 
-            .Struct,
+            .@"struct",
             => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
                 return verifyStruct(expectation, actual);
             } else {
@@ -477,7 +477,7 @@ pub const Runner = struct {
     }
 
     fn verifyStruct(expectation: anytype, actual: anytype) bool {
-        inline for (@typeInfo(@TypeOf(expectation)).Struct.fields) |field| {
+        inline for (@typeInfo(@TypeOf(expectation)).@"struct".fields) |field| {
             if (!verifyValue(@field(expectation, field.name), @field(actual, field.name))) {
                 return false;
             }
@@ -495,7 +495,7 @@ pub const Runner = struct {
             return false;
         }
 
-        inline for (type_info.Union.fields) |field| {
+        inline for (type_info.@"union".fields) |field| {
             if (!std.mem.eql(u8, @tagName(expectation), field.name)) {
                 comptime continue;
             }
@@ -530,8 +530,8 @@ pub const Runner = struct {
     fn cloneDiags(
         self: *Self,
         diags: anytype,
-    ) error{OutOfMemory}!@typeInfo(@TypeOf(diags)).Pointer.child {
-        const DiagsType = @typeInfo(@TypeOf(diags)).Pointer.child;
+    ) error{OutOfMemory}!@typeInfo(@TypeOf(diags)).pointer.child {
+        const DiagsType = @typeInfo(@TypeOf(diags)).pointer.child;
         var clone = DiagsType.init(self.allocator);
 
         for (diags.getEntries()) |diag| {

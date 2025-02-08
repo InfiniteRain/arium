@@ -5,7 +5,7 @@ const ArrayList = std.ArrayList;
 pub fn spread(a: anytype, b: anytype) @TypeOf(a) {
     var result = a;
 
-    inline for (@typeInfo(@TypeOf(b)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(b)).@"struct".fields) |field| {
         @field(result, field.name) = @field(b, field.name);
     }
 
@@ -22,25 +22,25 @@ pub fn typeName(T: type) []const u8 {
 pub fn isArrayList(T: type) bool {
     const type_info = @typeInfo(T);
 
-    if (type_info != .Struct or
+    if (type_info != .@"struct" or
         !@hasDecl(T, "Slice") or
-        @typeInfo(T.Slice) != .Pointer)
+        @typeInfo(T.Slice) != .pointer)
     {
         return false;
     }
 
-    return T == ArrayList(@typeInfo(T.Slice).Pointer.child);
+    return T == ArrayList(@typeInfo(T.Slice).pointer.child);
 }
 
 pub fn typeInTuple(T: type, tuple: anytype) bool {
     const TupleType = @TypeOf(tuple);
     const tuple_type_info = @typeInfo(TupleType);
 
-    if (tuple_type_info != .Struct or !tuple_type_info.Struct.is_tuple) {
+    if (tuple_type_info != .@"struct" or !tuple_type_info.@"struct".is_tuple) {
         @compileError("should be a tuple");
     }
 
-    inline for (tuple_type_info.Struct.fields) |field| {
+    inline for (tuple_type_info.@"struct".fields) |field| {
         if (field.type != type) {
             @compileError("tuple should consist of types");
         }

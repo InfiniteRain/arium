@@ -15,10 +15,10 @@ pub fn createClone(
     const type_info = @typeInfo(Type);
     const type_name = @typeName(Type);
 
-    if (type_info == .Pointer) {
-        switch (type_info.Pointer.size) {
-            .Slice => return try cloneSlice(allocator, value, allowlist),
-            .One => return try cloneOne(allocator, value, allowlist),
+    if (type_info == .pointer) {
+        switch (type_info.pointer.size) {
+            .slice => return try cloneSlice(allocator, value, allowlist),
+            .one => return try cloneOne(allocator, value, allowlist),
             else => {},
         }
     }
@@ -28,14 +28,14 @@ pub fn createClone(
     }
 
     return switch (type_info) {
-        .Int,
-        .Float,
-        .Bool,
-        .Enum,
-        .Void,
+        .int,
+        .float,
+        .bool,
+        .@"enum",
+        .void,
         => value,
 
-        .Union,
+        .@"union",
         => if (comptime meta.typeInTuple(Type, allowlist))
             try cloneUnion(allocator, value, allowlist)
         else
@@ -44,7 +44,7 @@ pub fn createClone(
                 .{type_name},
             )),
 
-        .Struct,
+        .@"struct",
         => if (comptime meta.typeInTuple(Type, allowlist))
             try cloneStruct(allocator, value, allowlist)
         else
@@ -66,7 +66,7 @@ pub fn cloneSlice(
     allowlist: anytype,
 ) Allocator.Error!@TypeOf(value) {
     const type_info = @typeInfo(@TypeOf(value));
-    const new_buffer = try allocator.alloc(type_info.Pointer.child, value.len);
+    const new_buffer = try allocator.alloc(type_info.pointer.child, value.len);
 
     for (value, new_buffer) |original, *cloned| {
         cloned.* = try createClone(allocator, original, allowlist);
@@ -81,7 +81,7 @@ pub fn cloneOne(
     allowlist: anytype,
 ) Allocator.Error!@TypeOf(value) {
     const type_info = @typeInfo(@TypeOf(value));
-    const new_instance = try allocator.create(type_info.Pointer.child);
+    const new_instance = try allocator.create(type_info.pointer.child);
 
     new_instance.* = try createClone(allocator, value.*, allowlist);
 
@@ -93,7 +93,7 @@ pub fn cloneArrayList(
     value: anytype,
     allowlist: anytype,
 ) Allocator.Error!@TypeOf(value) {
-    return ArrayList(@typeInfo(@TypeOf(value.items)).Pointer.child)
+    return ArrayList(@typeInfo(@TypeOf(value.items)).pointer.child)
         .fromOwnedSlice(
         allocator,
         try createClone(
@@ -112,7 +112,7 @@ pub fn cloneUnion(
     const Type = @TypeOf(value);
     const type_info = @typeInfo(Type);
 
-    inline for (type_info.Union.fields) |field| {
+    inline for (type_info.@"union".fields) |field| {
         if (std.mem.eql(u8, field.name, @tagName(value))) {
             return @unionInit(Type, field.name, try createClone(
                 allocator,
@@ -135,7 +135,7 @@ pub fn cloneStruct(
 
     var clone: Type = undefined;
 
-    inline for (type_info.Struct.fields) |field| {
+    inline for (type_info.@"struct".fields) |field| {
         @field(clone, field.name) = try createClone(
             allocator,
             @field(value, field.name),

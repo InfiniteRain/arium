@@ -4,40 +4,59 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // SHARED LIBRARY
+    // SHARED
 
-    const shared_lib = b.addStaticLibrary(.{
-        .name = "shared",
+    const shared_mod = b.createModule(.{
         .root_source_file = b.path("shared/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    const shared_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "shared",
+        .root_module = shared_mod,
+    });
+
     b.installArtifact(shared_lib);
 
-    // LIBRARY
+    // ARIUM
 
-    const lib = b.addStaticLibrary(.{
-        .name = "arium",
+    const arium_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    b.installArtifact(lib);
+    arium_mod.addImport("shared", shared_mod);
 
-    // EXECUTABLE
-
-    const exe = b.addExecutable(.{
+    const arium_lib = b.addLibrary(.{
+        .linkage = .static,
         .name = "arium",
+        .root_module = arium_mod,
+    });
+
+    b.installArtifact(arium_lib);
+
+    // EXE
+
+    const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    exe_mod.addImport("arium", arium_mod);
+    exe_mod.addImport("shared", shared_mod);
+
+    const exe = b.addExecutable(.{
+        .name = "arium",
+        .root_module = exe_mod,
+    });
+
     b.installArtifact(exe);
 
-    // RUN COMMAND
+    // RUN CMD
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -49,81 +68,78 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    // LIBRARY UNIT TESTS
-
-    const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-
-    // EXECUTABLE UNIT TESTS
-
-    const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-
-    // TEST STEP
-
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
-
-    // LSP CHECK
-
-    const lsp_check = b.addExecutable(.{
-        .name = "arium",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const lsp_check_step = b.step("check", "Check if Arium compiles");
-    lsp_check_step.dependOn(&lsp_check.step);
-
-    // LANGUAGE TESTS
+    // LANG TEST CMD
 
     const lang_tests = b.addExecutable(.{
-        .name = "arium-lang-tests",
+        .name = "lang-test",
         .root_source_file = b.path("test/lang_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const lang_tests_cmd = b.addRunArtifact(lang_tests);
-    const run_lang_tests_step = b.step("lang-test", "Run language tests");
-    run_lang_tests_step.dependOn(&lang_tests_cmd.step);
+    const lang_tests_step = b.step("lang_test", "Run language tests");
 
-    // FIRST PARTY DEPENDENCIES
+    lang_tests_step.dependOn(&lang_tests_cmd.step);
 
-    lang_tests.root_module.addImport("arium", &lib.root_module);
+    lang_tests.root_module.addImport("arium", arium_mod);
+    lang_tests.root_module.addImport("shared", shared_mod);
 
-    lib.root_module.addImport("shared", &shared_lib.root_module);
-    exe.root_module.addImport("shared", &shared_lib.root_module);
-    lib_unit_tests.root_module.addImport("shared", &shared_lib.root_module);
-    exe_unit_tests.root_module.addImport("shared", &shared_lib.root_module);
-    lsp_check.root_module.addImport("shared", &shared_lib.root_module);
-    lang_tests.root_module.addImport("shared", &shared_lib.root_module);
+    // TEST CMD
+
+    const lib_unit_tests = b.addTest(.{
+        .root_module = arium_mod,
+    });
+
+    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+
+    const exe_unit_tests = b.addTest(.{
+        .root_module = exe_mod,
+    });
+
+    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_lib_unit_tests.step);
+    test_step.dependOn(&run_exe_unit_tests.step);
+
+    // CHECK CMD
+
+    const check = b.addExecutable(.{
+        .name = "check",
+        // Check will try and build lang tests, as that
+        // module depends on both arium and shared, and therefore
+        // will build those too (and check them).
+        .root_source_file = b.path("test/lang_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const check_step = b.step("check", "Check build");
+    check_step.dependOn(&check.step);
+
+    check.root_module.addImport("shared", shared_mod);
+    check.root_module.addImport("arium", arium_mod);
 
     // THIRD PARTY DEPENDENCIES
 
-    const dep_strings = [_][]const u8{"clap"};
+    const dep_names = [_][]const u8{"clap"};
+    const mods = [_]*std.Build.Module{
+        arium_mod,
+        exe_mod,
+        shared_mod,
+        lang_tests.root_module,
+        check.root_module,
+    };
 
-    for (dep_strings) |dep_string| {
-        const dep = b.dependency(dep_string, .{});
+    for (dep_names) |dep_name| {
+        const dep = b.dependency(dep_name, .{
+            .target = target,
+            .optimize = optimize,
+        });
 
-        shared_lib.root_module.addImport(dep_string, dep.module(dep_string));
-        exe.root_module.addImport(dep_string, dep.module(dep_string));
-        lsp_check.root_module.addImport(dep_string, dep.module(dep_string));
-        lib.root_module.addImport(dep_string, dep.module(dep_string));
-        lib_unit_tests.root_module.addImport(dep_string, dep.module(dep_string));
-        exe_unit_tests.root_module.addImport(dep_string, dep.module(dep_string));
-        lang_tests.root_module.addImport(dep_string, dep.module(dep_string));
+        for (mods) |mod| {
+            mod.addImport(dep_name, dep.module(dep_name));
+        }
     }
 }

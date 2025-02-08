@@ -790,12 +790,12 @@ pub const Parser = struct {
         const arg_type_info = @typeInfo(ArgType);
         const token_stuct = if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Kind)
             .{arg}
-        else if (arg_type_info == .Struct and arg_type_info.Struct.is_tuple)
+        else if (arg_type_info == .@"struct" and arg_type_info.@"struct".is_tuple)
             arg
         else
             @compileError("expected arg to be of type Token.Kind or a tuple of Token.Kind");
 
-        inline for (@typeInfo(@TypeOf(token_stuct)).Struct.fields) |field| {
+        inline for (@typeInfo(@TypeOf(token_stuct)).@"struct".fields) |field| {
             if (self.peek().kind == @field(token_stuct, field.name)) {
                 return true;
             }
@@ -863,7 +863,7 @@ pub const Parser = struct {
             return array_list;
         }
 
-        inline for (@typeInfo(ArgType).Struct.fields) |field| {
+        inline for (@typeInfo(ArgType).@"struct".fields) |field| {
             try array_list.append(@field(arg, field.name));
         }
 

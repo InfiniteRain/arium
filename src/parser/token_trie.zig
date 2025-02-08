@@ -64,7 +64,7 @@ pub fn generateTrie(comptime trie_struct: anytype) TokenTrie(calculateMaxTrieSiz
 
     const type_info = @typeInfo(@TypeOf(trie_struct));
 
-    for (0..type_info.Struct.fields.len) |i| {
+    for (0..type_info.@"struct".fields.len) |i| {
         const field = trie_struct[i];
 
         trie.addWord(field[0], @as(Token.Kind, field[1]));
@@ -79,7 +79,7 @@ fn calculateMaxTrieSize(comptime trie_struct: anytype) usize {
     const type_info = @typeInfo(@TypeOf(trie_struct));
     var char_count = 0;
 
-    for (0..type_info.Struct.fields.len) |i| {
+    for (0..type_info.@"struct".fields.len) |i| {
         for (trie_struct[i][0]) |_| {
             char_count += 1;
         }
@@ -92,32 +92,32 @@ fn validateTrieStruct(comptime trie_struct: anytype) void {
     const Type = @TypeOf(trie_struct);
     const type_info = @typeInfo(Type);
 
-    if (type_info != .Struct or !type_info.Struct.is_tuple) {
+    if (type_info != .@"struct" or !type_info.@"struct".is_tuple) {
         @compileError("argument isn't a tuple struct");
     }
 
-    for (type_info.Struct.fields, 0..) |field, i| {
+    for (type_info.@"struct".fields, 0..) |field, i| {
         const FieldType = field.type;
         const field_type_info = @typeInfo(FieldType);
 
-        if (field_type_info != .Struct or !field_type_info.Struct.is_tuple) {
+        if (field_type_info != .@"struct" or !field_type_info.@"struct".is_tuple) {
             @compileError("elements of trie struct should be tuple structs");
         }
 
-        const word_type = @typeInfo(field_type_info.Struct.fields[0].type);
+        const word_type = @typeInfo(field_type_info.@"struct".fields[0].type);
         const type_error = "first element of entry tuple struct should be a pointer to u8 array";
 
-        if (word_type != .Pointer) {
+        if (word_type != .pointer) {
             @compileError(type_error);
         }
 
-        const pointer_type = @typeInfo(word_type.Pointer.child);
+        const pointer_type = @typeInfo(word_type.pointer.child);
 
-        if (pointer_type != .Array) {
+        if (pointer_type != .array) {
             @compileError(type_error);
         }
 
-        const array_type = @typeInfo(pointer_type.Array.child);
+        const array_type = @typeInfo(pointer_type.array.child);
 
         for (trie_struct[i][0]) |char| {
             if (char < 'a' or char > 'z') {
@@ -125,13 +125,13 @@ fn validateTrieStruct(comptime trie_struct: anytype) void {
             }
         }
 
-        if (array_type != .Int or array_type.Int.signedness != .unsigned or array_type.Int.bits != 8) {
+        if (array_type != .int or array_type.int.signedness != .unsigned or array_type.int.bits != 8) {
             @compileError(type_error);
         }
 
-        const value_type = @typeInfo(field_type_info.Struct.fields[1].type);
+        const value_type = @typeInfo(field_type_info.@"struct".fields[1].type);
 
-        if (value_type != .EnumLiteral) {
+        if (value_type != .enum_literal) {
             @compileError("second element of entry tuple struct should be an enum literal");
         }
     }

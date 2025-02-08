@@ -66,17 +66,17 @@ pub fn runCli() !void {
         return;
     }
 
-    if (res.positionals.len == 0) {
+    const file_name = res.positionals[0] orelse {
         try usage(&stderr_writer, &params);
         stderr_writer.print("\n");
         return;
-    }
+    };
 
     try runFile(
         allocator,
         &stdout_writer,
         &stderr_writer,
-        res.positionals[0],
+        file_name,
         res.args,
     );
 }

@@ -58,19 +58,19 @@ pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) v
     const Type = @TypeOf(node);
     const type_info = @typeInfo(Type);
 
-    if (type_info != .Pointer) {
+    if (type_info != .pointer) {
         @compileError("expected node to be a pointer");
     }
 
-    const child_type_info = @typeInfo(type_info.Pointer.child);
+    const child_type_info = @typeInfo(type_info.pointer.child);
     const child_variant = switch (child_type_info) {
-        .Struct => child_type_info.Struct,
-        .Union => child_type_info.Union,
+        .@"struct" => child_type_info.@"struct",
+        .@"union" => child_type_info.@"union",
 
         else => @compileError("expected node to be a struct or a union"),
     };
 
-    if (!@hasField(type_info.Pointer.child, "kind")) {
+    if (!@hasField(type_info.pointer.child, "kind")) {
         @compileError("expected node to have a 'kind' field");
     }
 
@@ -115,7 +115,7 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
         return;
     }
 
-    if (type_info == .Pointer and type_info.Pointer.size == .One) {
+    if (type_info == .pointer and type_info.pointer.size == .one) {
         switch (Type) {
             *SemaExpr,
             *const SemaExpr,
@@ -141,23 +141,23 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
     }
 
     switch (type_info) {
-        .Bool,
-        .Int,
+        .bool,
+        .int,
         => writer.printf("{}", .{field}),
 
-        .Float,
+        .float,
         => writer.printf("{d}", .{field}),
 
-        .Union,
+        .@"union",
         => printUnion(field, indent, false, null, writer),
 
-        .Struct,
+        .@"struct",
         => printStruct(field, indent, multiline, writer),
 
-        .Enum,
+        .@"enum",
         => printEnum(field, writer),
 
-        .Optional,
+        .optional,
         => if (field) |unwrapped| {
             printField(unwrapped, indent, multiline, writer);
         } else {
@@ -181,7 +181,7 @@ pub fn printUnion(
     const Type = @TypeOf(@"union");
     const type_info = @typeInfo(Type);
 
-    inline for (type_info.Union.fields) |field| {
+    inline for (type_info.@"union".fields) |field| {
         if (!std.mem.eql(u8, @tagName(@"union"), field.name)) {
             comptime continue;
         }
@@ -238,8 +238,8 @@ pub fn printStruct(
 
     writer.print("{");
 
-    inline for (type_info.Struct.fields, 0..) |field, index| {
-        const is_last = index == type_info.Struct.fields.len - 1;
+    inline for (type_info.@"struct".fields, 0..) |field, index| {
+        const is_last = index == type_info.@"struct".fields.len - 1;
 
         if (multiline) {
             writer.print("\n");
@@ -278,7 +278,7 @@ pub fn printEnum(
     const Type = @TypeOf(@"enum");
     const type_info = @typeInfo(Type);
 
-    inline for (type_info.Enum.fields) |field| {
+    inline for (type_info.@"enum".fields) |field| {
         if (std.mem.eql(u8, @tagName(@"enum"), field.name)) {
             writer.print(field.name);
         }

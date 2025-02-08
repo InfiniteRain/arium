@@ -206,20 +206,20 @@ fn reportValueAux(
         return;
     }
 
-    if (type_info == .Pointer and type_info.Pointer.size == .One) {
+    if (type_info == .pointer and type_info.pointer.size == .one) {
         writer.print("*");
         reportValue(value.*, indent, writer);
         return;
     }
 
     switch (type_info) {
-        .Void,
+        .void,
         => writer.print("void"),
 
-        .Int,
+        .int,
         => writer.printf("{}", .{value}),
 
-        .Enum,
+        .@"enum",
         => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
             reportEnum(value, writer);
         } else {
@@ -229,7 +229,7 @@ fn reportValueAux(
             ));
         },
 
-        .Union,
+        .@"union",
         => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
             reportUnion(value, indent, writer);
         } else {
@@ -239,7 +239,7 @@ fn reportValueAux(
             ));
         },
 
-        .Struct,
+        .@"struct",
         => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
             reportStruct(value, indent, writer);
         } else {
@@ -262,11 +262,11 @@ pub fn reportStruct(value: anytype, indent: u8, writer: *const Writer) void {
 
     writer.printf("{s}{{", .{meta.typeName(Type)});
 
-    inline for (type_info.Struct.fields, 0..) |field, index| {
+    inline for (type_info.@"struct".fields, 0..) |field, index| {
         writer.printf(" .{s} = ", .{field.name});
         reportValue(@field(value, field.name), indent, writer);
 
-        if (index != type_info.Struct.fields.len - 1) {
+        if (index != type_info.@"struct".fields.len - 1) {
             writer.print(",");
         }
     }
@@ -280,7 +280,7 @@ pub fn reportUnion(value: anytype, indent: u8, writer: *const Writer) void {
         .{ meta.typeName(@TypeOf(value)), @tagName(value) },
     );
 
-    inline for (@typeInfo(@TypeOf(value)).Union.fields) |field| {
+    inline for (@typeInfo(@TypeOf(value)).@"union".fields) |field| {
         if (std.mem.eql(u8, field.name, @tagName(value))) {
             reportValue(@field(value, field.name), indent, writer);
         }

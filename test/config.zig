@@ -258,7 +258,7 @@ pub const Config = struct {
         ctx: *DirectiveCtx,
     ) DirectiveError!void {
         const ChildDiagEntry =
-            @typeInfo(@TypeOf(diags.entries.items)).Pointer.child;
+            @typeInfo(@TypeOf(diags.entries.items)).pointer.child;
 
         const line = try parseType(u64, ctx);
         const diag = try parseType(ChildDiagEntry.Kind, ctx);
@@ -289,18 +289,18 @@ pub const Config = struct {
             return try parseArrayList(T, ctx);
         }
 
-        if (type_info == .Pointer and type_info.Pointer.size == .One) {
+        if (type_info == .pointer and type_info.pointer.size == .one) {
             return try parseOne(T, ctx);
         }
 
         switch (type_info) {
-            .Void,
+            .void,
             => return,
 
-            .Int,
+            .int,
             => return try parseInt(T, ctx),
 
-            .Enum,
+            .@"enum",
             => if (comptime meta.typeInTuple(T, ParsableTypes)) {
                 return try parseEnum(T, ctx);
             } else {
@@ -310,7 +310,7 @@ pub const Config = struct {
                 ));
             },
 
-            .Union,
+            .@"union",
             => if (comptime meta.typeInTuple(T, ParsableTypes)) {
                 return try parseUnion(T, ctx);
             } else {
@@ -320,7 +320,7 @@ pub const Config = struct {
                 ));
             },
 
-            .Struct,
+            .@"struct",
             => {
                 if (!comptime meta.typeInTuple(T, ParsableTypes)) {
                     @compileError(comptimePrint(
@@ -341,7 +341,7 @@ pub const Config = struct {
 
     fn parseOne(T: type, ctx: *DirectiveCtx) DirectiveError!T {
         const type_info = @typeInfo(T);
-        const ChildType = type_info.Pointer.child;
+        const ChildType = type_info.pointer.child;
         const new_instance = try ctx.allocator.create(ChildType);
 
         new_instance.* = try parseType(ChildType, ctx);
@@ -353,7 +353,7 @@ pub const Config = struct {
         const type_info = @typeInfo(T);
         var tuple: T = undefined;
 
-        inline for (type_info.Struct.fields) |field| {
+        inline for (type_info.@"struct".fields) |field| {
             @field(tuple, field.name) = try parseType(field.type, ctx);
         }
 
@@ -365,7 +365,7 @@ pub const Config = struct {
         const error_args = .{@typeName(T)};
         const variant = try parseStr(ctx, error_msg, error_args);
 
-        inline for (@typeInfo(T).Union.fields) |field| {
+        inline for (@typeInfo(T).@"union".fields) |field| {
             if (std.mem.eql(u8, field.name, variant)) {
                 const value = try parseType(field.type, ctx);
 
@@ -400,7 +400,7 @@ pub const Config = struct {
     }
 
     fn parseArrayList(T: type, ctx: *DirectiveCtx) DirectiveError!T {
-        const ChildType = @typeInfo(T.Slice).Pointer.child;
+        const ChildType = @typeInfo(T.Slice).pointer.child;
         var new_array = ArrayList(ChildType).init(ctx.allocator);
         const list_str = try parseGroup(
             ctx,

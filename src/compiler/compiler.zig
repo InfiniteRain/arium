@@ -59,17 +59,19 @@ pub const Compiler = struct {
             is_inverted: bool,
         };
 
+        const ConditionalBlocks = struct {
+            then: *SemaExpr,
+            @"else": ?*SemaExpr = null,
+            is_loop: bool = false,
+        };
+
         is_root: bool = false,
         is_child_to_logical: bool = false,
         is_current_logical_or: bool = false,
         last_jump: *?JumpInfo,
         else_branch_offsets: *ArrayList(usize),
         then_branch_offsets: *ArrayList(usize),
-        conditional_blocks: ?struct {
-            then: *SemaExpr,
-            @"else": ?*SemaExpr = null,
-            is_loop: bool = false,
-        } = null,
+        conditional_blocks: ?ConditionalBlocks = null,
     };
 
     const FnCtx = struct {
@@ -573,7 +575,7 @@ pub const Compiler = struct {
         @"if": *const SemaExpr.Kind.If,
     ) Error!void {
         try self.compileExpr(@"if".condition, null, .{
-            .conditional_blocks = .{
+            .conditional_blocks = ExprCtx.ConditionalBlocks{
                 .then = @"if".then_block,
                 .@"else" = @"if".else_block,
             },
@@ -599,7 +601,7 @@ pub const Compiler = struct {
             defer self.fn_ctx.loop_start = prev_loop_start;
 
             try self.compileExpr(@"for".condition, null, .{
-                .conditional_blocks = .{
+                .conditional_blocks = ExprCtx.ConditionalBlocks{
                     .then = @"for".body_block,
                     .is_loop = true,
                 },
@@ -824,8 +826,8 @@ pub const Compiler = struct {
     fn patchJumps(self: *Self, arg: anytype) Error!void {
         const Type = @TypeOf(arg);
         const type_info = @typeInfo(Type);
-        const ChildType = if (type_info == .Pointer)
-            type_info.Pointer.child
+        const ChildType = if (type_info == .pointer)
+            type_info.pointer.child
         else
             Type;
 
