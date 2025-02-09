@@ -2,7 +2,7 @@ const std = @import("std");
 const shared = @import("shared");
 const parsed_ast_mod = @import("../parser/parsed_ast.zig");
 const sema_ast_mod = @import("sema_ast.zig");
-const tokenizer_mod = @import("../parser/tokenizer.zig");
+const tokenizer_mod = @import("../tokenizer.zig");
 const parser_mod = @import("../parser/parser.zig");
 const limits = @import("../limits.zig");
 
@@ -23,7 +23,7 @@ const SemaStmt = sema_ast_mod.SemaStmt;
 const SemaType = sema_ast_mod.SemaType;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Token = tokenizer_mod.Token;
-const Position = tokenizer_mod.Position;
+const Loc = tokenizer_mod.Loc;
 const Parser = parser_mod.Parser;
 
 pub const Sema = struct {
@@ -133,7 +133,7 @@ pub const Sema = struct {
         }
 
         kind: Kind,
-        position: Position,
+        position: Loc,
     };
 
     pub const Diags = SharedDiags(DiagEntry);
@@ -209,7 +209,10 @@ pub const Sema = struct {
             null,
             null,
             block,
-            .{},
+            .{
+                .start = 0,
+                .end = 0,
+            },
         );
 
         if (self.had_error) {
@@ -232,7 +235,7 @@ pub const Sema = struct {
     fn analyzeAssertStmt(
         self: *Self,
         assert: *ParsedStmt.Kind.Assert,
-        position: Position,
+        position: Loc,
     ) Error!*SemaStmt {
         const expr = try self.analyzeExpr(assert.expr, true);
 
@@ -249,7 +252,7 @@ pub const Sema = struct {
     fn analyzePrintStmt(
         self: *Self,
         print: *ParsedStmt.Kind.Print,
-        position: Position,
+        position: Loc,
     ) Error!*SemaStmt {
         const expr = try self.analyzeExpr(print.expr, true);
 
@@ -259,7 +262,7 @@ pub const Sema = struct {
     fn analyzeExprStmt(
         self: *Self,
         expr: *ParsedStmt.Kind.Expr,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaStmt {
         const inner_expr = try self.analyzeExpr(expr.expr, evals);
@@ -274,7 +277,7 @@ pub const Sema = struct {
     fn analyzeLetStmt(
         self: *Self,
         let: *ParsedStmt.Kind.Let,
-        position: Position,
+        position: Loc,
     ) Error!*SemaStmt {
         const analyzed_type_opt: ?SemaType = if (let.parsed_type) |parsed_type|
             try self.analyzeType(parsed_type)
@@ -343,7 +346,7 @@ pub const Sema = struct {
     fn analyzeFnStmt(
         self: *Self,
         @"fn": *ParsedStmt.Kind.Fn,
-        position: Position,
+        position: Loc,
     ) Error!*SemaStmt {
         return self.analyzeFnStmtAux(
             @"fn".name,
@@ -366,7 +369,7 @@ pub const Sema = struct {
         args_opt: ?ArrayList(ParsedStmt.Kind.Fn.Arg),
         parsed_return_type_opt: ?*ParsedType,
         parsed_body: *ParsedExpr,
-        position: Position,
+        position: Loc,
     ) Error!*SemaStmt {
         const return_type = if (parsed_return_type_opt) |parsed_return_type|
             try self.analyzeType(parsed_return_type)
@@ -456,7 +459,7 @@ pub const Sema = struct {
     fn analyzeIdentifierType(
         self: *Self,
         identifier: ParsedType.Kind.Identifier,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         return self.getType(identifier.name) orelse
             self.semaFailure(position, .{ .type_not_found = identifier.name });
@@ -488,7 +491,7 @@ pub const Sema = struct {
     fn analyzeLiteralExpr(
         self: *Self,
         literal: *ParsedExpr.Kind.Literal,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         const literal_variant: SemaExpr.Kind.Literal = switch (literal.kind) {
@@ -510,7 +513,7 @@ pub const Sema = struct {
     fn analyzeBinaryExpr(
         self: *Self,
         binary: *ParsedExpr.Kind.Binary,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         var left = try self.analyzeExpr(binary.left, true);
@@ -585,7 +588,7 @@ pub const Sema = struct {
         self: *Self,
         left: *SemaExpr,
         right: *SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         if (!typeSatisfies(left.sema_type, .int) and !typeSatisfies(right.sema_type, .float)) {
             return self.semaFailure(
@@ -608,7 +611,7 @@ pub const Sema = struct {
         self: *Self,
         left: *SemaExpr,
         right: *SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         if (!typeSatisfies(left.sema_type, .string) or !typeSatisfies(right.sema_type, .string)) {
             return self.semaFailure(
@@ -624,7 +627,7 @@ pub const Sema = struct {
         self: *Self,
         left: *SemaExpr,
         right: *SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         if (!typeSatisfies(right.sema_type, left.sema_type)) {
             return self.semaFailure(
@@ -640,7 +643,7 @@ pub const Sema = struct {
         self: *Self,
         left: *SemaExpr,
         right: *SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         if (!typeSatisfies(left.sema_type, .int) and !typeSatisfies(right.sema_type, .float)) {
             return self.semaFailure(
@@ -663,7 +666,7 @@ pub const Sema = struct {
         self: *Self,
         left: *SemaExpr,
         right: *SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         if (!typeSatisfies(left.sema_type, .bool)) {
             return self.semaFailure(
@@ -685,7 +688,7 @@ pub const Sema = struct {
     fn analyzeUnaryExpr(
         self: *Self,
         unary: *ParsedExpr.Kind.Unary,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         const right = try self.analyzeExpr(unary.right, true);
@@ -722,7 +725,7 @@ pub const Sema = struct {
     fn analyzeNegateBoolUnaryExpr(
         self: *Self,
         right: *SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         if (!typeSatisfies(right.sema_type, .bool)) {
             return self.semaFailure(
@@ -737,7 +740,7 @@ pub const Sema = struct {
     fn analyzeNegateNumUnaryExpr(
         self: *Self,
         right: *SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!SemaType {
         if (!typeSatisfies(right.sema_type, .int) and !typeSatisfies(right.sema_type, .float)) {
             return self.semaFailure(
@@ -752,7 +755,7 @@ pub const Sema = struct {
     fn analyzeBlockExpr(
         self: *Self,
         block: *ParsedExpr.Kind.Block,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         var scope = FnCtx.Scope.init(self.allocator, self.fn_ctx.current_scope);
@@ -808,7 +811,7 @@ pub const Sema = struct {
     fn analyzeVariableExpr(
         self: *Self,
         variable: *ParsedExpr.Kind.Variable,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         const index, const local = self.getVariable(variable.name) orelse {
@@ -837,7 +840,7 @@ pub const Sema = struct {
     fn analyzeAssignmentExpr(
         self: *Self,
         assignment: *ParsedExpr.Kind.Assigment,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         const index, const local = self.getVariable(assignment.name) orelse {
@@ -879,7 +882,7 @@ pub const Sema = struct {
     fn analyzeIfExpr(
         self: *Self,
         @"if": *ParsedExpr.Kind.If,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         return self.analyzeIfAux(
@@ -898,7 +901,7 @@ pub const Sema = struct {
         elseif_blocks: []ParsedExpr.Kind.If.ConditionalBlock,
         else_block_opt: ?*ParsedExpr,
         sema_type_opt: ?SemaType,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         if (evals and else_block_opt == null) {
@@ -1012,7 +1015,7 @@ pub const Sema = struct {
     fn analyzeForExpr(
         self: *Self,
         @"for": *ParsedExpr.Kind.For,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         var condition: *SemaExpr = undefined;
@@ -1056,7 +1059,7 @@ pub const Sema = struct {
 
     fn analyzeBreakExpr(
         self: *Self,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         if (!self.fn_ctx.is_in_loop) {
@@ -1076,7 +1079,7 @@ pub const Sema = struct {
 
     fn analyzeContinueExpr(
         self: *Self,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         if (!self.fn_ctx.is_in_loop) {
@@ -1097,7 +1100,7 @@ pub const Sema = struct {
     fn analyzeReturnExpr(
         self: *Self,
         @"return": *const ParsedExpr.Kind.Return,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         const sema_right: *SemaExpr = if (@"return".right) |right|
@@ -1136,7 +1139,7 @@ pub const Sema = struct {
     fn analyzeCallExpr(
         self: *Self,
         call: *const ParsedExpr.Kind.Call,
-        position: Position,
+        position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         const callee = try self.analyzeExpr(call.callee, true);
@@ -1280,7 +1283,7 @@ pub const Sema = struct {
         return null;
     }
 
-    fn unitStmt(self: *Self, position: Position, evals: bool) Error!*SemaStmt {
+    fn unitStmt(self: *Self, position: Loc, evals: bool) Error!*SemaStmt {
         return try SemaStmt.Kind.Expr.create(
             self.allocator,
             try self.unitLiteral(position, evals),
@@ -1288,7 +1291,7 @@ pub const Sema = struct {
         );
     }
 
-    fn unitLiteral(self: *Self, position: Position, evals: bool) Error!*SemaExpr {
+    fn unitLiteral(self: *Self, position: Loc, evals: bool) Error!*SemaExpr {
         return try SemaExpr.Kind.Literal.create(
             self.allocator,
             .unit,
@@ -1316,7 +1319,7 @@ pub const Sema = struct {
 
     fn semaFailure(
         self: *Self,
-        position: Position,
+        position: Loc,
         diag_kind: DiagEntry.Kind,
     ) Error {
         try self.addDiag(position, diag_kind);
@@ -1325,7 +1328,7 @@ pub const Sema = struct {
 
     fn addDiag(
         self: *Self,
-        position: Position,
+        position: Loc,
         diag_kind: DiagEntry.Kind,
     ) Error!void {
         self.had_error = true;

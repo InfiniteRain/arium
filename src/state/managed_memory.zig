@@ -3,7 +3,6 @@ const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const obj_mod = @import("obj.zig");
-const tokenizer_mod = @import("../parser/tokenizer.zig");
 const limits = @import("../limits.zig");
 
 const Allocator = std.mem.Allocator;
@@ -15,7 +14,6 @@ const Chunk = chunk_mod.Chunk;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
 const Obj = obj_mod.Obj;
-const Position = tokenizer_mod.Position;
 
 pub const CallFrame = struct {
     ip: u32,

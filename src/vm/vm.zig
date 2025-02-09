@@ -5,7 +5,7 @@ const value_mod = @import("../state/value.zig");
 const chunk_mod = @import("../compiler/chunk.zig");
 const stack_mod = @import("../state/stack.zig");
 const obj_mod = @import("../state/obj.zig");
-const tokenizer_mod = @import("../parser/tokenizer.zig");
+const tokenizer_mod = @import("../tokenizer.zig");
 const value_reporter = @import("../reporter/value_reporter.zig");
 const debug_reporter = @import("../reporter/debug_reporter.zig");
 
@@ -24,7 +24,7 @@ const OpCode = chunk_mod.OpCode;
 const Stack = stack_mod.Stack;
 const Obj = obj_mod.Obj;
 const Token = tokenizer_mod.Token;
-const Position = tokenizer_mod.Position;
+const Loc = tokenizer_mod.Loc;
 
 pub const Vm = struct {
     const Self = @This();
@@ -41,18 +41,20 @@ pub const Vm = struct {
         };
 
         kind: Kind,
-        position: Position,
+        position: Loc,
     };
 
     pub const Diags = SharedDiags(DiagEntry);
 
     pub const Config = struct {
+        source: ?[]const u8 = null,
         debug_writer: ?*const Writer = null,
         debugExecutionIteration: ?*const fn (
-            writer: *const Writer,
             values: []const Value,
             chunk: *const Chunk,
             ip_offset: usize,
+            source: []const u8,
+            writer: *const Writer,
         ) void = null,
     };
 
@@ -125,13 +127,15 @@ pub const Vm = struct {
             if (trace_execution_status == .trace_execution) {
                 const callback = self.config.debugExecutionIteration.?;
                 const writer = self.config.debug_writer.?;
+                const source = self.config.source.?;
 
                 callback(
-                    writer,
                     stack.values.items[frame.stack_bottom +
                         @"fn".locals_count .. stack.top],
                     &@"fn".chunk,
                     inst_ip,
+                    source,
+                    writer,
                 );
             }
 
@@ -592,14 +596,14 @@ pub const Vm = struct {
             .is_not_last;
     }
 
-    fn getPosition(@"fn": *Obj.Fn, offset: usize) Position {
+    fn getPosition(@"fn": *Obj.Fn, offset: usize) Loc {
         return @"fn".chunk.positions.items[offset];
     }
 
     fn panic(
         self: *Self,
         diag_kind: DiagEntry.Kind,
-        position: Position,
+        position: Loc,
     ) error{ Panic, OutOfMemory } {
         if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to

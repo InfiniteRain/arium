@@ -1,10 +1,10 @@
 const std = @import("std");
-const tokenizer = @import("tokenizer.zig");
+const tokenizer = @import("../tokenizer.zig");
 
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Token = tokenizer.Token;
-const Position = tokenizer.Position;
+const Loc = tokenizer.Loc;
 
 pub const ParsedExpr = struct {
     const Self = @This();
@@ -27,7 +27,7 @@ pub const ParsedExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 literal_kind: Literal.Kind,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -69,7 +69,7 @@ pub const ParsedExpr = struct {
                 left: *Self,
                 kind: Binary.Kind,
                 right: *Self,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -98,7 +98,7 @@ pub const ParsedExpr = struct {
                 allocator: Allocator,
                 kind: Unary.Kind,
                 right: *Self,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -121,7 +121,7 @@ pub const ParsedExpr = struct {
                 allocator: Allocator,
                 stmts: ArrayList(*ParsedStmt),
                 ends_with_semicolon: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -142,7 +142,7 @@ pub const ParsedExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 name: []const u8,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -164,7 +164,7 @@ pub const ParsedExpr = struct {
                 allocator: Allocator,
                 name: []const u8,
                 right: *ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -194,7 +194,7 @@ pub const ParsedExpr = struct {
                 conditional_block: ConditionalBlock,
                 elseif_blocks: ArrayList(ConditionalBlock),
                 else_block: ?*ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -218,7 +218,7 @@ pub const ParsedExpr = struct {
                 allocator: Allocator,
                 condition: ?*ParsedExpr,
                 body_block: *ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -236,7 +236,7 @@ pub const ParsedExpr = struct {
         pub const Break = struct {
             pub fn create(
                 allocator: Allocator,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(allocator, .@"break", position);
             }
@@ -245,7 +245,7 @@ pub const ParsedExpr = struct {
         pub const Continue = struct {
             pub fn create(
                 allocator: Allocator,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(allocator, .@"continue", position);
             }
@@ -257,7 +257,7 @@ pub const ParsedExpr = struct {
             pub fn create(
                 allocator: Allocator,
                 right: ?*ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -279,7 +279,7 @@ pub const ParsedExpr = struct {
                 allocator: Allocator,
                 callee: *ParsedExpr,
                 args: ArrayList(*ParsedExpr),
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -297,7 +297,7 @@ pub const ParsedExpr = struct {
         fn createExpr(
             allocator: Allocator,
             kind: Kind,
-            position: Position,
+            position: Loc,
         ) Error!*Self {
             const expr = try allocator.create(Self);
 
@@ -324,7 +324,7 @@ pub const ParsedExpr = struct {
     };
 
     kind: Kind,
-    position: Position,
+    position: Loc,
 };
 
 pub const ParsedStmt = struct {
@@ -339,7 +339,7 @@ pub const ParsedStmt = struct {
             pub fn create(
                 allocator: Allocator,
                 expr: *ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -359,7 +359,7 @@ pub const ParsedStmt = struct {
             pub fn create(
                 allocator: Allocator,
                 expr: *ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -379,7 +379,7 @@ pub const ParsedStmt = struct {
             pub fn create(
                 allocator: Allocator,
                 expr: *ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -405,7 +405,7 @@ pub const ParsedStmt = struct {
                 name: []const u8,
                 parsed_type: ?*ParsedType,
                 expr: ?*ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -426,8 +426,8 @@ pub const ParsedStmt = struct {
             pub const Arg = struct {
                 name: []const u8,
                 type: *ParsedType,
-                name_position: Position,
-                type_position: Position,
+                name_position: Loc,
+                type_position: Loc,
             };
 
             name: []const u8,
@@ -441,7 +441,7 @@ pub const ParsedStmt = struct {
                 args: ArrayList(Arg),
                 return_type: *ParsedType,
                 body: *ParsedExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -461,7 +461,7 @@ pub const ParsedStmt = struct {
         fn createStmt(
             allocator: Allocator,
             kind: Kind,
-            position: Position,
+            position: Loc,
         ) Error!*Self {
             const stmt = try allocator.create(Self);
 
@@ -481,7 +481,7 @@ pub const ParsedStmt = struct {
     };
 
     kind: Kind,
-    position: Position,
+    position: Loc,
 };
 
 pub const ParsedType = struct {
@@ -496,7 +496,7 @@ pub const ParsedType = struct {
             pub fn create(
                 allocator: Allocator,
                 name: []const u8,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createType(
                     allocator,
@@ -516,7 +516,7 @@ pub const ParsedType = struct {
     fn createType(
         allocator: Allocator,
         kind: Kind,
-        position: Position,
+        position: Loc,
     ) Error!*Self {
         const parsed_type = try allocator.create(Self);
 
@@ -529,5 +529,5 @@ pub const ParsedType = struct {
     }
 
     kind: Kind,
-    position: Position,
+    position: Loc,
 };

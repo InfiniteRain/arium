@@ -64,6 +64,7 @@ pub fn main() !void {
                         test_reporter.reportConfigDiags(
                             entry.path,
                             &diags,
+                            source,
                             &stderr_writer,
                         );
                     },
@@ -85,13 +86,15 @@ pub fn main() !void {
 }
 
 /// Return value is owned by the caller.
-fn readFileAlloc(allocator: Allocator, file_path: []const u8) ![]u8 {
+fn readFileAlloc(allocator: Allocator, file_path: []const u8) ![:0]u8 {
     const file = try (try std.fs.cwd().openDir(test_folder, .{})).openFile(file_path, .{ .mode = .read_only });
     defer file.close();
 
-    try file.seekFromEnd(0);
-    const end = try file.getPos();
-    try file.seekTo(0);
-
-    return try file.reader().readAllAlloc(allocator, end);
+    return try file.readToEndAllocOptions(
+        allocator,
+        std.math.maxInt(u32),
+        null,
+        @alignOf(u8),
+        0,
+    );
 }

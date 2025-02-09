@@ -11,7 +11,7 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const comptimePrint = std.fmt.comptimePrint;
 const Tokenizer = arium.Tokenizer;
-const Position = arium.Position;
+const Loc = arium.Loc;
 const Token = arium.Token;
 const IoHandler = arium.IoHandler;
 const Parser = arium.Parser;
@@ -41,15 +41,33 @@ pub const Runner = struct {
             return struct {
                 expected: T,
                 actual: T,
+                source: []const u8,
             };
         }
 
-        pub const FailureInfo = union(enum) {
-            parser: Parser.Diags,
-            sema: Sema.Diags,
-            compiler: Compiler.Diags,
-            vm: Vm.Diags,
-            out_mismatch: Mismatch([]const u8),
+        pub const OutMismatch = struct {
+            expected: []const u8,
+            actual: []const u8,
+        };
+
+        pub const Failure = union(enum) {
+            parser: struct {
+                diags: Parser.Diags,
+                source: []const u8,
+            },
+            sema: struct {
+                diags: Sema.Diags,
+                source: []const u8,
+            },
+            compiler: struct {
+                diags: Compiler.Diags,
+                source: []const u8,
+            },
+            vm: struct {
+                diags: Vm.Diags,
+                source: []const u8,
+            },
+            out_mismatch: OutMismatch,
             err_parser_mismatch: Mismatch(Parser.Diags),
             err_sema_mismatch: Mismatch(Sema.Diags),
             err_compiler_mismatch: Mismatch(Compiler.Diags),
@@ -58,22 +76,26 @@ pub const Runner = struct {
         };
 
         path: []const u8,
-        failures: ArrayList(FailureInfo),
+        failures: ArrayList(Failure),
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             for (self.failures.items) |*info| {
                 switch (info.*) {
-                    .parser => |*diags| {
-                        diags.deinit();
+                    .parser => |*parse_failure| {
+                        parse_failure.diags.deinit();
+                        allocator.free(parse_failure.source);
                     },
-                    .sema => |*diags| {
-                        diags.deinit();
+                    .sema => |*sema_failure| {
+                        sema_failure.diags.deinit();
+                        allocator.free(sema_failure.source);
                     },
-                    .compiler => |*diags| {
-                        diags.deinit();
+                    .compiler => |*compiler_failure| {
+                        compiler_failure.diags.deinit();
+                        allocator.free(compiler_failure.source);
                     },
-                    .vm => |*diags| {
-                        diags.deinit();
+                    .vm => |*vm_failure| {
+                        vm_failure.diags.deinit();
+                        allocator.free(vm_failure.source);
                     },
                     .out_mismatch => |mismatch| {
                         allocator.free(mismatch.expected);
@@ -82,18 +104,22 @@ pub const Runner = struct {
                     .err_parser_mismatch => |*mismatch| {
                         mismatch.expected.deinit();
                         mismatch.actual.deinit();
+                        allocator.free(mismatch.source);
                     },
                     .err_sema_mismatch => |*mismatch| {
                         mismatch.expected.deinit();
                         mismatch.actual.deinit();
+                        allocator.free(mismatch.source);
                     },
                     .err_compiler_mismatch => |*mismatch| {
                         mismatch.expected.deinit();
                         mismatch.actual.deinit();
+                        allocator.free(mismatch.source);
                     },
                     .err_vm_mismatch => |*mismatch| {
                         mismatch.expected.deinit();
                         mismatch.actual.deinit();
+                        allocator.free(mismatch.source);
                     },
                     .memory_leak => {},
                 }
@@ -106,8 +132,8 @@ pub const Runner = struct {
     const VerifiableTypes = .{
         Parser.DiagEntry,
         Parser.DiagEntry.Kind,
-        Position,
-        Token.Kind,
+        Loc,
+        Token.Tag,
         Sema.DiagEntry,
         Sema.DiagEntry.Kind,
         Sema.DiagEntry.ArityMismatch,
@@ -144,7 +170,7 @@ pub const Runner = struct {
     pub fn addTest(
         self: *Self,
         path: []const u8,
-        source: []const u8,
+        source: [:0]const u8,
         config_diags: *Config.Diags,
     ) !void {
         const config = try Config.initFromOwnedPathAndSource(
@@ -213,7 +239,7 @@ pub const Runner = struct {
 
         var diag_entry = DiagEntry{
             .path = config.path,
-            .failures = ArrayList(DiagEntry.FailureInfo).init(self.allocator),
+            .failures = ArrayList(DiagEntry.Failure).init(self.allocator),
         };
 
         var actual = Config.Expectations.init(self.allocator);
@@ -236,7 +262,10 @@ pub const Runner = struct {
                         actual.err_parser = parser_diags;
                     } else {
                         try diag_entry.failures.append(.{
-                            .parser = parser_diags,
+                            .parser = .{
+                                .diags = parser_diags,
+                                .source = try self.allocator.dupe(u8, config.source),
+                            },
                         });
                     }
                     break :blk;
@@ -259,7 +288,12 @@ pub const Runner = struct {
                     if (config.expectations.err_sema.getLen() > 0) {
                         actual.err_sema = sema_diags;
                     } else {
-                        try diag_entry.failures.append(.{ .sema = sema_diags });
+                        try diag_entry.failures.append(.{
+                            .sema = .{
+                                .diags = sema_diags,
+                                .source = try self.allocator.dupe(u8, config.source),
+                            },
+                        });
                     }
                     break :blk;
                 },
@@ -287,7 +321,12 @@ pub const Runner = struct {
                     if (config.expectations.err_compiler.getLen() > 0) {
                         actual.err_compiler = compiler_diags;
                     } else {
-                        try diag_entry.failures.append(.{ .compiler = compiler_diags });
+                        try diag_entry.failures.append(.{
+                            .compiler = .{
+                                .diags = compiler_diags,
+                                .source = try self.allocator.dupe(u8, config.source),
+                            },
+                        });
                     }
                     break :blk;
                 },
@@ -310,7 +349,12 @@ pub const Runner = struct {
                     if (config.expectations.err_vm.getLen() > 0) {
                         actual.err_vm = vm_diags;
                     } else {
-                        try diag_entry.failures.append(.{ .vm = vm_diags });
+                        try diag_entry.failures.append(.{
+                            .vm = .{
+                                .diags = vm_diags,
+                                .source = try self.allocator.dupe(u8, config.source),
+                            },
+                        });
                     }
                 },
                 error.OutOfMemory => return error.OutOfMemory,
@@ -326,7 +370,12 @@ pub const Runner = struct {
 
         if (diag_entry.failures.items.len == 0) {
             try actual.out.appendSlice(stdout_test_writer.output.items);
-            try self.verifyExpectations(&config.expectations, &actual, &diag_entry);
+            try self.verifyExpectations(
+                config.source,
+                &config.expectations,
+                &actual,
+                &diag_entry,
+            );
         }
 
         if (diag_entry.failures.items.len > 0) {
@@ -337,11 +386,12 @@ pub const Runner = struct {
 
     fn verifyExpectations(
         self: *Self,
+        source: []const u8,
         expectations: *const Config.Expectations,
         actuals: *const Config.Expectations,
         diag_entry: *DiagEntry,
     ) !void {
-        if (!verifyValue(expectations.out, actuals.out)) {
+        if (!verifyValue(expectations.out, actuals.out, source)) {
             try diag_entry.failures.append(.{
                 .out_mismatch = .{
                     .expected = try self.allocator.dupe(
@@ -359,11 +409,13 @@ pub const Runner = struct {
         if (!verifyValue(
             expectations.err_parser.entries,
             actuals.err_parser.entries,
+            source,
         )) {
             try diag_entry.failures.append(.{
                 .err_parser_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_parser),
                     .actual = try self.cloneDiags(&actuals.err_parser),
+                    .source = try self.allocator.dupe(u8, source),
                 },
             });
         }
@@ -371,11 +423,13 @@ pub const Runner = struct {
         if (!verifyValue(
             expectations.err_sema.entries,
             actuals.err_sema.entries,
+            source,
         )) {
             try diag_entry.failures.append(.{
                 .err_sema_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_sema),
                     .actual = try self.cloneDiags(&actuals.err_sema),
+                    .source = try self.allocator.dupe(u8, source),
                 },
             });
         }
@@ -383,11 +437,13 @@ pub const Runner = struct {
         if (!verifyValue(
             expectations.err_compiler.entries,
             actuals.err_compiler.entries,
+            source,
         )) {
             try diag_entry.failures.append(.{
                 .err_compiler_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_compiler),
                     .actual = try self.cloneDiags(&actuals.err_compiler),
+                    .source = try self.allocator.dupe(u8, source),
                 },
             });
         }
@@ -395,17 +451,19 @@ pub const Runner = struct {
         if (!verifyValue(
             expectations.err_vm.entries,
             actuals.err_vm.entries,
+            source,
         )) {
             try diag_entry.failures.append(.{
                 .err_vm_mismatch = .{
                     .expected = try self.cloneDiags(&expectations.err_vm),
                     .actual = try self.cloneDiags(&actuals.err_vm),
+                    .source = try self.allocator.dupe(u8, source),
                 },
             });
         }
     }
 
-    fn verifyValue(expectation: anytype, actual: anytype) bool {
+    fn verifyValue(expectation: anytype, actual: anytype, source: []const u8) bool {
         const Type = @TypeOf(expectation);
         const type_name = @typeName(Type);
 
@@ -415,9 +473,9 @@ pub const Runner = struct {
 
         const type_info = @typeInfo(Type);
 
-        if (Type == Position) {
-            // special case here as we ignore the column for now.
-            return expectation.line == actual.line;
+        if (Type == Loc) {
+            const line, _ = actual.toLineCol(source);
+            return expectation.start == line;
         }
 
         if (Type == []u8 or Type == []const u8) {
@@ -425,11 +483,11 @@ pub const Runner = struct {
         }
 
         if (comptime meta.isArrayList(Type)) {
-            return verifyArrayList(expectation, actual);
+            return verifyArrayList(expectation, actual, source);
         }
 
         if (type_info == .pointer and type_info.pointer.size == .one) {
-            return verifyValue(expectation.*, actual.*);
+            return verifyValue(expectation.*, actual.*, source);
         }
 
         switch (type_info) {
@@ -451,7 +509,7 @@ pub const Runner = struct {
 
             .@"union",
             => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
-                return verifyUnion(expectation, actual);
+                return verifyUnion(expectation, actual, source);
             } else {
                 @compileError(comptimePrint(
                     "union {s} isn't marked as verifiable",
@@ -461,7 +519,7 @@ pub const Runner = struct {
 
             .@"struct",
             => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
-                return verifyStruct(expectation, actual);
+                return verifyStruct(expectation, actual, source);
             } else {
                 @compileError(comptimePrint(
                     "struct {s} isn't marked as verifiable",
@@ -476,9 +534,17 @@ pub const Runner = struct {
         }
     }
 
-    fn verifyStruct(expectation: anytype, actual: anytype) bool {
+    fn verifyStruct(
+        expectation: anytype,
+        actual: anytype,
+        source: []const u8,
+    ) bool {
         inline for (@typeInfo(@TypeOf(expectation)).@"struct".fields) |field| {
-            if (!verifyValue(@field(expectation, field.name), @field(actual, field.name))) {
+            if (!verifyValue(
+                @field(expectation, field.name),
+                @field(actual, field.name),
+                source,
+            )) {
                 return false;
             }
         }
@@ -486,7 +552,11 @@ pub const Runner = struct {
         return true;
     }
 
-    fn verifyUnion(expectation: anytype, actual: anytype) bool {
+    fn verifyUnion(
+        expectation: anytype,
+        actual: anytype,
+        source: []const u8,
+    ) bool {
         const Type = @TypeOf(expectation);
         const type_info = @typeInfo(Type);
         const Tag = std.meta.Tag(Type);
@@ -503,19 +573,24 @@ pub const Runner = struct {
             return verifyValue(
                 @field(expectation, field.name),
                 @field(actual, field.name),
+                source,
             );
         }
 
         unreachable;
     }
 
-    fn verifyArrayList(expectation: anytype, actual: anytype) bool {
+    fn verifyArrayList(
+        expectation: anytype,
+        actual: anytype,
+        source: []const u8,
+    ) bool {
         if (expectation.items.len != actual.items.len) {
             return false;
         }
 
         for (expectation.items, actual.items) |expected_item, actual_item| {
-            if (!verifyValue(expected_item, actual_item)) {
+            if (!verifyValue(expected_item, actual_item, source)) {
                 return false;
             }
         }

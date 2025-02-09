@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const comptimePrint = std.fmt.comptimePrint;
 const Token = arium.Token;
 const Tokenizer = arium.Tokenizer;
-const Position = arium.Position;
+const Loc = arium.Loc;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
@@ -32,7 +32,7 @@ pub const Config = struct {
 
     pub const DiagEntry = struct {
         message: []const u8,
-        position: Position,
+        position: Loc,
 
         pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
             allocator.free(self.message);
@@ -88,7 +88,7 @@ pub const Config = struct {
         allocator: Allocator,
         kind: Kind,
         diags: *Diags,
-        position: Position,
+        position: Loc,
         split_iter: *SplitIter,
         expectations: *Expectations,
     };
@@ -97,7 +97,7 @@ pub const Config = struct {
 
     const ParsableTypes = .{
         Parser.DiagEntry.Kind,
-        Token.Kind,
+        Loc,
         Sema.DiagEntry.Kind,
         Sema.DiagEntry.SemaTypeTuple,
         Sema.DiagEntry.ArityMismatch,
@@ -106,11 +106,17 @@ pub const Config = struct {
         SemaType.Fn,
         Compiler.DiagEntry.Kind,
         Vm.DiagEntry.Kind,
+        Token.Tag,
+    };
+
+    const defaultPosition = Loc{
+        .start = 0,
+        .end = 0,
     };
 
     allocator: Allocator,
     path: []const u8,
-    source: []const u8,
+    source: [:0]const u8,
     kind: Kind,
     expectations: Expectations,
     vm_config: Vm.Config,
@@ -118,7 +124,7 @@ pub const Config = struct {
     pub fn initFromOwnedPathAndSource(
         allocator: Allocator,
         path: []const u8,
-        source: []const u8,
+        source: [:0]const u8,
         diags: *Diags,
     ) Error!Self {
         errdefer allocator.free(path);
@@ -136,17 +142,17 @@ pub const Config = struct {
     fn parse(
         allocator: Allocator,
         path: []const u8,
-        source: []const u8,
+        source: [:0]const u8,
         diags: *Diags,
     ) Error!Self {
         var tokenizer = Tokenizer.init(source);
-        const first_token = tokenizer.scanToken();
-        const config_line_opt = parseConfigComment(first_token);
+        const first_token = tokenizer.next();
+        const config_line_opt = parseConfigComment(first_token, source);
 
         if (config_line_opt == null) {
             return configParseFailure(
                 diags,
-                first_token.position,
+                first_token.loc,
                 "Test header is missing.",
                 .{},
             );
@@ -158,7 +164,7 @@ pub const Config = struct {
         if (test_kind_opt == null) {
             return configParseFailure(
                 diags,
-                first_token.position,
+                first_token.loc,
                 "Invalid test kind {s}.",
                 .{config_line},
             );
@@ -168,10 +174,10 @@ pub const Config = struct {
         var expectations = Expectations.init(allocator);
         errdefer expectations.deinit();
 
-        var current_token = tokenizer.scanToken();
+        var current_token = tokenizer.next();
 
-        while (current_token.kind != .eof) : (current_token = tokenizer.scanToken()) {
-            const directive_line_opt = parseConfigComment(current_token);
+        while (current_token.tag != .eof) : (current_token = tokenizer.next()) {
+            const directive_line_opt = parseConfigComment(current_token, source);
 
             if (directive_line_opt == null) {
                 continue;
@@ -182,7 +188,7 @@ pub const Config = struct {
                 .allocator = allocator,
                 .kind = test_kind,
                 .diags = diags,
-                .position = current_token.position,
+                .position = current_token.loc,
                 .split_iter = &split_iter,
                 .expectations = &expectations,
             };
@@ -207,10 +213,11 @@ pub const Config = struct {
         };
     }
 
-    fn parseConfigComment(token: Token) ?[]const u8 {
-        return if (token.kind == .comment and
-            token.lexeme.len >= 3 and token.lexeme[2] == '/')
-            std.mem.trim(u8, token.lexeme[3..], " ")
+    fn parseConfigComment(token: Token, source: []const u8) ?[]const u8 {
+        const lexeme = source[token.loc.start..token.loc.end];
+        return if (token.tag == .comment and
+            lexeme.len >= 3 and lexeme[2] == '/')
+            std.mem.trim(u8, lexeme[3..], " ")
         else
             null;
     }
@@ -260,7 +267,7 @@ pub const Config = struct {
         const ChildDiagEntry =
             @typeInfo(@TypeOf(diags.entries.items)).pointer.child;
 
-        const line = try parseType(u64, ctx);
+        const line = try parseType(u32, ctx);
         const diag = try parseType(ChildDiagEntry.Kind, ctx);
 
         try parseEndOfSplitIter(ctx, "Expected end of comment.");
@@ -268,8 +275,9 @@ pub const Config = struct {
         try diags.add(.{
             .kind = diag,
             .position = .{
-                .line = line,
-                // column is not part of the check for now
+                // hack until rewrite: start represents line number, handled with a special case
+                .start = line,
+                .end = 0,
             },
         });
     }
@@ -500,7 +508,7 @@ pub const Config = struct {
 
     fn addDiag(
         diags: *Diags,
-        position: Position,
+        position: Loc,
         comptime fmt: []const u8,
         args: anytype,
     ) error{OutOfMemory}!void {
@@ -522,7 +530,7 @@ pub const Config = struct {
 
     fn configParseFailure(
         diags: *Diags,
-        position: Position,
+        position: Loc,
         comptime fmt: []const u8,
         args: anytype,
     ) error{ OutOfMemory, ConfigParseFailure } {

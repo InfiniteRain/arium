@@ -10,7 +10,7 @@ const meta = shared.meta;
 const Runner = runner_mod.Runner;
 const Token = arium.Token;
 const Parser = arium.Parser;
-const Position = arium.Position;
+const Loc = arium.Loc;
 const Sema = arium.Sema;
 const SemaExpr = arium.SemaExpr;
 const SemaType = arium.SemaType;
@@ -20,7 +20,7 @@ const error_reporter = arium.error_reporter;
 const Config = config_mod.Config;
 
 const ReportableTypes = .{
-    Token.Kind,
+    Token.Tag,
     Parser.DiagEntry,
     Parser.DiagEntry.Kind,
     Sema.DiagEntry,
@@ -39,12 +39,13 @@ const ReportableTypes = .{
 pub fn reportConfigDiags(
     path: []const u8,
     diags: *const Config.Diags,
+    source: []const u8,
     writer: *const Writer,
 ) void {
     writer.printf("Test configuration diags for '{s}':\n", .{path});
 
     for (diags.getEntries()) |*diag| {
-        reportConfigDiag(diag, writer);
+        reportConfigDiag(diag, source, writer);
         writer.print("\n");
     }
 
@@ -53,10 +54,12 @@ pub fn reportConfigDiags(
 
 pub fn reportConfigDiag(
     diag: *const Config.DiagEntry,
+    source: []const u8,
     writer: *const Writer,
 ) void {
+    const line, _ = diag.position.toLineCol(source);
     writer.printf("Line {}: {s}", .{
-        diag.position.line,
+        line,
         diag.message,
     });
 }
@@ -78,19 +81,35 @@ pub fn reportRunnerDiag(
     diag: *const Runner.DiagEntry,
     writer: *const Writer,
 ) void {
-    for (diag.failures.items) |info| {
-        switch (info) {
-            .parser => |*diags| {
-                error_reporter.reportParserDiags(diags, writer);
+    for (diag.failures.items) |failure| {
+        switch (failure) {
+            .parser => |*parse_failure| {
+                error_reporter.reportParserDiags(
+                    &parse_failure.diags,
+                    parse_failure.source,
+                    writer,
+                );
             },
-            .sema => |*diags| {
-                error_reporter.reportSemaDiags(diags, writer);
+            .sema => |*sema_failure| {
+                error_reporter.reportSemaDiags(
+                    &sema_failure.diags,
+                    sema_failure.source,
+                    writer,
+                );
             },
-            .compiler => |*diags| {
-                error_reporter.reportCompilerDiags(diags, writer);
+            .compiler => |*compiler_failure| {
+                error_reporter.reportCompilerDiags(
+                    &compiler_failure.diags,
+                    compiler_failure.source,
+                    writer,
+                );
             },
-            .vm => |*diags| {
-                error_reporter.reportVmDiags(diags, writer);
+            .vm => |*vm_failure| {
+                error_reporter.reportVmDiags(
+                    &vm_failure.diags,
+                    vm_failure.source,
+                    writer,
+                );
             },
             .out_mismatch => |*mismatch| {
                 reportOutMismatch(mismatch, writer);
@@ -119,9 +138,14 @@ pub fn reportErrParserMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected parser error(s).\nExpected:\n");
-    reportValueMultiline(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, null, writer);
     writer.print("\nActual:\n");
-    reportValueMultiline(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(
+        mismatch.actual.entries,
+        0,
+        mismatch.source,
+        writer,
+    );
 }
 
 pub fn reportErrSemaMismatch(
@@ -129,9 +153,14 @@ pub fn reportErrSemaMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected sema error(s).\nExpected:\n");
-    reportValueMultiline(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, null, writer);
     writer.print("\nActual:\n");
-    reportValueMultiline(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(
+        mismatch.actual.entries,
+        0,
+        mismatch.source,
+        writer,
+    );
 }
 
 pub fn reportErrCompilerMismatch(
@@ -139,9 +168,14 @@ pub fn reportErrCompilerMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected compiler error.\nExpected:\n");
-    reportValueMultiline(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, null, writer);
     writer.print("\nActual:\n");
-    reportValueMultiline(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(
+        mismatch.actual.entries,
+        0,
+        mismatch.source,
+        writer,
+    );
 }
 
 pub fn reportErrVmMismatch(
@@ -149,13 +183,18 @@ pub fn reportErrVmMismatch(
     writer: *const Writer,
 ) void {
     writer.print("Unexpected vm error.\nExpected:\n");
-    reportValueMultiline(mismatch.expected.entries, 0, writer);
+    reportValueMultiline(mismatch.expected.entries, 0, null, writer);
     writer.print("\nActual:\n");
-    reportValueMultiline(mismatch.actual.entries, 0, writer);
+    reportValueMultiline(
+        mismatch.actual.entries,
+        0,
+        mismatch.source,
+        writer,
+    );
 }
 
 pub fn reportOutMismatch(
-    mismatch: *const Runner.DiagEntry.Mismatch([]const u8),
+    mismatch: *const Runner.DiagEntry.OutMismatch,
     writer: *const Writer,
 ) void {
     writer.printf("Unexpected stdout.\nExpected:\n{s}\nActual:\n{s}", .{
@@ -167,32 +206,45 @@ pub fn reportOutMismatch(
 fn reportValueMultiline(
     value: anytype,
     indent: u8,
+    source_opt: ?[]const u8,
     writer: *const Writer,
 ) void {
-    reportValueAux(value, indent, true, writer);
+    reportValueAux(value, indent, true, source_opt, writer);
 }
 
 fn reportValue(
     value: anytype,
     indent: u8,
+    source_opt: ?[]const u8,
     writer: *const Writer,
 ) void {
-    reportValueAux(value, indent, false, writer);
+    reportValueAux(value, indent, false, source_opt, writer);
 }
 
 fn reportValueAux(
     value: anytype,
     indent: u8,
     multiline: bool,
+    source_opt: ?[]const u8,
     writer: *const Writer,
 ) void {
     const Type = @TypeOf(value);
     const type_info = @typeInfo(Type);
     const type_name = @typeName(Type);
 
-    if (Type == Position) {
-        // special case here as we ignore the column for now.
-        writer.printf("Position{{ .line = {} }}", .{value.line});
+    if (Type == Loc) {
+        // hack: to be removed after rewrite
+        // when no source provided, treat .start as a literal line number
+        // when source is present, treat .start as actual position and
+        // extrapolate line number from that
+        var line = value.start;
+
+        if (source_opt) |source| {
+            std.debug.print("here?", .{});
+            line, _ = value.toLineCol(source);
+        }
+
+        writer.printf("Loc{{ .line = {} }}", .{line});
         return;
     }
 
@@ -202,13 +254,13 @@ fn reportValueAux(
     }
 
     if (comptime meta.isArrayList(Type)) {
-        reportArrayList(value, indent + 1, multiline, writer);
+        reportArrayList(value, indent + 1, multiline, source_opt, writer);
         return;
     }
 
     if (type_info == .pointer and type_info.pointer.size == .one) {
         writer.print("*");
-        reportValue(value.*, indent, writer);
+        reportValue(value.*, indent, source_opt, writer);
         return;
     }
 
@@ -231,7 +283,7 @@ fn reportValueAux(
 
         .@"union",
         => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
-            reportUnion(value, indent, writer);
+            reportUnion(value, indent, source_opt, writer);
         } else {
             @compileError(comptimePrint(
                 "union {s} isn't marked as reportable",
@@ -241,7 +293,7 @@ fn reportValueAux(
 
         .@"struct",
         => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
-            reportStruct(value, indent, writer);
+            reportStruct(value, indent, source_opt, writer);
         } else {
             @compileError(comptimePrint(
                 "struct {s} isn't marked as reportable",
@@ -256,7 +308,12 @@ fn reportValueAux(
     }
 }
 
-pub fn reportStruct(value: anytype, indent: u8, writer: *const Writer) void {
+pub fn reportStruct(
+    value: anytype,
+    indent: u8,
+    source_opt: ?[]const u8,
+    writer: *const Writer,
+) void {
     const Type = @TypeOf(value);
     const type_info = @typeInfo(Type);
 
@@ -264,7 +321,7 @@ pub fn reportStruct(value: anytype, indent: u8, writer: *const Writer) void {
 
     inline for (type_info.@"struct".fields, 0..) |field, index| {
         writer.printf(" .{s} = ", .{field.name});
-        reportValue(@field(value, field.name), indent, writer);
+        reportValue(@field(value, field.name), indent, source_opt, writer);
 
         if (index != type_info.@"struct".fields.len - 1) {
             writer.print(",");
@@ -274,7 +331,12 @@ pub fn reportStruct(value: anytype, indent: u8, writer: *const Writer) void {
     writer.print(" }");
 }
 
-pub fn reportUnion(value: anytype, indent: u8, writer: *const Writer) void {
+pub fn reportUnion(
+    value: anytype,
+    indent: u8,
+    source_opt: ?[]const u8,
+    writer: *const Writer,
+) void {
     writer.printf(
         "{s}{{ .{s} = ",
         .{ meta.typeName(@TypeOf(value)), @tagName(value) },
@@ -282,7 +344,7 @@ pub fn reportUnion(value: anytype, indent: u8, writer: *const Writer) void {
 
     inline for (@typeInfo(@TypeOf(value)).@"union".fields) |field| {
         if (std.mem.eql(u8, field.name, @tagName(value))) {
-            reportValue(@field(value, field.name), indent, writer);
+            reportValue(@field(value, field.name), indent, source_opt, writer);
         }
     }
 
@@ -297,6 +359,7 @@ pub fn reportArrayList(
     value: anytype,
     indent: u8,
     multiline: bool,
+    source_opt: ?[]const u8,
     writer: *const Writer,
 ) void {
     writer.print("[");
@@ -310,7 +373,7 @@ pub fn reportArrayList(
             writeIndent(indent, writer);
         }
 
-        reportValue(item, indent, writer);
+        reportValue(item, indent, source_opt, writer);
 
         if (index != value.items.len - 1) {
             writer.print(",");

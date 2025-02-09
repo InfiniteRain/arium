@@ -105,21 +105,28 @@ pub fn build(b: *std.Build) void {
 
     // CHECK CMD
 
-    const check = b.addExecutable(.{
-        .name = "check",
-        // Check will try and build lang tests, as that
-        // module depends on both arium and shared, and therefore
-        // will build those too (and check them).
-        .root_source_file = b.path("test/lang_tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
+    const checks = .{
+        .{ "lang_tests", "test/lang_tests.zig" },
+        .{ "bin", "src/main.zig" },
+    };
+    var check_mods: [@typeInfo(@TypeOf(checks)).@"struct".fields.len]*std.Build.Module = undefined;
     const check_step = b.step("check", "Check build");
-    check_step.dependOn(&check.step);
 
-    check.root_module.addImport("shared", shared_mod);
-    check.root_module.addImport("arium", arium_mod);
+    inline for (checks, 0..) |check, index| {
+        const check_mod = b.addExecutable(.{
+            .name = "check_" ++ check[0],
+            .root_source_file = b.path(check[1]),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        check_step.dependOn(&check_mod.step);
+
+        check_mod.root_module.addImport("shared", shared_mod);
+        check_mod.root_module.addImport("arium", arium_mod);
+
+        check_mods[index] = check_mod.root_module;
+    }
 
     // THIRD PARTY DEPENDENCIES
 
@@ -129,8 +136,7 @@ pub fn build(b: *std.Build) void {
         exe_mod,
         shared_mod,
         lang_tests.root_module,
-        check.root_module,
-    };
+    } ++ check_mods;
 
     for (dep_names) |dep_name| {
         const dep = b.dependency(dep_name, .{

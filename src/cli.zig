@@ -96,7 +96,7 @@ fn runFile(
 
     const parsed_block = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
         error.ParseFailure => {
-            error_reporter.reportParserDiags(&parser_diags, err_writer);
+            error_reporter.reportParserDiags(&parser_diags, source, err_writer);
             std.posix.exit(65);
         },
         else => return err,
@@ -112,7 +112,7 @@ fn runFile(
 
     const sema_fn = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
-            error_reporter.reportSemaDiags(&sema_diags, err_writer);
+            error_reporter.reportSemaDiags(&sema_diags, source, err_writer);
             std.posix.exit(65);
         },
         else => return err,
@@ -135,7 +135,7 @@ fn runFile(
         &compiler_diags,
     ) catch |err| switch (err) {
         error.CompileFailure => {
-            error_reporter.reportCompilerDiags(&compiler_diags, err_writer);
+            error_reporter.reportCompilerDiags(&compiler_diags, source, err_writer);
             std.posix.exit(65);
         },
         else => return err,
@@ -154,7 +154,7 @@ fn runFile(
                     else
                         "SCRIPT",
                 });
-                debug_reporter.reportChunk(&@"fn".chunk, out_writer);
+                debug_reporter.reportChunk(&@"fn".chunk, source, out_writer);
                 out_writer.print("\n");
             }
 
@@ -170,6 +170,7 @@ fn runFile(
     }
 
     Vm.interpret(&memory, out_writer, &vm_diags, .{
+        .source = source,
         .debug_writer = out_writer,
         .debugExecutionIteration = if (args.@"dtrace-execution" > 0)
             debug_reporter.reportExecutionIteration
@@ -177,7 +178,7 @@ fn runFile(
             null,
     }) catch |err| switch (err) {
         error.Panic => {
-            error_reporter.reportVmDiags(&vm_diags, err_writer);
+            error_reporter.reportVmDiags(&vm_diags, source, err_writer);
             std.posix.exit(65);
         },
         else => return err,
@@ -188,18 +189,20 @@ fn readFileAlloc(
     allocator: Allocator,
     file_path: []const u8,
     writer: *const Writer,
-) ![]u8 {
+) ![:0]const u8 {
     const file = std.fs.cwd().openFile(file_path, .{ .mode = .read_only }) catch {
         writer.printf("Could not open file '{s}'.\n", .{file_path});
         std.posix.exit(74);
     };
     defer file.close();
 
-    try file.seekFromEnd(0);
-    const end = try file.getPos();
-    try file.seekTo(0);
-
-    return file.reader().readAllAlloc(allocator, end) catch {
+    return file.readToEndAllocOptions(
+        allocator,
+        std.math.maxInt(u32),
+        null,
+        @alignOf(u8),
+        0,
+    ) catch {
         writer.printf("Not enough memory to read '{s}'.\n", .{file_path});
         std.posix.exit(74);
     };

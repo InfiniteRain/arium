@@ -7,7 +7,7 @@ const sema_ast_mod = @import("../sema/sema_ast.zig");
 const stack_mod = @import("../state/stack.zig");
 const value_mod = @import("../state/value.zig");
 const obj_mod = @import("../state/obj.zig");
-const tokenizer_mod = @import("../parser/tokenizer.zig");
+const tokenizer_mod = @import("../tokenizer.zig");
 const limits = @import("../limits.zig");
 
 const mem = std.mem;
@@ -31,7 +31,7 @@ const SemaStmt = sema_ast_mod.SemaStmt;
 const Stack = stack_mod.Stack;
 const Value = value_mod.Value;
 const Obj = obj_mod.Obj;
-const Position = tokenizer_mod.Position;
+const Loc = tokenizer_mod.Loc;
 
 pub const Compiler = struct {
     const Self = @This();
@@ -48,7 +48,7 @@ pub const Compiler = struct {
         };
 
         kind: Kind,
-        position: Position,
+        position: Loc,
     };
 
     pub const Diags = SharedDiags(DiagEntry);
@@ -144,7 +144,7 @@ pub const Compiler = struct {
     fn compileAssertStmt(
         self: *Self,
         assert_stmt: *const SemaStmt.Kind.Assert,
-        position: Position,
+        position: Loc,
     ) Error!void {
         try self.compileExpr(assert_stmt.expr, null, null);
         try self.writeU8(.assert, position);
@@ -153,7 +153,7 @@ pub const Compiler = struct {
     fn compilePrintStmt(
         self: *Self,
         print: *const SemaStmt.Kind.Print,
-        position: Position,
+        position: Loc,
     ) Error!void {
         try self.compileExpr(print.expr, null, null);
         try self.writeU8(.print, position);
@@ -170,7 +170,7 @@ pub const Compiler = struct {
         self: *Self,
         index: usize,
         expr_opt: ?*const SemaExpr,
-        position: Position,
+        position: Loc,
     ) Error!void {
         const index_u8: u8 = @intCast(index);
 
@@ -194,7 +194,7 @@ pub const Compiler = struct {
     fn compileFn(
         self: *Self,
         @"fn": *const SemaStmt.Kind.Fn,
-        position: Position,
+        position: Loc,
     ) Error!void {
         const fn_obj = try self.compileFnAux(
             self.vm_state,
@@ -244,8 +244,8 @@ pub const Compiler = struct {
             defer self.fn_ctx = prev_fn_ctx;
 
             try self.compileExpr(block, null, null);
-            try self.writeU8(.constant_unit, .{});
-            try self.writeU8(.@"return", .{});
+            try self.writeU8(.constant_unit, .{ .start = 0, .end = 0 });
+            try self.writeU8(.@"return", .{ .start = 0, .end = 0 });
         }
 
         return @"fn";
@@ -390,7 +390,7 @@ pub const Compiler = struct {
     fn compileComparisonBinaryExpr(
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
-        position: Position,
+        position: Loc,
         ctx: ExprCtx,
     ) Error!void {
         try self.compileExpr(expr.left, null, null);
@@ -419,7 +419,7 @@ pub const Compiler = struct {
     fn compileLogicalBinaryExpr(
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
-        position: Position,
+        position: Loc,
         ctx: ExprCtx,
     ) Error!void {
         const is_current_logical_or = expr.kind == .@"or";
@@ -480,7 +480,7 @@ pub const Compiler = struct {
     fn compileArithmeticBinaryExpr(
         self: *Self,
         expr: *const SemaExpr.Kind.Binary,
-        position: Position,
+        position: Loc,
     ) Error!void {
         try self.compileExpr(expr.left, null, null);
         try self.compileExpr(expr.right, null, null);
@@ -675,7 +675,7 @@ pub const Compiler = struct {
         self: *Self,
         cmp_op_code_opt: ?OpCode,
         if_op_code: OpCode,
-        position: Position,
+        position: Loc,
         ctx: ExprCtx,
     ) Error!struct { usize, bool } {
         const invert = ctx.is_current_logical_or and ctx.is_child_to_logical;
@@ -697,7 +697,7 @@ pub const Compiler = struct {
     fn compileConditionalBranches(
         self: *Self,
         else_offset: anytype,
-        position: Position,
+        position: Loc,
         ctx: ExprCtx,
     ) Error!void {
         var then_evals_to_never = false;
@@ -815,11 +815,11 @@ pub const Compiler = struct {
         return &self.fn_ctx.@"fn".chunk;
     }
 
-    fn writeU8(self: *Self, data: anytype, position: Position) Error!void {
+    fn writeU8(self: *Self, data: anytype, position: Loc) Error!void {
         try self.getChunk().writeU8(data, position);
     }
 
-    fn writeJump(self: *Self, op_code: OpCode, position: Position) Error!usize {
+    fn writeJump(self: *Self, op_code: OpCode, position: Loc) Error!usize {
         return try self.getChunk().writeJump(op_code, position);
     }
 
@@ -851,7 +851,7 @@ pub const Compiler = struct {
     fn writeNegativeJump(
         self: *Self,
         offset: usize,
-        position: Position,
+        position: Loc,
     ) Error!void {
         _ = self.getChunk().writeNegativeJump(
             offset,
@@ -865,7 +865,7 @@ pub const Compiler = struct {
         };
     }
 
-    fn writeConstant(self: *Self, value: Value, position: Position) Error!void {
+    fn writeConstant(self: *Self, value: Value, position: Loc) Error!void {
         _ = self.getChunk().writeConstant(
             value,
             position,
@@ -881,7 +881,7 @@ pub const Compiler = struct {
     fn addDiag(
         self: *Self,
         diag_kind: DiagEntry.Kind,
-        position: Position,
+        position: Loc,
     ) Error!void {
         if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to

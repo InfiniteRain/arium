@@ -2,7 +2,7 @@ const std = @import("std");
 const shared = @import("shared");
 const parser_mod = @import("../parser/parser.zig");
 const sema_mod = @import("../sema/sema.zig");
-const tokenizer_mod = @import("../parser/tokenizer.zig");
+const tokenizer_mod = @import("../tokenizer.zig");
 const compiler_mod = @import("../compiler/compiler.zig");
 const vm_mod = @import("../vm/vm.zig");
 const type_reporter = @import("type_reporter.zig");
@@ -11,26 +11,31 @@ const Writer = shared.Writer;
 const Parser = parser_mod.Parser;
 const Sema = sema_mod.Sema;
 const Token = tokenizer_mod.Token;
+const Loc = tokenizer_mod.Loc;
 const Compiler = compiler_mod.Compiler;
 const Vm = vm_mod.Vm;
 
 pub fn reportParserDiags(
     diags: *const Parser.Diags,
+    source: []const u8,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
-        reportParserDiag(diag, writer);
+        reportParserDiag(diag, source, writer);
         writer.print("\n");
     }
 }
 
 pub fn reportParserDiag(
     diag: *const Parser.DiagEntry,
+    source: []const u8,
     writer: *const Writer,
 ) void {
+    const line, const column = diag.position.toLineCol(source);
+
     writer.printf("Error at {}:{}: ", .{
-        diag.position.line,
-        diag.position.column,
+        line,
+        column,
     });
 
     switch (diag.kind) {
@@ -103,7 +108,7 @@ pub fn reportParserDiag(
 }
 
 pub fn reportParserDiagTokenQuoted(
-    token_kind: Token.Kind,
+    token_kind: Token.Tag,
     writer: *const Writer,
 ) void {
     switch (token_kind) {
@@ -119,21 +124,25 @@ pub fn reportParserDiagTokenQuoted(
 
 pub fn reportSemaDiags(
     diags: *const Sema.Diags,
+    source: []const u8,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
-        reportSemaDiag(diag, writer);
+        reportSemaDiag(diag, source, writer);
         writer.print("\n");
     }
 }
 
 pub fn reportSemaDiag(
     diag: *const Sema.DiagEntry,
+    source: []const u8,
     writer: *const Writer,
 ) void {
+    const line, const column = diag.position.toLineCol(source);
+
     writer.printf("Error at {}:{}: ", .{
-        diag.position.line,
-        diag.position.column,
+        line,
+        column,
     });
 
     switch (diag.kind) {
@@ -288,21 +297,25 @@ pub fn reportSemaDiag(
 
 pub fn reportCompilerDiags(
     diags: *const Compiler.Diags,
+    source: []const u8,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
-        reportCompilerDiag(diag, writer);
+        reportCompilerDiag(diag, source, writer);
         writer.print("\n");
     }
 }
 
 pub fn reportCompilerDiag(
     diag: *const Compiler.DiagEntry,
+    source: []const u8,
     writer: *const Writer,
 ) void {
+    const line, const column = diag.position.toLineCol(source);
+
     writer.printf("Error at {}:{}: ", .{
-        diag.position.line,
-        diag.position.column,
+        line,
+        column,
     });
 
     switch (diag.kind) {
@@ -316,21 +329,25 @@ pub fn reportCompilerDiag(
 
 pub fn reportVmDiags(
     diags: *const Vm.Diags,
+    source: []const u8,
     writer: *const Writer,
 ) void {
     for (diags.getEntries()) |*diag| {
-        reportVmDiag(diag, writer);
+        reportVmDiag(diag, source, writer);
         writer.print("\n");
     }
 }
 
 pub fn reportVmDiag(
     diag: *const Vm.DiagEntry,
+    source: []const u8,
     writer: *const Writer,
 ) void {
+    const line, const column = diag.position.toLineCol(source);
+
     writer.printf("Panic at {}:{}: ", .{
-        diag.position.line,
-        diag.position.column,
+        line,
+        column,
     });
 
     switch (diag.kind) {

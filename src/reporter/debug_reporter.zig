@@ -9,18 +9,22 @@ const Chunk = chunk_mod.Chunk;
 const OpCode = chunk_mod.OpCode;
 const Value = value_mod.Value;
 
-pub fn reportChunk(chunk: *const Chunk, writer: *const Writer) void {
+pub fn reportChunk(
+    chunk: *const Chunk,
+    source: []const u8,
+    writer: *const Writer,
+) void {
     var index: usize = 0;
 
     while (index < chunk.code.items.len) {
-        index += reportInstruction(chunk, writer, index);
+        index += reportInstruction(chunk, index, source, writer);
     }
 }
 
 pub fn reportInstructionName(
     chunk: *const Chunk,
-    writer: *const Writer,
     offset: usize,
+    writer: *const Writer,
 ) usize {
     const byte = chunk.readU8(offset);
     const op_code: OpCode = @enumFromInt(byte);
@@ -33,8 +37,8 @@ pub fn reportInstructionName(
 
 pub fn reportByteInstruction(
     chunk: *const Chunk,
-    writer: *const Writer,
     offset: usize,
+    writer: *const Writer,
 ) usize {
     const byte = chunk.readU8(offset);
     const op_code: OpCode = @enumFromInt(byte);
@@ -48,8 +52,8 @@ pub fn reportByteInstruction(
 
 pub fn reportConstantInstructionName(
     chunk: *const Chunk,
-    writer: *const Writer,
     offset: usize,
+    writer: *const Writer,
 ) usize {
     const byte = chunk.readU8(offset);
     const op_code: OpCode = @enumFromInt(byte);
@@ -65,9 +69,9 @@ pub fn reportConstantInstructionName(
 
 pub fn reportJumpInstructionName(
     chunk: *const Chunk,
-    writer: *const Writer,
     offset: usize,
     negative: bool,
+    writer: *const Writer,
 ) usize {
     const byte = chunk.readU8(offset);
     const op_code: OpCode = @enumFromInt(byte);
@@ -102,21 +106,24 @@ pub fn reportOpCode(op_code: OpCode, writer: *const Writer) void {
 
 pub fn reportInstruction(
     chunk: *const Chunk,
-    writer: *const Writer,
     offset: usize,
+    source: []const u8,
+    writer: *const Writer,
 ) usize {
     const position = chunk.positions.items[offset];
+    const line, const column = position.toLineCol(source);
+
     writer.printf("{:0>4} {: >4}:{: <4} ", .{
         offset,
-        position.line,
-        position.column,
+        line,
+        column,
     });
 
     const byte = chunk.code.items[offset];
     const op_code = @as(OpCode, @enumFromInt(byte));
 
     return switch (op_code) {
-        .constant => reportConstantInstructionName(chunk, writer, offset),
+        .constant => reportConstantInstructionName(chunk, offset, writer),
 
         .constant_unit,
         .constant_bool_false,
@@ -161,7 +168,7 @@ pub fn reportInstruction(
         .print,
         .@"return",
         .pop,
-        => reportInstructionName(chunk, writer, offset),
+        => reportInstructionName(chunk, offset, writer),
 
         .if_equal,
         .if_not_equal,
@@ -172,25 +179,26 @@ pub fn reportInstruction(
         .if_true,
         .if_false,
         .jump,
-        => reportJumpInstructionName(chunk, writer, offset, false),
+        => reportJumpInstructionName(chunk, offset, false, writer),
 
         .negative_jump,
-        => reportJumpInstructionName(chunk, writer, offset, true),
+        => reportJumpInstructionName(chunk, offset, true, writer),
 
         .store_local,
         .load_local,
         .call,
-        => reportByteInstruction(chunk, writer, offset),
+        => reportByteInstruction(chunk, offset, writer),
 
         _ => @panic("unknown instruction"),
     };
 }
 
 pub fn reportExecutionIteration(
-    writer: *const Writer,
     values: []const Value,
     chunk: *const Chunk,
     ip_offset: usize,
+    source: []const u8,
+    writer: *const Writer,
 ) void {
     writer.print("               ");
 
@@ -202,5 +210,5 @@ pub fn reportExecutionIteration(
 
     writer.print("\n");
 
-    _ = reportInstruction(chunk, writer, ip_offset);
+    _ = reportInstruction(chunk, ip_offset, source, writer);
 }

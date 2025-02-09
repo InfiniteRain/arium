@@ -2,7 +2,7 @@ const std = @import("std");
 const shared = @import("shared");
 const managed_memory_mod = @import("../state/managed_memory.zig");
 const value_mod = @import("../state/value.zig");
-const tokenizer_mod = @import("../parser/tokenizer.zig");
+const tokenizer_mod = @import("../tokenizer.zig");
 const value_reporter = @import("../reporter/value_reporter.zig");
 const limits = @import("../limits.zig");
 
@@ -14,7 +14,7 @@ const assert = std.debug.assert;
 const Writer = shared.Writer;
 const ManagedMemory = managed_memory_mod.ManagedMemory;
 const Value = value_mod.Value;
-const Position = tokenizer_mod.Position;
+const Loc = tokenizer_mod.Loc;
 
 pub const OpCode = enum(u8) {
     constant,
@@ -91,14 +91,14 @@ pub const Chunk = struct {
 
     allocator: Allocator,
     code: ArrayList(u8),
-    positions: ArrayList(Position), // todo: replace with RLE
+    positions: ArrayList(Loc), // todo: replace with RLE
     constants: ArrayList(Value),
 
     pub fn init(allocator: Allocator) Error!Self {
         return .{
             .allocator = allocator,
             .code = ArrayList(u8).init(allocator),
-            .positions = ArrayList(Position).init(allocator),
+            .positions = ArrayList(Loc).init(allocator),
             .constants = ArrayList(Value).init(allocator),
         };
     }
@@ -112,7 +112,7 @@ pub const Chunk = struct {
     pub fn writeU8(
         self: *Self,
         data: anytype,
-        position: Position,
+        position: Loc,
     ) Error!void {
         const byte = resolveU8(data);
 
@@ -124,7 +124,7 @@ pub const Chunk = struct {
         self.code.items[index] = resolveU8(data);
     }
 
-    pub fn writeU16(self: *Self, data: u16, position: Position) Error!void {
+    pub fn writeU16(self: *Self, data: u16, position: Loc) Error!void {
         try self.writeU8(@as(u8, @intCast((data >> 8) & 0xFF)), position);
         try self.writeU8(@as(u8, @intCast(data & 0xFF)), position);
     }
@@ -132,7 +132,7 @@ pub const Chunk = struct {
     pub fn writeJump(
         self: *Self,
         op_code: OpCode,
-        position: Position,
+        position: Loc,
     ) Error!usize {
         try self.writeU8(op_code, position);
         try self.writeU16(0, position);
@@ -156,7 +156,7 @@ pub const Chunk = struct {
     pub fn writeNegativeJump(
         self: *Self,
         offset: usize,
-        position: Position,
+        position: Loc,
     ) error{ OutOfMemory, JumpTooBig }!OpCode {
         const jump = self.code.items.len - offset + 3;
 
@@ -173,7 +173,7 @@ pub const Chunk = struct {
     pub fn writeConstant(
         self: *Self,
         value: Value,
-        position: Position,
+        position: Loc,
     ) error{ TooManyConstants, OutOfMemory }!OpCode {
         if (self.constants.items.len == limits.max_constants) {
             return error.TooManyConstants;
@@ -216,60 +216,3 @@ pub const Chunk = struct {
         }
     }
 };
-
-test "writeByte works for all supported types" {
-    // GIVEN
-    var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = try Chunk.init(memory.allocator());
-    defer chunk.deinit();
-
-    // WHEN
-    try chunk.writeU8(0, .{ .line = 1, .column = 1 });
-    try chunk.writeU8(@as(u8, 1), .{ .line = 2, .column = 2 });
-    try chunk.writeU8(.@"return", .{ .line = 3, .column = 3 });
-    try chunk.writeU8(.pop, .{ .line = 4, .column = 4 });
-
-    // THEN
-    try expect(chunk.code.items[0] == 0);
-    try expect(chunk.positions.items[0].line == 1);
-    try expect(chunk.positions.items[0].column == 1);
-    try expect(chunk.code.items[1] == 1);
-    try expect(chunk.positions.items[1].line == 2);
-    try expect(chunk.positions.items[1].column == 2);
-    try expect(chunk.code.items[2] == @intFromEnum(OpCode.@"return"));
-    try expect(chunk.positions.items[2].line == 3);
-    try expect(chunk.positions.items[2].column == 3);
-    try expect(chunk.code.items[3] == @intFromEnum(OpCode.pop));
-    try expect(chunk.positions.items[3].line == 4);
-    try expect(chunk.positions.items[3].column == 4);
-}
-
-test "writeConstant should work" {
-    // GIVEN
-    var memory = ManagedMemory.init(std.testing.allocator);
-    var chunk = try Chunk.init(memory.allocator());
-    defer chunk.deinit();
-
-    // WHEN
-    _ = try chunk.writeConstant(.{ .int = 10 }, .{ .line = 1, .column = 1 });
-    _ = try chunk.writeConstant(.{ .int = 20 }, .{ .line = 2, .column = 2 });
-
-    // THEN
-    try expect(chunk.constants.items.len == 2);
-
-    try expect(chunk.constants.items[0].int == 10);
-    try expect(chunk.code.items[0] == @intFromEnum(OpCode.constant));
-    try expect(chunk.code.items[1] == 0);
-    try expect(chunk.positions.items[0].line == 1);
-    try expect(chunk.positions.items[0].column == 1);
-    try expect(chunk.positions.items[1].line == 1);
-    try expect(chunk.positions.items[1].column == 1);
-
-    try expect(chunk.constants.items[1].int == 20);
-    try expect(chunk.code.items[2] == @intFromEnum(OpCode.constant));
-    try expect(chunk.code.items[3] == 1);
-    try expect(chunk.positions.items[2].line == 2);
-    try expect(chunk.positions.items[2].column == 2);
-    try expect(chunk.positions.items[3].line == 2);
-    try expect(chunk.positions.items[3].column == 2);
-}

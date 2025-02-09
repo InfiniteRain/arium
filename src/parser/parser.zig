@@ -1,6 +1,6 @@
 const std = @import("std");
 const shared = @import("shared");
-const tokenizer_mod = @import("tokenizer.zig");
+const tokenizer_mod = @import("../tokenizer.zig");
 const parsed_ast_mod = @import("parsed_ast.zig");
 
 const Allocator = std.mem.Allocator;
@@ -14,7 +14,7 @@ const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
 const Token = tokenizer_mod.Token;
 const Tokenizer = tokenizer_mod.Tokenizer;
-const Position = tokenizer_mod.Position;
+const Loc = tokenizer_mod.Loc;
 const ParsedExpr = parsed_ast_mod.ParsedExpr;
 const ParsedStmt = parsed_ast_mod.ParsedStmt;
 const ParsedType = parsed_ast_mod.ParsedType;
@@ -29,7 +29,7 @@ pub const Parser = struct {
 
     pub const DiagEntry = struct {
         pub const Kind = union(enum) {
-            expected_end_token: ArrayList(Token.Kind),
+            expected_end_token: ArrayList(Token.Tag),
             invalid_token: []const u8,
             expected_expression,
             expected_left_paren_before_expr,
@@ -40,7 +40,7 @@ pub const Parser = struct {
             invalid_assignment_target,
             expected_type,
             variable_name_not_lower_case: []const u8,
-            expected_token_after_condition: Token.Kind,
+            expected_token_after_condition: Token.Tag,
             expected_name_after_fn,
             expected_left_paren_before_args,
             expected_right_paren_after_args,
@@ -76,7 +76,7 @@ pub const Parser = struct {
         }
 
         kind: Kind,
-        position: Position,
+        position: Loc,
     };
 
     pub const Diags = SharedDiags(DiagEntry);
@@ -99,38 +99,43 @@ pub const Parser = struct {
         diags: ?*Diags,
     ) Error!*ParsedExpr {
         self.tokenizer = tokenizer;
-        self.current_token = tokenizer.scanNonCommentToken();
+        self.current_token = self.nextNonCommentToken();
         self.diags = diags;
-        return (try self.parseBlock(.eof, .{ .line = 1, .column = 1 }))[0];
+
+        return (try self.parseBlock(.eof, .{
+            .start = 1,
+            .end = 2,
+        }))[0];
     }
 
     fn parseStmt(self: *Self) Error!*ParsedStmt {
         errdefer self.synchronize();
 
         if (self.match(.@"fn", false)) |token| {
-            return try self.parseFnStmt(token.position);
+            return try self.parseFnStmt(token.loc);
         }
 
         if (self.match(.let, false)) |token| {
-            return try self.parseLetStmt(token.position);
+            return try self.parseLetStmt(token.loc);
         }
 
         if (self.match(.assert, false)) |token| {
-            return try self.parseAssertStmt(token.position);
+            return try self.parseAssertStmt(token.loc);
         }
 
         if (self.match(.print, false)) |token| {
-            return try self.parsePrintStmt(token.position);
+            return try self.parsePrintStmt(token.loc);
         }
 
-        return try self.parseExprStmt(self.peek().position);
+        return try self.parseExprStmt(self.peek().loc);
     }
 
-    fn parseFnStmt(self: *Self, position: Position) Error!*ParsedStmt {
+    fn parseFnStmt(self: *Self, position: Loc) Error!*ParsedStmt {
         const name_token = try self.consume(.identifier, .expected_name_after_fn);
+        const name_lexeme = self.tokenLexeme(name_token);
 
-        if (!ascii.isLower(name_token.lexeme[0])) {
-            try self.addDiag(.{ .variable_name_not_lower_case = name_token.lexeme }, position);
+        if (!ascii.isLower(name_lexeme[0])) {
+            try self.addDiag(.{ .variable_name_not_lower_case = name_lexeme }, position);
         }
 
         var args = ArrayList(ParsedStmt.Kind.Fn.Arg).init(self.allocator);
@@ -140,15 +145,16 @@ pub const Parser = struct {
         while (self.match(.identifier, true)) |identifier_token| {
             _ = try self.consume(.colon, .expected_colon_after_arg);
             const arg_type = try self.parseType();
+            const identifier_lexeme = self.tokenLexeme(identifier_token);
 
             try args.append(.{
-                .name = try self.allocator.dupe(u8, identifier_token.lexeme),
+                .name = try self.allocator.dupe(u8, identifier_lexeme),
                 .type = arg_type,
-                .name_position = identifier_token.position,
+                .name_position = identifier_token.loc,
                 .type_position = arg_type.position,
             });
 
-            if (self.match(.comma, true) == null or self.peek().kind == .right_paren) {
+            if (self.match(.comma, true) == null or self.peek().tag == .right_paren) {
                 break;
             }
         }
@@ -161,7 +167,7 @@ pub const Parser = struct {
 
         return ParsedStmt.Kind.Fn.create(
             self.allocator,
-            name_token.lexeme,
+            name_lexeme,
             args,
             return_type,
             body,
@@ -169,12 +175,13 @@ pub const Parser = struct {
         );
     }
 
-    fn parseLetStmt(self: *Self, position: Position) Error!*ParsedStmt {
+    fn parseLetStmt(self: *Self, position: Loc) Error!*ParsedStmt {
         const is_mutable = self.match(.mut, false) != null;
         const name_token = try self.consume(.identifier, .expected_name_after_let);
+        const name_lexeme = self.tokenLexeme(name_token);
 
-        if (!ascii.isLower(name_token.lexeme[0])) {
-            try self.addDiag(.{ .variable_name_not_lower_case = name_token.lexeme }, position);
+        if (!ascii.isLower(name_lexeme[0])) {
+            try self.addDiag(.{ .variable_name_not_lower_case = name_lexeme }, position);
         }
 
         const parsed_type = if (self.match(.colon, false) != null)
@@ -187,7 +194,7 @@ pub const Parser = struct {
         return try ParsedStmt.Kind.Let.create(
             self.allocator,
             is_mutable,
-            name_token.lexeme,
+            name_lexeme,
             parsed_type,
             expr,
             position,
@@ -196,23 +203,25 @@ pub const Parser = struct {
 
     fn parseType(self: *Self) Error!*ParsedType {
         if (self.match(.identifier, true)) |token| {
+            const lexeme = self.tokenLexeme(token);
             return ParsedType.Kind.Identifier.create(
                 self.allocator,
-                token.lexeme,
-                token.position,
+                lexeme,
+                token.loc,
             );
         }
 
         if (self.match(.invalid, true)) |token| {
-            try self.addDiag(.{ .invalid_token = token.lexeme }, token.position);
+            const lexeme = self.tokenLexeme(token);
+            try self.addDiag(.{ .invalid_token = lexeme }, token.loc);
         } else {
-            try self.addDiag(.expected_type, self.peek().position);
+            try self.addDiag(.expected_type, self.peek().loc);
         }
 
         return error.ParseFailure;
     }
 
-    fn parseAssertStmt(self: *Self, position: Position) Error!*ParsedStmt {
+    fn parseAssertStmt(self: *Self, position: Loc) Error!*ParsedStmt {
         _ = try self.consume(.left_paren, .expected_left_paren_before_expr);
 
         const expr = try self.parseExpr(false);
@@ -222,12 +231,12 @@ pub const Parser = struct {
         return try ParsedStmt.Kind.Assert.create(self.allocator, expr, position);
     }
 
-    fn parsePrintStmt(self: *Self, position: Position) Error!*ParsedStmt {
+    fn parsePrintStmt(self: *Self, position: Loc) Error!*ParsedStmt {
         const expr = try self.parseExpr(false);
         return try ParsedStmt.Kind.Print.create(self.allocator, expr, position);
     }
 
-    fn parseExprStmt(self: *Self, position: Position) Error!*ParsedStmt {
+    fn parseExprStmt(self: *Self, position: Loc) Error!*ParsedStmt {
         const expr = try self.parseExpr(false);
 
         return try ParsedStmt.Kind.Expr.create(self.allocator, expr, position);
@@ -238,7 +247,7 @@ pub const Parser = struct {
     }
 
     fn parseAssignment(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         const expr = try self.parseOr(ignore_new_line);
 
         while (self.match(.equal, ignore_new_line) != null) {
@@ -259,7 +268,7 @@ pub const Parser = struct {
     }
 
     fn parseOr(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         var expr = try self.parseAnd(ignore_new_line);
 
         while (self.match(.@"or", ignore_new_line) != null) {
@@ -280,7 +289,7 @@ pub const Parser = struct {
     }
 
     fn parseAnd(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         var expr = try self.parseEquality(ignore_new_line);
 
         while (self.match(.@"and", ignore_new_line) != null) {
@@ -301,14 +310,14 @@ pub const Parser = struct {
     }
 
     fn parseEquality(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseComparison(ignore_new_line);
 
         while (self.match(.{ .bang_equal, .equal_equal }, ignore_new_line)) |token| {
             self.skipNewLines();
 
-            const kind: BinaryKind = if (token.kind == .bang_equal)
+            const kind: BinaryKind = if (token.tag == .bang_equal)
                 .not_equal
             else
                 .equal;
@@ -327,7 +336,7 @@ pub const Parser = struct {
     }
 
     fn parseComparison(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseTerm(ignore_new_line);
 
@@ -339,7 +348,7 @@ pub const Parser = struct {
         }, ignore_new_line)) |token| {
             self.skipNewLines();
 
-            const kind: BinaryKind = switch (token.kind) {
+            const kind: BinaryKind = switch (token.tag) {
                 .greater => .greater,
                 .greater_equal => .greater_equal,
                 .less => .less,
@@ -361,14 +370,14 @@ pub const Parser = struct {
     }
 
     fn parseTerm(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseFactor(ignore_new_line);
 
         while (self.match(.{ .minus, .plus }, ignore_new_line)) |token| {
             self.skipNewLines();
 
-            const kind: BinaryKind = if (token.kind == .minus)
+            const kind: BinaryKind = if (token.tag == .minus)
                 .subtract
             else
                 .add;
@@ -387,14 +396,14 @@ pub const Parser = struct {
     }
 
     fn parseFactor(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseConcat(ignore_new_line);
 
         while (self.match(.{ .slash, .star }, ignore_new_line)) |token| {
             self.skipNewLines();
 
-            const kind: BinaryKind = if (token.kind == .slash)
+            const kind: BinaryKind = if (token.tag == .slash)
                 .divide
             else
                 .multiply;
@@ -413,7 +422,7 @@ pub const Parser = struct {
     }
 
     fn parseConcat(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
-        const position = self.peek().position;
+        const position = self.peek().loc;
         const BinaryKind = ParsedExpr.Kind.Binary.Kind;
         var expr = try self.parseUnary(ignore_new_line);
 
@@ -440,7 +449,7 @@ pub const Parser = struct {
             self.skipNewLines();
 
             const UnaryKind = ParsedExpr.Kind.Unary.Kind;
-            const kind: UnaryKind = if (token.kind == .minus)
+            const kind: UnaryKind = if (token.tag == .minus)
                 .negate_num
             else
                 .negate_bool;
@@ -450,7 +459,7 @@ pub const Parser = struct {
                 self.allocator,
                 kind,
                 right,
-                token.position,
+                token.loc,
             );
         }
 
@@ -467,14 +476,14 @@ pub const Parser = struct {
                 try args.append(try self.parseExpr(true));
 
                 if (self.match(.comma, true) != null or
-                    self.peek().kind == .right_paren)
+                    self.peek().tag == .right_paren)
                 {
                     continue;
                 }
 
                 try self.addDiag(
                     .expected_right_paren_after_args,
-                    self.peek().position,
+                    self.peek().loc,
                 );
 
                 return error.ParseFailure;
@@ -484,7 +493,7 @@ pub const Parser = struct {
                 self.allocator,
                 expr,
                 args,
-                left_paren.position,
+                left_paren.loc,
             );
         }
 
@@ -493,17 +502,19 @@ pub const Parser = struct {
 
     fn parsePrimary(self: *Self, ignore_new_line: bool) Error!*ParsedExpr {
         if (self.match(.{ .true, .false }, ignore_new_line)) |token| {
+            const lexeme = self.tokenLexeme(token);
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
-                .{ .bool = token.lexeme.len == 4 },
-                token.position,
+                .{ .bool = lexeme.len == 4 },
+                token.loc,
             );
         }
 
         if (self.match(.int, ignore_new_line)) |token| {
-            const int = std.fmt.parseInt(i64, token.lexeme, 10) catch |err| switch (err) {
+            const lexeme = self.tokenLexeme(token);
+            const int = std.fmt.parseInt(i64, lexeme, 10) catch |err| switch (err) {
                 error.Overflow => blk: {
-                    try self.addDiag(.int_literal_overflows, token.position);
+                    try self.addDiag(.int_literal_overflows, token.loc);
                     break :blk 0;
                 },
                 else => unreachable,
@@ -511,37 +522,40 @@ pub const Parser = struct {
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .int = int },
-                token.position,
+                token.loc,
             );
         }
 
         if (self.match(.float, ignore_new_line)) |token| {
-            const float = std.fmt.parseFloat(f64, token.lexeme) catch unreachable;
+            const lexeme = self.tokenLexeme(token);
+            const float = std.fmt.parseFloat(f64, lexeme) catch unreachable;
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .float = float },
-                token.position,
+                token.loc,
             );
         }
 
         if (self.match(.identifier, ignore_new_line)) |token| {
+            const lexeme = self.tokenLexeme(token);
             return try ParsedExpr.Kind.Variable.create(
                 self.allocator,
-                token.lexeme,
-                token.position,
+                lexeme,
+                token.loc,
             );
         }
 
         if (self.match(.string, ignore_new_line)) |token| {
+            const lexeme = self.tokenLexeme(token);
             const string = try self.allocator.dupe(
                 u8,
-                token.lexeme[1 .. token.lexeme.len - 1],
+                lexeme[1 .. lexeme.len - 1],
             );
 
             return try ParsedExpr.Kind.Literal.create(
                 self.allocator,
                 .{ .string = string },
-                token.position,
+                token.loc,
             );
         }
 
@@ -553,33 +567,34 @@ pub const Parser = struct {
         }
 
         if (self.match(.do, ignore_new_line)) |token| {
-            return (try self.parseBlock(.end, token.position))[0];
+            return (try self.parseBlock(.end, token.loc))[0];
         }
 
         if (self.match(.@"if", ignore_new_line)) |token| {
-            return try self.parseIf(token.position);
+            return try self.parseIf(token.loc);
         }
 
         if (self.match(.@"for", ignore_new_line)) |token| {
-            return try self.parseFor(token.position);
+            return try self.parseFor(token.loc);
         }
 
         if (self.match(.@"break", ignore_new_line)) |token| {
-            return try self.parseBreak(token.position);
+            return try self.parseBreak(token.loc);
         }
 
         if (self.match(.@"continue", ignore_new_line)) |token| {
-            return try self.parseContinue(token.position);
+            return try self.parseContinue(token.loc);
         }
 
         if (self.match(.@"return", ignore_new_line)) |token| {
-            return try self.parseReturn(token.position);
+            return try self.parseReturn(token.loc);
         }
 
         if (self.match(.invalid, ignore_new_line)) |token| {
-            try self.addDiag(.{ .invalid_token = token.lexeme }, token.position);
+            const lexeme = self.tokenLexeme(token);
+            try self.addDiag(.{ .invalid_token = lexeme }, token.loc);
         } else {
-            try self.addDiag(.expected_expression, self.peek().position);
+            try self.addDiag(.expected_expression, self.peek().loc);
         }
 
         return error.ParseFailure;
@@ -588,7 +603,7 @@ pub const Parser = struct {
     fn parseBlock(
         self: *Self,
         arg: anytype,
-        position: Position,
+        position: Loc,
     ) Error!struct { *ParsedExpr, Token } {
         const stmts = ArrayList(*ParsedStmt).init(self.allocator);
 
@@ -653,23 +668,23 @@ pub const Parser = struct {
 
     fn parseIf(
         self: *Self,
-        position: Position,
+        position: Loc,
     ) Error!*ParsedExpr {
         const condition = try self.parseExpr(true);
         const then_token = try self.consume(.then, .{ .expected_token_after_condition = .then });
         const then_block, var end_token = try self.parseBlock(
             .{ .end, .elseif, .@"else" },
-            then_token.position,
+            then_token.loc,
         );
         var elseif_blocks =
             ArrayList(ParsedExpr.Kind.If.ConditionalBlock).init(self.allocator);
 
-        while (end_token.kind == .elseif) {
+        while (end_token.tag == .elseif) {
             const elseif_condition = try self.parseExpr(true);
             const elseif_then_token = try self.consume(.then, .{ .expected_token_after_condition = .then });
             const elseif_block, end_token = try self.parseBlock(
                 .{ .end, .elseif, .@"else" },
-                elseif_then_token.position,
+                elseif_then_token.loc,
             );
 
             try elseif_blocks.append(.{
@@ -678,8 +693,8 @@ pub const Parser = struct {
             });
         }
 
-        const else_block = if (end_token.kind == .@"else")
-            (try self.parseBlock(.end, end_token.position))[0]
+        const else_block = if (end_token.tag == .@"else")
+            (try self.parseBlock(.end, end_token.loc))[0]
         else
             null;
 
@@ -697,7 +712,7 @@ pub const Parser = struct {
 
     fn parseFor(
         self: *Self,
-        position: Position,
+        position: Loc,
     ) Error!*ParsedExpr {
         const condition = if (self.match(.do, true) != null)
             null
@@ -717,21 +732,21 @@ pub const Parser = struct {
         );
     }
 
-    fn parseBreak(self: *Self, position: Position) Error!*ParsedExpr {
+    fn parseBreak(self: *Self, position: Loc) Error!*ParsedExpr {
         return try ParsedExpr.Kind.Break.create(
             self.allocator,
             position,
         );
     }
 
-    fn parseContinue(self: *Self, position: Position) Error!*ParsedExpr {
+    fn parseContinue(self: *Self, position: Loc) Error!*ParsedExpr {
         return try ParsedExpr.Kind.Continue.create(
             self.allocator,
             position,
         );
     }
 
-    fn parseReturn(self: *Self, position: Position) Error!*ParsedExpr {
+    fn parseReturn(self: *Self, position: Loc) Error!*ParsedExpr {
         var right: ?*ParsedExpr = null;
 
         if (self.matchStmtTerminator() == .none) {
@@ -766,7 +781,7 @@ pub const Parser = struct {
             return self.advance();
         }
 
-        try self.addDiag(diag_kind, self.peek().position);
+        try self.addDiag(diag_kind, self.peek().loc);
         return error.ParseFailure;
     }
 
@@ -788,15 +803,15 @@ pub const Parser = struct {
     fn check(self: *Self, arg: anytype) bool {
         const ArgType = @TypeOf(arg);
         const arg_type_info = @typeInfo(ArgType);
-        const token_stuct = if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Kind)
+        const token_stuct = if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Tag)
             .{arg}
         else if (arg_type_info == .@"struct" and arg_type_info.@"struct".is_tuple)
             arg
         else
-            @compileError("expected arg to be of type Token.Kind or a tuple of Token.Kind");
+            @compileError("expected arg to be of type Token.Tag or a tuple of Token.Tag");
 
         inline for (@typeInfo(@TypeOf(token_stuct)).@"struct".fields) |field| {
-            if (self.peek().kind == @field(token_stuct, field.name)) {
+            if (self.peek().tag == @field(token_stuct, field.name)) {
                 return true;
             }
         }
@@ -805,7 +820,7 @@ pub const Parser = struct {
     }
 
     fn isAtEnd(self: *Self) bool {
-        return self.peek().kind == .eof;
+        return self.peek().tag == .eof;
     }
 
     fn peek(self: *Self) Token {
@@ -817,12 +832,12 @@ pub const Parser = struct {
     }
 
     fn advance(self: *Self) Token {
-        if (self.current_token.kind == .eof) {
+        if (self.current_token.tag == .eof) {
             return self.current_token;
         }
 
         self.prev_token = self.current_token;
-        self.current_token = self.tokenizer.scanNonCommentToken();
+        self.current_token = self.nextNonCommentToken();
 
         return self.prev_token;
     }
@@ -834,13 +849,13 @@ pub const Parser = struct {
     }
 
     fn synchronize(self: *Self) void {
-        while (self.peek().kind != .eof) {
-            if (self.prev().kind == .semicolon) {
+        while (self.peek().tag != .eof) {
+            if (self.prev().tag == .semicolon) {
                 self.skipNewLines();
                 return;
             }
 
-            switch (self.peek().kind) {
+            switch (self.peek().tag) {
                 .print,
                 .assert,
                 .let,
@@ -854,11 +869,11 @@ pub const Parser = struct {
     fn tokenArgToArrayList(
         self: *Self,
         arg: anytype,
-    ) error{OutOfMemory}!ArrayList(Token.Kind) {
+    ) error{OutOfMemory}!ArrayList(Token.Tag) {
         const ArgType = @TypeOf(arg);
-        var array_list = ArrayList(Token.Kind).init(self.allocator);
+        var array_list = ArrayList(Token.Tag).init(self.allocator);
 
-        if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Kind) {
+        if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Tag) {
             try array_list.append(arg);
             return array_list;
         }
@@ -873,7 +888,7 @@ pub const Parser = struct {
     fn addDiag(
         self: *Self,
         diag_kind: DiagEntry.Kind,
-        position: Position,
+        loc: Loc,
     ) Error!void {
         if (self.diags) |diags| {
             // in case of ever needing to alloc something in here, make sure to
@@ -887,9 +902,23 @@ pub const Parser = struct {
                     diag_kind,
                     .{DiagEntry.Kind},
                 ),
-                .position = position,
+                .position = loc,
             });
         }
+    }
+
+    fn nextNonCommentToken(self: *Self) Token {
+        while (true) {
+            const token = self.tokenizer.next();
+
+            if (token.tag != .comment) {
+                return token;
+            }
+        }
+    }
+
+    fn tokenLexeme(self: *Self, token: Token) []const u8 {
+        return self.tokenizer.source[token.loc.start..token.loc.end];
     }
 };
 

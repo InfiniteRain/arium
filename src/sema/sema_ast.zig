@@ -1,10 +1,10 @@
 const std = @import("std");
-const tokenizer_mod = @import("../parser/tokenizer.zig");
+const tokenizer_mod = @import("../tokenizer.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const meta = std.meta;
-const Position = tokenizer_mod.Position;
+const Loc = tokenizer_mod.Loc;
 
 pub const SemaExpr = struct {
     const Self = @This();
@@ -24,7 +24,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 literal: Literal,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -88,7 +88,7 @@ pub const SemaExpr = struct {
                 right: *Self,
                 sema_type: SemaType,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -122,7 +122,7 @@ pub const SemaExpr = struct {
                 right: *Self,
                 sema_type: SemaType,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -147,7 +147,7 @@ pub const SemaExpr = struct {
                 stmts: ArrayList(*SemaStmt),
                 sema_type: SemaType,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -171,7 +171,7 @@ pub const SemaExpr = struct {
                 index: usize,
                 sema_type: SemaType,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -196,7 +196,7 @@ pub const SemaExpr = struct {
                 index: usize,
                 right: *Self,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -225,7 +225,7 @@ pub const SemaExpr = struct {
                 else_block: ?*Self,
                 sema_type: SemaType,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -252,7 +252,7 @@ pub const SemaExpr = struct {
                 condition: *Self,
                 body_block: *Self,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -276,7 +276,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 pops: usize,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -299,7 +299,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 pops: usize,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -322,7 +322,7 @@ pub const SemaExpr = struct {
                 allocator: Allocator,
                 right: *Self,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -348,7 +348,7 @@ pub const SemaExpr = struct {
                 args: ArrayList(*Self),
                 sema_type: SemaType,
                 evals: bool,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createExpr(
                     allocator,
@@ -384,7 +384,7 @@ pub const SemaExpr = struct {
         kind: Kind,
         sema_type: SemaType,
         evals: bool,
-        position: Position,
+        position: Loc,
     ) Error!*Self {
         const expr = try allocator.create(Self);
 
@@ -401,7 +401,7 @@ pub const SemaExpr = struct {
     kind: Kind,
     sema_type: SemaType,
     evals: bool,
-    position: Position,
+    position: Loc,
 };
 
 pub const SemaStmt = struct {
@@ -416,7 +416,7 @@ pub const SemaStmt = struct {
             pub fn create(
                 allocator: Allocator,
                 expr: *SemaExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -436,7 +436,7 @@ pub const SemaStmt = struct {
             pub fn create(
                 allocator: Allocator,
                 expr: *SemaExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -456,7 +456,7 @@ pub const SemaStmt = struct {
             pub fn create(
                 allocator: Allocator,
                 expr: *SemaExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -478,7 +478,7 @@ pub const SemaStmt = struct {
                 allocator: Allocator,
                 index: usize,
                 expr: ?*SemaExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -505,7 +505,7 @@ pub const SemaStmt = struct {
                 index: ?usize,
                 locals_count: u8,
                 body: *SemaExpr,
-                position: Position,
+                position: Loc,
             ) Error!*Self {
                 return try createStmt(
                     allocator,
@@ -532,7 +532,7 @@ pub const SemaStmt = struct {
     fn createStmt(
         allocator: Allocator,
         kind: Kind,
-        position: Position,
+        position: Loc,
     ) Error!*Self {
         const stmt = try allocator.create(Self);
 
@@ -545,7 +545,7 @@ pub const SemaStmt = struct {
     }
 
     kind: Kind,
-    position: Position,
+    position: Loc,
 };
 
 pub const SemaType = union(enum) {
