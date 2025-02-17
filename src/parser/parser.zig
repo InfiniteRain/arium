@@ -103,8 +103,8 @@ pub const Parser = struct {
         self.diags = diags;
 
         return (try self.parseBlock(.eof, .{
-            .start = 1,
-            .end = 2,
+            .index = 1,
+            .len = 1,
         }))[0];
     }
 
@@ -918,7 +918,7 @@ pub const Parser = struct {
     }
 
     fn tokenLexeme(self: *Self, token: Token) []const u8 {
-        return self.tokenizer.source[token.loc.start..token.loc.end];
+        return self.tokenizer.source[token.loc.index .. token.loc.index + token.loc.len];
     }
 };
 

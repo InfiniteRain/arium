@@ -1,8 +1,8 @@
 const std = @import("std");
 
 pub const Loc = struct {
-    start: u32,
-    end: u32,
+    index: u32,
+    len: u32,
 
     const Self = @This();
 
@@ -11,7 +11,7 @@ pub const Loc = struct {
         var column: u32 = 1;
 
         for (source, 0..) |char, index| {
-            if (index == self.start) {
+            if (index == self.index) {
                 return .{ line, column };
             }
 
@@ -145,8 +145,8 @@ pub const Tokenizer = struct {
         var token: Token = .{
             .tag = undefined,
             .loc = .{
-                .start = @intCast(self.index),
-                .end = undefined,
+                .index = @intCast(self.index),
+                .len = undefined,
             },
         };
 
@@ -162,7 +162,7 @@ pub const Tokenizer = struct {
                 },
                 ' ', '\t', '\r' => {
                     _ = self.advance();
-                    token.loc.start = @intCast(self.index);
+                    token.loc.index = @intCast(self.index);
                     continue :state .start;
                 },
                 '\n' => {
@@ -353,7 +353,7 @@ pub const Tokenizer = struct {
                 },
                 else => {
                     if (keyword_map.get(
-                        self.source[token.loc.start..self.index],
+                        self.source[token.loc.index..self.index],
                     )) |tag| {
                         token.tag = tag;
                     } else {
@@ -380,7 +380,7 @@ pub const Tokenizer = struct {
             },
         }
 
-        token.loc.end = @intCast(self.index);
+        token.loc.len = @as(u32, @intCast(self.index)) - token.loc.index;
 
         return token;
     }

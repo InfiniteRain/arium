@@ -234,10 +234,10 @@ fn reportValueAux(
 
     if (Type == Loc) {
         // hack: to be removed after rewrite
-        // when no source provided, treat .start as a literal line number
-        // when source is present, treat .start as actual position and
+        // when no source provided, treat .index as a literal line number
+        // when source is present, treat .index as actual position and
         // extrapolate line number from that
-        var line = value.start;
+        var line = value.index;
 
         if (source_opt) |source| {
             std.debug.print("here?", .{});

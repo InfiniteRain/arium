@@ -210,8 +210,8 @@ pub const Sema = struct {
             null,
             block,
             .{
-                .start = 0,
-                .end = 0,
+                .index = 0,
+                .len = 0,
             },
         );
 

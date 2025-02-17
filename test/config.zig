@@ -214,7 +214,7 @@ pub const Config = struct {
     }
 
     fn parseConfigComment(token: Token, source: []const u8) ?[]const u8 {
-        const lexeme = source[token.loc.start..token.loc.end];
+        const lexeme = source[token.loc.index .. token.loc.index + token.loc.len];
         return if (token.tag == .comment and
             lexeme.len >= 3 and lexeme[2] == '/')
             std.mem.trim(u8, lexeme[3..], " ")
@@ -276,8 +276,8 @@ pub const Config = struct {
             .kind = diag,
             .position = .{
                 // hack until rewrite: start represents line number, handled with a special case
-                .start = line,
-                .end = 0,
+                .index = line,
+                .len = 0,
             },
         });
     }

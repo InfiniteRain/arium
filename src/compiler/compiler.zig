@@ -244,8 +244,8 @@ pub const Compiler = struct {
             defer self.fn_ctx = prev_fn_ctx;
 
             try self.compileExpr(block, null, null);
-            try self.writeU8(.constant_unit, .{ .start = 0, .end = 0 });
-            try self.writeU8(.@"return", .{ .start = 0, .end = 0 });
+            try self.writeU8(.constant_unit, .{ .index = 0, .len = 0 });
+            try self.writeU8(.@"return", .{ .index = 0, .len = 0 });
         }
 
         return @"fn";

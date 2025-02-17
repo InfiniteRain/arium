@@ -475,7 +475,7 @@ pub const Runner = struct {
 
         if (Type == Loc) {
             const line, _ = actual.toLineCol(source);
-            return expectation.start == line;
+            return expectation.index == line;
         }
 
         if (Type == []u8 or Type == []const u8) {
