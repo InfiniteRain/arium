@@ -74,6 +74,7 @@ pub const ManagedMemory = struct {
                 .alloc = alloc,
                 .resize = resize,
                 .free = free,
+                .remap = remap,
             },
         };
     }
@@ -81,7 +82,7 @@ pub const ManagedMemory = struct {
     fn alloc(
         ctx: *anyopaque,
         len: usize,
-        ptr_align: u8,
+        ptr_align: std.mem.Alignment,
         ret_addr: usize,
     ) ?[*]u8 {
         const self: *Self = @ptrCast(@alignCast(ctx));
@@ -98,7 +99,13 @@ pub const ManagedMemory = struct {
         return out_opt;
     }
 
-    fn resize(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+    fn resize(
+        ctx: *anyopaque,
+        buf: []u8,
+        buf_align: std.mem.Alignment,
+        new_len: usize,
+        ret_addr: usize,
+    ) bool {
         const self: *Self = @ptrCast(@alignCast(ctx));
         const is_same_address = self.backing_allocator.rawResize(
             buf,
@@ -118,7 +125,38 @@ pub const ManagedMemory = struct {
         return is_same_address;
     }
 
-    fn free(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
+    fn remap(
+        ctx: *anyopaque,
+        memory: []u8,
+        alignment: std.mem.Alignment,
+        new_len: usize,
+        ret_addr: usize,
+    ) ?[*]u8 {
+        const self: *Self = @ptrCast(@alignCast(ctx));
+        const result = self.backing_allocator.rawRemap(
+            memory,
+            alignment,
+            new_len,
+            ret_addr,
+        );
+
+        if (result != null) {
+            if (new_len > memory.len) {
+                self.bytes_allocated += new_len - memory.len;
+            } else {
+                self.bytes_allocated -= memory.len - new_len;
+            }
+        }
+
+        return result;
+    }
+
+    fn free(
+        ctx: *anyopaque,
+        buf: []u8,
+        buf_align: std.mem.Alignment,
+        ret_addr: usize,
+    ) void {
         const self: *Self = @ptrCast(@alignCast(ctx));
 
         self.backing_allocator.rawFree(buf, buf_align, ret_addr);

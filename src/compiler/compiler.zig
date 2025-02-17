@@ -803,10 +803,10 @@ pub const Compiler = struct {
         try self.getChunk().updateU8(invertComparisonOpCode(if_op_code), last_jump.index);
 
         if (last_jump.is_inverted) {
-            const offset = ctx.then_branch_offsets.pop();
+            const offset = ctx.then_branch_offsets.pop().?;
             try ctx.else_branch_offsets.append(offset);
         } else {
-            const offset = ctx.else_branch_offsets.pop();
+            const offset = ctx.else_branch_offsets.pop().?;
             try ctx.then_branch_offsets.append(offset);
         }
     }
