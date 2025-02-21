@@ -1,4 +1,5 @@
 const std = @import("std");
+const shared = @import("shared");
 const tokenizer_mod = @import("tokenizer.zig");
 const Ast = @import("ast.zig").Ast;
 
@@ -7,6 +8,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Token = tokenizer_mod.Token;
 const Loc = tokenizer_mod.Loc;
+const meta = std.meta;
 const fmt = std.fmt;
 const assert = std.debug.assert;
 
@@ -16,7 +18,8 @@ pub const Parser = struct {
     ast: Ast = undefined,
     prev_token: Token = undefined,
     current_token: Token = undefined,
-    diags: ?ArrayListUnmanaged(Diag) = null,
+    scratch: ArrayListUnmanaged(Ast.Index) = .{},
+    diags: ?*ArrayListUnmanaged(Diag) = null,
 
     pub const Error = error{ParseFailure} || Allocator.Error;
 
@@ -25,23 +28,32 @@ pub const Parser = struct {
         loc: Loc,
 
         const Tag = union(enum) {
-            expected_end_token: ExpectedEndTokens,
+            expected_end_token: EndTokens,
             expected_expression,
+            invalid_assignment_target,
             invalid_token,
 
-            const ExpectedEndTokens = struct {
-                Token.Tag,
-                ?Token.Tag,
-                ?Token.Tag,
-            };
+            const end_tokens_size = 3;
+            const EndTokens = [end_tokens_size]?Token.Tag;
+
+            fn endTokensFrom(tokens: anytype) EndTokens {
+                const tuple = shared.meta.normalizeArgs(tokens);
+                var end_tokens: EndTokens = .{null} ** end_tokens_size;
+
+                inline for (meta.fields(@TypeOf(tuple)), 0..) |field, index| {
+                    end_tokens[index] = @field(tuple, field.name);
+                }
+
+                return end_tokens;
+            }
         };
     };
 
-    pub const NlMode = enum { ignore_nl, obey_nl };
+    pub const NlMode = enum { ignore_nl, terminate_on_nl };
 
     pub fn init(
         allocator: Allocator,
-        diags: ?ArrayListUnmanaged(Diag),
+        diags: ?*ArrayListUnmanaged(Diag),
     ) Parser {
         return .{
             .allocator = allocator,
@@ -73,7 +85,7 @@ pub const Parser = struct {
 
     fn parsePrintStmt(self: *Parser) Error!Ast.Index {
         const print = self.advance();
-        const expr = try self.parseExpr(.obey_nl);
+        const expr = try self.parseExpr(.terminate_on_nl);
 
         return try self.astAdd(
             .{ .print = expr },
@@ -82,7 +94,7 @@ pub const Parser = struct {
     }
 
     fn parseExprStmt(self: *Parser) Error!Ast.Index {
-        const expr = try self.parseExpr(.obey_nl);
+        const expr = try self.parseExpr(.terminate_on_nl);
 
         return try self.astAdd(
             .{ .expr_stmt = expr },
@@ -91,7 +103,30 @@ pub const Parser = struct {
     }
 
     fn parseExpr(self: *Parser, nl_mode: NlMode) Error!Ast.Index {
-        return try self.parseTerm(nl_mode);
+        return try self.parseAssignment(nl_mode);
+    }
+
+    fn parseAssignment(self: *Parser, nl_mode: NlMode) Error!Ast.Index {
+        const loc = self.peek().loc;
+        const expr = try self.parseTerm(nl_mode);
+
+        while (self.match(.equal, nl_mode)) |token| {
+            const value_expr = try self.parseAssignment(nl_mode);
+
+            if (expr.toTag(&self.ast) == .variable) {
+                return self.astAdd(
+                    .{ .assignment = .{
+                        .lhs = expr,
+                        .rhs = value_expr,
+                    } },
+                    loc.extend(value_expr.toLoc(&self.ast)),
+                );
+            }
+
+            try self.diagsAdd(.invalid_assignment_target, token.loc);
+        }
+
+        return expr;
     }
 
     fn parseTerm(self: *Parser, nl_mode: NlMode) Error!Ast.Index {
@@ -143,13 +178,12 @@ pub const Parser = struct {
             self.skipNewLines();
 
             const rhs = try self.parseUnary(nl_mode);
-            const unary: Ast.Key.Unary = .{ .rhs = rhs };
 
             return try self.astAdd(
                 if (token.tag == .minus)
-                    .{ .negation_num = unary }
+                    .{ .negation_num = rhs }
                 else
-                    .{ .negation_bool = unary },
+                    .{ .negation_bool = rhs },
                 token.loc.extend(rhs.toLoc(&self.ast)),
             );
         }
@@ -170,6 +204,7 @@ pub const Parser = struct {
             .true, .false => try self.astAdd(.literal_bool, token.loc),
             .string => try self.astAdd(.literal_string, token.loc),
             .do => try self.parseBlock(.end, token.loc),
+            .identifier => try self.astAdd(.variable, token.loc),
             else => {
                 if (token.tag == .invalid) {
                     try self.diagsAdd(.invalid_token, token.loc);
@@ -186,22 +221,24 @@ pub const Parser = struct {
         end_tokens: anytype,
         loc: Loc,
     ) Error!Ast.Index {
-        const index: u32 = @intCast(self.ast.getExtraLen());
-        var len: u32 = 0;
+        const scratch_top = self.scratch.items.len;
+        defer self.scratch.shrinkRetainingCapacity(scratch_top);
 
         if (self.match(end_tokens, .ignore_nl)) |end_token| {
             return try self.astAdd(
-                .{ .block = .{ .index = index, .len = len } },
+                .{ .block = &[_]Ast.Index{} },
                 loc.extend(end_token.loc),
             );
         }
 
-        const old_num_diags = self.diagsLen();
-        var evals = false;
+        var has_error = false;
+        var ends_with_semicolon = false;
 
         while (true) {
             const stmt = self.parseStmt() catch |err| switch (err) {
                 error.ParseFailure => blk: {
+                    has_error = true;
+
                     if (self.check(.eof)) {
                         break;
                     }
@@ -218,12 +255,10 @@ pub const Parser = struct {
                 else => return err,
             };
 
-            try self.ast.addExtra(self.allocator, stmt.to());
-            len += 1;
+            try self.scratch.append(self.allocator, stmt);
 
             const terminator = self.matchStmtTerminator();
-            evals = terminator != .semicolon and
-                stmt.toKey(&self.ast) == .expr_stmt;
+            ends_with_semicolon = terminator == .semicolon;
 
             if (terminator == .none or self.check(end_tokens)) {
                 break;
@@ -232,20 +267,20 @@ pub const Parser = struct {
 
         const end_token = try self.consume(
             end_tokens,
-            .{ .expected_end_token = tokensArgToDiagStruct(end_tokens) },
+            .{ .expected_end_token = Diag.Tag.endTokensFrom(end_tokens) },
         );
 
-        if (self.diagsLen() > old_num_diags) {
+        if (has_error) {
             return error.ParseFailure;
         }
 
-        const block: Ast.Key.Block = .{ .index = index, .len = len };
+        const indexes = self.scratch.items[scratch_top..];
 
         return try self.astAdd(
-            if (evals)
-                .{ .eval_block = block }
+            if (ends_with_semicolon)
+                .{ .block_semicolon = indexes }
             else
-                .{ .block = block },
+                .{ .block = indexes },
             loc.extend(end_token.loc),
         );
     }
@@ -299,18 +334,11 @@ pub const Parser = struct {
         };
     }
 
-    fn check(self: *Parser, arg: anytype) bool {
-        const ArgType = @TypeOf(arg);
-        const arg_type_info = @typeInfo(ArgType);
-        const token_stuct = if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Tag)
-            .{arg}
-        else if (arg_type_info == .@"struct" and arg_type_info.@"struct".is_tuple)
-            arg
-        else
-            @compileError("expected arg to be of type Token.Tag or a tuple of Token.Tag");
+    fn check(self: *Parser, args: anytype) bool {
+        const tuple = shared.meta.normalizeArgs(args);
 
-        inline for (@typeInfo(@TypeOf(token_stuct)).@"struct".fields) |field| {
-            if (self.peek().tag == @field(token_stuct, field.name)) {
+        inline for (meta.fields(@TypeOf(tuple))) |field| {
+            if (self.peek().tag == @field(tuple, field.name)) {
                 return true;
             }
         }
@@ -347,41 +375,8 @@ pub const Parser = struct {
     }
 
     fn diagsAdd(self: *Parser, diag: Diag.Tag, loc: Loc) Allocator.Error!void {
-        if (self.diags) |*diags| {
+        if (self.diags) |diags| {
             try diags.append(self.allocator, .{ .tag = diag, .loc = loc });
         }
-    }
-
-    fn diagsLen(self: *Parser) usize {
-        return if (self.diags) |diags|
-            diags.items.len
-        else
-            0;
-    }
-
-    fn tokensArgToDiagStruct(
-        tokens: anytype,
-    ) Diag.Tag.ExpectedEndTokens {
-        const ArgType = @TypeOf(tokens);
-
-        if (ArgType == @TypeOf(.enum_literal) or ArgType == Token.Tag) {
-            return .{ tokens, null, null };
-        }
-
-        var end_tokens: Diag.Tag.ExpectedEndTokens = .{
-            undefined,
-            null,
-            null,
-        };
-
-        inline for (@typeInfo(ArgType).@"struct".fields, 0..) |field, i| {
-            if (i > 2) {
-                @compileError("only three fields can be processed");
-            }
-
-            @field(end_tokens, field.name) = @field(tokens, field.name);
-        }
-
-        return end_tokens;
     }
 };

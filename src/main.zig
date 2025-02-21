@@ -13,14 +13,21 @@ pub fn main() !void {
         \\ print "hello"
         \\ print true
         \\ print false
+        \\ print asd = 1230
         \\ print not true
-        \\ true;
+        \\ true
     );
 
-    var parser = Parser.init(allocator, null);
+    var diags: std.ArrayListUnmanaged(Parser.Diag) = .{};
+    var parser = Parser.init(allocator, &diags);
     var ast = try parser.parse(&tokenizer);
 
-    std.debug.print("{any}\n", .{ast.root.toKey(&ast)});
+    std.debug.print("'{any}'\n", .{
+        ast.root.toKey(&ast).block[4].toKey(&ast).print
+            .toKey(&ast),
+    });
+
+    std.debug.print("{any}\n", .{diags.items});
 }
 
 test {

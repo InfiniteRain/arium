@@ -56,3 +56,19 @@ pub fn typeInTuple(T: type, tuple: anytype) bool {
 pub fn ReturnType(@"fn": anytype) type {
     return @typeInfo(@TypeOf(@"fn")).Fn.return_type.?;
 }
+
+pub fn normalizeArgs(args: anytype) blk: {
+    const ArgType = @TypeOf(args);
+    const type_info = @typeInfo(ArgType);
+    break :blk if (type_info == .@"struct" and type_info.@"struct".is_tuple)
+        ArgType
+    else
+        struct { ArgType };
+} {
+    const type_info = @typeInfo(@TypeOf(args));
+
+    return if (type_info == .@"struct" and type_info.@"struct".is_tuple)
+        args
+    else
+        .{args};
+}
