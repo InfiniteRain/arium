@@ -25,6 +25,17 @@ pub const Loc = struct {
 
         unreachable;
     }
+
+    pub fn extend(a: Loc, b: Loc) Loc {
+        return .{
+            .index = a.index,
+            .len = (b.index - a.index) + b.len,
+        };
+    }
+
+    pub fn toSlice(self: Loc, source: []const u8) []const u8 {
+        return source[self.index .. self.index + self.len];
+    }
 };
 
 pub const Token = struct {

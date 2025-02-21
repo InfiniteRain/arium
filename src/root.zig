@@ -25,6 +25,9 @@ pub const error_reporter = error_reporter_mod;
 pub const debug_ast_reporter = debug_ast_reporter_mod;
 pub const debug_reporter = debug_reporter_mod;
 
+pub const Ast = @import("ast.zig").Ast;
+pub const NewParser = @import("parser.zig").Parser;
+
 test {
     _ = @import("std").testing.refAllDeclsRecursive(@This());
 }
