@@ -53,11 +53,12 @@ pub fn main() !void {
             const path = try allocator.alloc(u8, entry.path.len);
             @memcpy(path, entry.path);
             const source = try readFileAlloc(allocator, entry.path);
+            defer allocator.free(source);
 
             var diags = Config.Diags.init(allocator);
             defer diags.deinit();
 
-            test_runner.addTest(path, source, &diags) catch |err| {
+            test_runner.addTest(path, try allocator.dupeZ(u8, source), &diags) catch |err| {
                 has_config_errors = true;
                 switch (err) {
                     error.ConfigParseFailure => {

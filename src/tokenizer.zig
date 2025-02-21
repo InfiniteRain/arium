@@ -23,7 +23,14 @@ pub const Loc = struct {
             }
         }
 
-        unreachable;
+        return .{ line, column };
+    }
+
+    pub fn extend(a: Loc, b: Loc) Loc {
+        return .{
+            .index = a.index,
+            .len = (b.index - a.index) + b.len,
+        };
     }
 };
 

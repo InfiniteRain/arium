@@ -8,6 +8,7 @@ const test_reporter = @import("test_reporter.zig");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
 const comptimePrint = std.fmt.comptimePrint;
 const Tokenizer = arium.Tokenizer;
@@ -52,7 +53,7 @@ pub const Runner = struct {
 
         pub const Failure = union(enum) {
             parser: struct {
-                diags: Parser.Diags,
+                diags: ArrayListUnmanaged(Parser.Diag),
                 source: []const u8,
             },
             sema: struct {
@@ -68,7 +69,7 @@ pub const Runner = struct {
                 source: []const u8,
             },
             out_mismatch: OutMismatch,
-            err_parser_mismatch: Mismatch(Parser.Diags),
+            err_parser_mismatch: Mismatch(ArrayListUnmanaged(Parser.Diag)),
             err_sema_mismatch: Mismatch(Sema.Diags),
             err_compiler_mismatch: Mismatch(Compiler.Diags),
             err_vm_mismatch: Mismatch(Vm.Diags),
@@ -82,7 +83,7 @@ pub const Runner = struct {
             for (self.failures.items) |*info| {
                 switch (info.*) {
                     .parser => |*parse_failure| {
-                        parse_failure.diags.deinit();
+                        parse_failure.diags.deinit(allocator);
                         allocator.free(parse_failure.source);
                     },
                     .sema => |*sema_failure| {
@@ -102,8 +103,8 @@ pub const Runner = struct {
                         allocator.free(mismatch.actual);
                     },
                     .err_parser_mismatch => |*mismatch| {
-                        mismatch.expected.deinit();
-                        mismatch.actual.deinit();
+                        mismatch.expected.deinit(allocator);
+                        mismatch.actual.deinit(allocator);
                         allocator.free(mismatch.source);
                     },
                     .err_sema_mismatch => |*mismatch| {
@@ -130,8 +131,8 @@ pub const Runner = struct {
     pub const Diags = SharedDiags(DiagEntry);
 
     const VerifiableTypes = .{
-        Parser.DiagEntry,
-        Parser.DiagEntry.Kind,
+        Parser.Diag,
+        Parser.Diag.Tag,
         Loc,
         Token.Tag,
         Sema.DiagEntry,
@@ -250,20 +251,18 @@ pub const Runner = struct {
             defer arena_allocator.deinit();
 
             var tokenizer = Tokenizer.init(config.source);
-            var parser = Parser.init(&arena_allocator);
+            var parser = Parser.init(arena_allocator.allocator());
 
-            // allocate using Runner's allocator to prevent segfaults on dealloc.
-            // diags are owned by the test runner, not the tests.
-            var parser_diags = Parser.Diags.init(self.allocator);
+            var parser_diags: ArrayListUnmanaged(Parser.Diag) = .{};
 
-            const parsed_block = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
+            var ast = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
                 error.ParseFailure => {
-                    if (config.expectations.err_parser.getLen() > 0) {
-                        actual.err_parser = parser_diags;
+                    if (config.expectations.err_parser.items.len > 0) {
+                        actual.err_parser = try parser_diags.clone(self.allocator);
                     } else {
                         try diag_entry.failures.append(.{
                             .parser = .{
-                                .diags = parser_diags,
+                                .diags = try parser_diags.clone(self.allocator),
                                 .source = try self.allocator.dupe(u8, config.source),
                             },
                         });
@@ -283,7 +282,7 @@ pub const Runner = struct {
             // diags are owned by the test runner, not the tests.
             var sema_diags = Sema.Diags.init(self.allocator);
 
-            const sema_fn = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
+            const sema_fn = sema.analyze(&ast, &sema_diags) catch |err| switch (err) {
                 error.SemaFailure => {
                     if (config.expectations.err_sema.getLen() > 0) {
                         actual.err_sema = sema_diags;
@@ -407,14 +406,14 @@ pub const Runner = struct {
         }
 
         if (!verifyValue(
-            expectations.err_parser.entries,
-            actuals.err_parser.entries,
+            expectations.err_parser.items,
+            actuals.err_parser.items,
             source,
         )) {
             try diag_entry.failures.append(.{
                 .err_parser_mismatch = .{
-                    .expected = try self.cloneDiags(&expectations.err_parser),
-                    .actual = try self.cloneDiags(&actuals.err_parser),
+                    .expected = try expectations.err_parser.clone(self.allocator),
+                    .actual = try actuals.err_parser.clone(self.allocator),
                     .source = try self.allocator.dupe(u8, source),
                 },
             });
@@ -483,11 +482,17 @@ pub const Runner = struct {
         }
 
         if (comptime meta.isArrayList(Type)) {
-            return verifyArrayList(expectation, actual, source);
+            return verifyArray(expectation.items, actual.items, source);
         }
 
         if (type_info == .pointer and type_info.pointer.size == .one) {
             return verifyValue(expectation.*, actual.*, source);
+        }
+
+        if ((type_info == .array) or
+            (type_info == .pointer and type_info.pointer.size == .slice))
+        {
+            return verifyArray(expectation, actual, source);
         }
 
         switch (type_info) {
@@ -497,8 +502,11 @@ pub const Runner = struct {
             .int,
             => return expectation == actual,
 
+            .optional,
+            => return verifyOptional(expectation, actual, source),
+
             .@"enum",
-            => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
+            => if (comptime meta.valueInTuple(Type, VerifiableTypes)) {
                 return expectation == actual;
             } else {
                 @compileError(comptimePrint(
@@ -508,7 +516,7 @@ pub const Runner = struct {
             },
 
             .@"union",
-            => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
+            => if (comptime meta.valueInTuple(Type, VerifiableTypes)) {
                 return verifyUnion(expectation, actual, source);
             } else {
                 @compileError(comptimePrint(
@@ -518,7 +526,7 @@ pub const Runner = struct {
             },
 
             .@"struct",
-            => if (comptime meta.typeInTuple(Type, VerifiableTypes)) {
+            => if (comptime meta.valueInTuple(Type, VerifiableTypes)) {
                 return verifyStruct(expectation, actual, source);
             } else {
                 @compileError(comptimePrint(
@@ -580,16 +588,16 @@ pub const Runner = struct {
         unreachable;
     }
 
-    fn verifyArrayList(
+    fn verifyArray(
         expectation: anytype,
         actual: anytype,
         source: []const u8,
     ) bool {
-        if (expectation.items.len != actual.items.len) {
+        if (expectation.len != actual.len) {
             return false;
         }
 
-        for (expectation.items, actual.items) |expected_item, actual_item| {
+        for (expectation, actual) |expected_item, actual_item| {
             if (!verifyValue(expected_item, actual_item, source)) {
                 return false;
             }
@@ -600,6 +608,22 @@ pub const Runner = struct {
 
     fn verifyString(expectation: anytype, actual: anytype) bool {
         return std.mem.eql(u8, expectation, actual);
+    }
+
+    fn verifyOptional(
+        expectation: anytype,
+        actual: anytype,
+        source: []const u8,
+    ) bool {
+        if (expectation == null and actual == null) {
+            return true;
+        }
+
+        if (expectation == null or actual == null) {
+            return false;
+        }
+
+        return verifyValue(expectation.?, actual.?, source);
     }
 
     fn cloneDiags(
@@ -615,7 +639,6 @@ pub const Runner = struct {
                     self.allocator,
                     diag.kind,
                     .{
-                        Parser.DiagEntry.Kind,
                         Sema.DiagEntry.Kind,
                         Sema.DiagEntry.SemaTypeTuple,
                         Sema.DiagEntry.ArityMismatch,

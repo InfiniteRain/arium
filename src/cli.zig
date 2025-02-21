@@ -4,10 +4,12 @@ const clap = @import("clap");
 const arium = @import("arium");
 
 const Allocator = std.mem.Allocator;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const Writer = shared.Writer;
 const Tokenizer = arium.Tokenizer;
+const Ast = arium.Ast;
 const Parser = arium.Parser;
 const Sema = arium.Sema;
 const ManagedMemory = arium.ManagedMemory;
@@ -90,27 +92,32 @@ fn runFile(
 
     var tokenizer = Tokenizer.init(source);
 
-    var parser = Parser.init(&arena_allocator);
-    var parser_diags = Parser.Diags.init(allocator);
-    defer parser_diags.deinit();
+    var parser = Parser.init(allocator);
+    defer parser.deinit();
 
-    const parsed_block = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
-        error.ParseFailure => {
-            error_reporter.reportParserDiags(&parser_diags, source, err_writer);
-            std.posix.exit(65);
-        },
-        else => return err,
+    var parser_diags: ArrayListUnmanaged(Parser.Diag) = .{};
+    defer parser_diags.deinit(allocator);
+
+    var ast = parser.parse(&tokenizer, &parser_diags) catch |err| {
+        switch (err) {
+            error.ParseFailure => {
+                error_reporter.reportParserDiags(&parser_diags, source, err_writer);
+                std.posix.exit(65);
+            },
+            else => return err,
+        }
     };
+    defer ast.deinit(allocator);
 
     if (args.@"dprint-parsed-ast" > 0) {
-        debug_ast_reporter.printAstNode(parsed_block, null, out_writer);
+        debug_ast_reporter.printAstIndex(&ast, Ast.Index.from(0), null, out_writer);
     }
 
     var sema = Sema.init(&arena_allocator);
     var sema_diags = Sema.Diags.init(allocator);
     defer sema_diags.deinit();
 
-    const sema_fn = sema.analyze(parsed_block, &sema_diags) catch |err| switch (err) {
+    const sema_fn = sema.analyze(&ast, &sema_diags) catch |err| switch (err) {
         error.SemaFailure => {
             error_reporter.reportSemaDiags(&sema_diags, source, err_writer);
             std.posix.exit(65);

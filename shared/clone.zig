@@ -36,7 +36,7 @@ pub fn createClone(
         => value,
 
         .@"union",
-        => if (comptime meta.typeInTuple(Type, allowlist))
+        => if (comptime meta.valueInTuple(Type, allowlist))
             try cloneUnion(allocator, value, allowlist)
         else
             @compileError(comptimePrint(
@@ -45,7 +45,7 @@ pub fn createClone(
             )),
 
         .@"struct",
-        => if (comptime meta.typeInTuple(Type, allowlist))
+        => if (comptime meta.valueInTuple(Type, allowlist))
             try cloneStruct(allocator, value, allowlist)
         else
             @compileError(comptimePrint(

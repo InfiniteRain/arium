@@ -1,12 +1,13 @@
 const std = @import("std");
 const shared = @import("shared");
-const parser_mod = @import("../parser/parser.zig");
+const parser_mod = @import("../parser.zig");
 const sema_mod = @import("../sema/sema.zig");
 const tokenizer_mod = @import("../tokenizer.zig");
 const compiler_mod = @import("../compiler/compiler.zig");
 const vm_mod = @import("../vm/vm.zig");
 const type_reporter = @import("type_reporter.zig");
 
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Writer = shared.Writer;
 const Parser = parser_mod.Parser;
 const Sema = sema_mod.Sema;
@@ -16,94 +17,81 @@ const Compiler = compiler_mod.Compiler;
 const Vm = vm_mod.Vm;
 
 pub fn reportParserDiags(
-    diags: *const Parser.Diags,
+    diags: *const ArrayListUnmanaged(Parser.Diag),
     source: []const u8,
     writer: *const Writer,
 ) void {
-    for (diags.getEntries()) |*diag| {
+    for (diags.items) |diag| {
         reportParserDiag(diag, source, writer);
         writer.print("\n");
     }
 }
 
 pub fn reportParserDiag(
-    diag: *const Parser.DiagEntry,
+    diag: Parser.Diag,
     source: []const u8,
     writer: *const Writer,
 ) void {
-    const line, const column = diag.position.toLineCol(source);
+    const line, const column = diag.loc.toLineCol(source);
 
     writer.printf("Error at {}:{}: ", .{
         line,
         column,
     });
 
-    switch (diag.kind) {
+    switch (diag.tag) {
         .expected_end_token,
         => |token_list| {
             writer.print("Expected ");
 
-            for (token_list.items) |token_kind| {
-                reportParserDiagTokenQuoted(token_kind, writer);
+            for (token_list) |token_tag| {
+                if (token_tag == null) {
+                    break;
+                }
+
+                reportParserDiagTokenQuoted(token_tag.?, writer);
                 writer.print(", ");
             }
+
             writer.print("line break or ';'.");
         },
-
-        .invalid_token,
-        => |message| writer.print(message),
 
         .expected_expression,
         => writer.print("Expected expression."),
 
-        .expected_left_paren_before_expr,
-        => writer.print("Expected '(' before expression."),
-
-        .expected_right_paren_after_expr,
-        => writer.print("Expected ')' after expression."),
-
-        .int_literal_overflows,
-        => writer.print("Integer literal value overflows."),
-
-        .expected_name_after_let,
-        => writer.print("Expected name after 'let'."),
-
-        .expected_equal_after_name,
-        => writer.print("Expected '=' after name."),
-
-        .invalid_assignment_target,
-        => writer.print("Invalid assignment target."),
-
-        .expected_type,
-        => writer.print("Expected type."),
-
-        .variable_name_not_lower_case,
-        => |name| writer.printf(
-            "Expected variable '{s}' to start with a lower-case letter.",
-            .{name},
-        ),
-
         .expected_token_after_condition,
-        => |token_kind| {
+        => |token_tag| {
             writer.print("Expected ");
-            reportParserDiagTokenQuoted(token_kind, writer);
+            reportParserDiagTokenQuoted(token_tag, writer);
             writer.print(" after the condition.");
         },
 
-        .expected_name_after_fn,
-        => writer.print("Expected name after 'let'."),
-
-        .expected_left_paren_before_args,
-        => writer.print("Expected '(' before argument list."),
+        .expected_identifier,
+        => writer.print("Expected identifier."),
 
         .expected_right_paren_after_args,
         => writer.print("Expected ')' after argument list."),
 
-        .expected_colon_after_arg,
-        => writer.print("Expected ':' after argument."),
+        .expected_left_paren_before_params,
+        => writer.print("Expected '(' before parameter list."),
 
-        .expected_colon_after_args,
-        => writer.print("Expected ':' after argument list."),
+        .expected_right_paren_after_params,
+        => writer.print("Expected ')' after parameter list."),
+
+        .expected_colon_after_params,
+        => writer.print("Expected ':' after parameter list."),
+
+        .expected_colon_after_param,
+        => writer.print("Expected ':' after parameter."),
+
+        .expected_right_paren_after_expr,
+        => writer.print("Expected ')' after expression."),
+
+        .invalid_assignment_target,
+        => writer.print("Invalid assignment target."),
+
+        .invalid_token,
+        => writer.print("Invalid token."),
     }
 }
 

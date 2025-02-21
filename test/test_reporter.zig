@@ -4,6 +4,7 @@ const arium = @import("arium");
 const runner_mod = @import("runner.zig");
 const config_mod = @import("config.zig");
 
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const comptimePrint = std.fmt.comptimePrint;
 const Writer = shared.Writer;
 const meta = shared.meta;
@@ -21,8 +22,8 @@ const Config = config_mod.Config;
 
 const ReportableTypes = .{
     Token.Tag,
-    Parser.DiagEntry,
-    Parser.DiagEntry.Kind,
+    Parser.Diag,
+    Parser.Diag.Tag,
     Sema.DiagEntry,
     Sema.DiagEntry.Kind,
     Sema.DiagEntry.ArityMismatch,
@@ -134,14 +135,14 @@ pub fn reportRunnerDiag(
 }
 
 pub fn reportErrParserMismatch(
-    mismatch: *const Runner.DiagEntry.Mismatch(Parser.Diags),
+    mismatch: *const Runner.DiagEntry.Mismatch(ArrayListUnmanaged(Parser.Diag)),
     writer: *const Writer,
 ) void {
     writer.print("Unexpected parser error(s).\nExpected:\n");
-    reportValueMultiline(mismatch.expected.entries, 0, null, writer);
+    reportValueMultiline(mismatch.expected.items, 0, null, writer);
     writer.print("\nActual:\n");
     reportValueMultiline(
-        mismatch.actual.entries,
+        mismatch.actual,
         0,
         mismatch.source,
         writer,
@@ -240,7 +241,6 @@ fn reportValueAux(
         var line = value.index;
 
         if (source_opt) |source| {
-            std.debug.print("here?", .{});
             line, _ = value.toLineCol(source);
         }
 
@@ -264,6 +264,12 @@ fn reportValueAux(
         return;
     }
 
+    if (type_info == .pointer and type_info.pointer.size == .slice) {
+        writer.print("[]");
+        reportArray(value, indent, multiline, source_opt, writer);
+        return;
+    }
+
     switch (type_info) {
         .void,
         => writer.print("void"),
@@ -271,8 +277,21 @@ fn reportValueAux(
         .int,
         => writer.printf("{}", .{value}),
 
+        .array,
+        => reportArray(value, indent, multiline, source_opt, writer),
+
+        .optional,
+        => {
+            writer.print("?");
+            if (value) |unwrapped| {
+                reportValue(unwrapped, indent, source_opt, writer);
+            } else {
+                writer.print("null");
+            }
+        },
+
         .@"enum",
-        => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
+        => if (comptime meta.valueInTuple(Type, ReportableTypes)) {
             reportEnum(value, writer);
         } else {
             @compileError(comptimePrint(
@@ -282,7 +301,7 @@ fn reportValueAux(
         },
 
         .@"union",
-        => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
+        => if (comptime meta.valueInTuple(Type, ReportableTypes)) {
             reportUnion(value, indent, source_opt, writer);
         } else {
             @compileError(comptimePrint(
@@ -292,7 +311,7 @@ fn reportValueAux(
         },
 
         .@"struct",
-        => if (comptime meta.typeInTuple(Type, ReportableTypes)) {
+        => if (comptime meta.valueInTuple(Type, ReportableTypes)) {
             reportStruct(value, indent, source_opt, writer);
         } else {
             @compileError(comptimePrint(
@@ -362,20 +381,30 @@ pub fn reportArrayList(
     source_opt: ?[]const u8,
     writer: *const Writer,
 ) void {
+    reportArray(value.items, indent, multiline, source_opt, writer);
+}
+
+pub fn reportArray(
+    value: anytype,
+    indent: u8,
+    multiline: bool,
+    source_opt: ?[]const u8,
+    writer: *const Writer,
+) void {
     writer.print("[");
 
     if (multiline) {
         writer.print("\n");
     }
 
-    for (value.items, 0..) |item, index| {
+    for (value, 0..) |item, index| {
         if (multiline) {
             writeIndent(indent, writer);
         }
 
         reportValue(item, indent, source_opt, writer);
 
-        if (index != value.items.len - 1) {
+        if (index != value.len - 1) {
             writer.print(",");
         }
 

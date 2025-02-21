@@ -1,5 +1,6 @@
 const tokenizer_mod = @import("tokenizer.zig");
-const parser_mod = @import("parser/parser.zig");
+const ast_mod = @import("ast.zig");
+const parser_mod = @import("parser.zig");
 const sema_mod = @import("sema/sema.zig");
 const sema_ast_mod = @import("sema/sema_ast.zig");
 const managed_memory_mod = @import("state/managed_memory.zig");
@@ -13,6 +14,7 @@ const obj_mod = @import("state/obj.zig");
 pub const Token = tokenizer_mod.Token;
 pub const Tokenizer = tokenizer_mod.Tokenizer;
 pub const Loc = tokenizer_mod.Loc;
+pub const Ast = ast_mod.Ast;
 pub const Parser = parser_mod.Parser;
 pub const Sema = sema_mod.Sema;
 pub const SemaExpr = sema_ast_mod.SemaExpr;

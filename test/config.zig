@@ -3,8 +3,10 @@ const arium = @import("arium");
 const shared = @import("shared");
 
 const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;
 const comptimePrint = std.fmt.comptimePrint;
+const meta = std.meta;
 const Token = arium.Token;
 const Tokenizer = arium.Tokenizer;
 const Loc = arium.Loc;
@@ -15,7 +17,6 @@ const SemaType = arium.SemaType;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 const SharedDiags = shared.Diags;
-const meta = shared.meta;
 
 pub const Config = struct {
     const Self = @This();
@@ -59,7 +60,7 @@ pub const Config = struct {
     pub const Expectations = struct {
         allocator: Allocator,
         out: ArrayList(u8),
-        err_parser: Parser.Diags,
+        err_parser: ArrayListUnmanaged(Parser.Diag),
         err_sema: Sema.Diags,
         err_compiler: Compiler.Diags,
         err_vm: Vm.Diags,
@@ -68,7 +69,7 @@ pub const Config = struct {
             return .{
                 .allocator = allocator,
                 .out = ArrayList(u8).init(allocator),
-                .err_parser = Parser.Diags.init(allocator),
+                .err_parser = .{},
                 .err_sema = Sema.Diags.init(allocator),
                 .err_compiler = Compiler.Diags.init(allocator),
                 .err_vm = Vm.Diags.init(allocator),
@@ -77,7 +78,7 @@ pub const Config = struct {
 
         pub fn deinit(self: *Expectations) void {
             self.out.clearAndFree();
-            self.err_parser.deinit();
+            self.err_parser.deinit(self.allocator);
             self.err_sema.deinit();
             self.err_compiler.deinit();
             self.err_vm.deinit();
@@ -96,7 +97,8 @@ pub const Config = struct {
     const SplitIter = std.mem.SplitIterator(u8, .scalar);
 
     const ParsableTypes = .{
-        Parser.DiagEntry.Kind,
+        Parser.Diag,
+        Parser.Diag.Tag,
         Loc,
         Sema.DiagEntry.Kind,
         Sema.DiagEntry.SemaTypeTuple,
@@ -253,11 +255,32 @@ pub const Config = struct {
 
         switch (directive_kind) {
             .out => try parseOutDirective(ctx),
-            .err_parser => try parseDiag(&ctx.expectations.err_parser, ctx),
+            .err_parser => try parseNewDiag(&ctx.expectations.err_parser, ctx),
             .err_sema => try parseDiag(&ctx.expectations.err_sema, ctx),
             .err_compiler => try parseDiag(&ctx.expectations.err_compiler, ctx),
             .err_vm => try parseDiag(&ctx.expectations.err_vm, ctx),
         }
+    }
+
+    fn parseNewDiag(
+        diags: *ArrayListUnmanaged(Parser.Diag),
+        ctx: *DirectiveCtx,
+    ) DirectiveError!void {
+        const ChildDiagEntry = meta.Child(@TypeOf(diags.items));
+
+        const line = try parseType(u32, ctx);
+        const diag = try parseType(ChildDiagEntry.Tag, ctx);
+
+        try parseEndOfSplitIter(ctx, "Expected end of comment.");
+
+        try diags.append(ctx.allocator, .{
+            .tag = diag,
+            .loc = .{
+                // hack until rewrite: start represents line number, handled with a special case
+                .index = line,
+                .len = 0,
+            },
+        });
     }
 
     fn parseDiag(
@@ -293,7 +316,11 @@ pub const Config = struct {
             );
         }
 
-        if (comptime meta.isArrayList(T)) {
+        if (T == Parser.Diag.Tag.EndTokens) {
+            return try parseEndTokens(ctx);
+        }
+
+        if (comptime shared.meta.isArrayList(T)) {
             return try parseArrayList(T, ctx);
         }
 
@@ -309,7 +336,7 @@ pub const Config = struct {
             => return try parseInt(T, ctx),
 
             .@"enum",
-            => if (comptime meta.typeInTuple(T, ParsableTypes)) {
+            => if (comptime shared.meta.valueInTuple(T, ParsableTypes)) {
                 return try parseEnum(T, ctx);
             } else {
                 @compileError(comptimePrint(
@@ -319,7 +346,7 @@ pub const Config = struct {
             },
 
             .@"union",
-            => if (comptime meta.typeInTuple(T, ParsableTypes)) {
+            => if (comptime shared.meta.valueInTuple(T, ParsableTypes)) {
                 return try parseUnion(T, ctx);
             } else {
                 @compileError(comptimePrint(
@@ -330,7 +357,7 @@ pub const Config = struct {
 
             .@"struct",
             => {
-                if (!comptime meta.typeInTuple(T, ParsableTypes)) {
+                if (!comptime shared.meta.valueInTuple(T, ParsableTypes)) {
                     @compileError(comptimePrint(
                         "stuct {s} isn't marked as parsable",
                         .{type_name},
@@ -437,6 +464,46 @@ pub const Config = struct {
         }
 
         return new_array;
+    }
+
+    fn parseEndTokens(
+        ctx: *DirectiveCtx,
+    ) DirectiveError!Parser.Diag.Tag.EndTokens {
+        const len = @typeInfo(Parser.Diag.Tag.EndTokens).array.len;
+        var end_tokens = [_]?Token.Tag{null} ** len;
+        const list_str = try parseGroup(
+            ctx,
+            "tuple",
+            '{',
+            '}',
+            "Expected a list of {s}.",
+            .{@typeName(Token.Tag)},
+        );
+        var split_iter = std.mem.splitScalar(u8, list_str, ',');
+        const parent_split_iter = ctx.split_iter;
+
+        var i: usize = 0;
+        while (split_iter.next()) |segment| {
+            if (segment.len == 0) {
+                continue;
+            }
+
+            defer i += 1;
+
+            {
+                var inner_split_iter = std.mem.splitScalar(u8, segment, ' ');
+                ctx.split_iter = &inner_split_iter;
+                defer ctx.split_iter = parent_split_iter;
+
+                if (i >= len) {
+                    @panic("too many elements");
+                }
+
+                end_tokens[i] = try parseType(Token.Tag, ctx);
+            }
+        }
+
+        return end_tokens;
     }
 
     fn parseGroup(

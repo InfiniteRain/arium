@@ -1,18 +1,16 @@
 const std = @import("std");
 const shared = @import("shared");
-const parsed_ast_mod = @import("../parser/parsed_ast.zig");
 const sema_ast_mod = @import("../sema/sema_ast.zig");
+const ast_mod = @import("../ast.zig");
 
 const ArrayList = std.ArrayList;
 const comptimePrint = std.fmt.comptimePrint;
+const meta = std.meta;
 const Writer = shared.Writer;
-const meta = shared.meta;
 const SemaExpr = sema_ast_mod.SemaExpr;
 const SemaStmt = sema_ast_mod.SemaStmt;
 const SemaType = sema_ast_mod.SemaType;
-const ParsedExpr = parsed_ast_mod.ParsedExpr;
-const ParsedStmt = parsed_ast_mod.ParsedStmt;
-const ParsedType = parsed_ast_mod.ParsedType;
+const Ast = ast_mod.Ast;
 
 const style_end = "\x1b[0m";
 const styles = [_][]const u8{
@@ -22,6 +20,7 @@ const styles = [_][]const u8{
     "\x1b[4m\x1b[1;34m",
     "\x1b[4m\x1b[1;35m",
 };
+const style_underline = "\x1b[4m";
 
 pub const Indent = struct {
     const Self = @This();
@@ -53,6 +52,127 @@ pub const Indent = struct {
     }
 };
 
+pub fn printAstIndex(
+    ast: *Ast,
+    index: Ast.Index,
+    indent_opt: ?Indent,
+    writer: *const Writer,
+) void {
+    const key = index.toKey(ast);
+
+    writer.printf(
+        ".{s}{s}{s}",
+        .{ style_underline, @tagName(key), style_end },
+    );
+
+    inline for (meta.fields(Ast.Key)) |field| {
+        if (std.mem.eql(u8, field.name, @tagName(key))) {
+            if (field.type != void) {
+                writer.print(" = ");
+            } else {
+                writer.printf(" '{s}'", .{index.toStr(ast)});
+            }
+
+            printAstField(
+                ast,
+                @field(key, field.name),
+                indent_opt,
+                writer,
+            );
+        }
+    }
+
+    if (indent_opt == null) {
+        writer.print("\n");
+    }
+}
+
+fn printAstField(
+    ast: *Ast,
+    field: anytype,
+    indent_opt: ?Indent,
+    writer: *const Writer,
+) void {
+    const indent_ptr: ?*const Indent = if (indent_opt) |indent| &indent else null;
+    const Type = @TypeOf(field);
+    const type_info = @typeInfo(Type);
+
+    if (Type == void) {
+        return;
+    }
+
+    if (Type == Ast.Index) {
+        printAstIndex(ast, field, indent_opt, writer);
+        return;
+    }
+
+    switch (type_info) {
+        .pointer => |pointer| {
+            if (pointer.size != .slice) {
+                @compileError("ast printer doesn't support non-slice pointers");
+            }
+
+            if (field.len == 0) {
+                writer.print("[]");
+                return;
+            }
+
+            writer.print("[\n");
+
+            for (field, 0..) |element, index| {
+                const is_last = index == field.len - 1;
+
+                printIndent(Indent.wrap(indent_ptr, is_last), writer);
+                printAstField(ast, element, Indent.wrapNewLevel(indent_ptr, is_last), writer);
+                writer.print("\n");
+            }
+
+            printIndentNoConnect(indent_opt, writer);
+            writer.print("]");
+        },
+
+        .@"struct" => {
+            const fields = meta.fields(Type);
+
+            if (fields.len == 0) {
+                writer.print("{{}}");
+            }
+
+            writer.print("{\n");
+
+            inline for (fields, 0..) |child_field, index| {
+                const is_last = index == fields.len - 1;
+
+                printIndent(Indent.wrap(indent_ptr, is_last), writer);
+                writer.printf(".{s} = ", .{child_field.name});
+                printAstField(
+                    ast,
+                    @field(field, child_field.name),
+                    Indent.wrapNewLevel(indent_ptr, is_last),
+                    writer,
+                );
+                writer.print("\n");
+            }
+
+            printIndentNoConnect(indent_opt, writer);
+            writer.print("}");
+        },
+
+        .optional => {
+            if (field == null) {
+                writer.print("null");
+            } else {
+                printAstField(ast, field.?, indent_opt, writer);
+            }
+        },
+
+        else => @compileError(comptimePrint(
+            "ast printer doesn't support {s} / {s}",
+            .{ @typeName(Type), @tagName(type_info) },
+        )),
+    }
+}
+
 pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) void {
     const indent_ptr: ?*const Indent = if (indent_opt) |indent| &indent else null;
     const Type = @TypeOf(node);
@@ -79,7 +199,7 @@ pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) v
 
     writer.printf(
         "{s}{s}{s} {{\n",
-        .{ style, meta.typeName(Type), style_end },
+        .{ style, shared.meta.typeName(Type), style_end },
     );
 
     inline for (child_variant.fields) |field| {
@@ -110,7 +230,7 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
     const Type = @TypeOf(field);
     const type_info = @typeInfo(Type);
 
-    if (comptime meta.isArrayList(Type)) {
+    if (comptime shared.meta.isArrayList(Type)) {
         printArrayList(field, indent, writer);
         return;
     }
@@ -121,10 +241,6 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
             *const SemaExpr,
             *SemaStmt,
             *const SemaStmt,
-            *ParsedExpr,
-            *const ParsedExpr,
-            *ParsedStmt,
-            *const ParsedStmt,
             => printAstNode(field, indent, writer),
 
             else => {

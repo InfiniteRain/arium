@@ -1,10 +1,10 @@
 const std = @import("std");
 const shared = @import("shared");
-const parsed_ast_mod = @import("../parser/parsed_ast.zig");
 const sema_ast_mod = @import("sema_ast.zig");
 const tokenizer_mod = @import("../tokenizer.zig");
-const parser_mod = @import("../parser/parser.zig");
+const parser_mod = @import("../parser.zig");
 const limits = @import("../limits.zig");
+const ast_mod = @import("../ast.zig");
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -15,9 +15,6 @@ const allocPrint = std.fmt.allocPrint;
 const expectError = std.testing.expectError;
 const SharedDiags = shared.Diags;
 const Writer = shared.Writer;
-const ParsedExpr = parsed_ast_mod.ParsedExpr;
-const ParsedStmt = parsed_ast_mod.ParsedStmt;
-const ParsedType = parsed_ast_mod.ParsedType;
 const SemaExpr = sema_ast_mod.SemaExpr;
 const SemaStmt = sema_ast_mod.SemaStmt;
 const SemaType = sema_ast_mod.SemaType;
@@ -25,6 +22,7 @@ const Tokenizer = tokenizer_mod.Tokenizer;
 const Token = tokenizer_mod.Token;
 const Loc = tokenizer_mod.Loc;
 const Parser = parser_mod.Parser;
+const Ast = ast_mod.Ast;
 
 pub const Sema = struct {
     const Self = @This();
@@ -172,6 +170,7 @@ pub const Sema = struct {
     allocator: Allocator,
     diags: ?*Diags = null,
     had_error: bool = false,
+    ast: *const Ast = undefined,
     fn_ctx: *FnCtx = undefined,
 
     pub fn init(allocator: *ArenaAllocator) Self {
@@ -182,11 +181,12 @@ pub const Sema = struct {
 
     pub fn analyze(
         self: *Self,
-        block: *ParsedExpr,
+        ast: *const Ast,
         diags: ?*Diags,
     ) Error!*SemaStmt.Kind.Fn {
         self.diags = diags;
         self.had_error = false;
+        self.ast = ast;
 
         var current_scope = FnCtx.Scope.init(self.allocator, null);
         var fn_ctx = FnCtx{
@@ -208,7 +208,7 @@ pub const Sema = struct {
             "",
             null,
             null,
-            block,
+            Ast.Index.from(0),
             .{
                 .index = 0,
                 .len = 0,
@@ -222,73 +222,97 @@ pub const Sema = struct {
         return &sema_fn.kind.@"fn";
     }
 
-    fn analyzeStmt(self: *Self, stmt: *ParsedStmt, evals: bool) Error!*SemaStmt {
-        return switch (stmt.kind) {
-            .assert => |*assert| try self.analyzeAssertStmt(assert, stmt.position),
-            .print => |*print| try self.analyzePrintStmt(print, stmt.position),
-            .expr => |*expr| try self.analyzeExprStmt(expr, stmt.position, evals),
-            .let => |*let| try self.analyzeLetStmt(let, stmt.position),
-            .@"fn" => |*@"fn"| try self.analyzeFnStmt(@"fn", stmt.position),
+    fn analyzeStmt(
+        self: *Self,
+        key: Ast.Key,
+        loc: Loc,
+        evals: bool,
+    ) Error!*SemaStmt {
+        return switch (key) {
+            .assert,
+            => |index| try self.analyzeAssertStmt(index, loc),
+
+            .print,
+            => |index| try self.analyzePrintStmt(index, loc),
+
+            .expr_stmt,
+            => |index| try self.analyzeExprStmt(index, loc, evals),
+
+            .let,
+            .let_mut,
+            => |let| try self.analyzeLetStmt(key, let, loc),
+
+            .@"fn",
+            => |@"fn"| try self.analyzeFnStmtAux(
+                @"fn".identifier.toStr(self.ast),
+                @"fn".params,
+                @"fn".return_type,
+                @"fn".body,
+                loc,
+            ),
+
+            else => unreachable,
         };
     }
 
     fn analyzeAssertStmt(
         self: *Self,
-        assert: *ParsedStmt.Kind.Assert,
-        position: Loc,
+        index: Ast.Index,
+        loc: Loc,
     ) Error!*SemaStmt {
-        const expr = try self.analyzeExpr(assert.expr, true);
+        const expr = try self.analyzeExpr(index, true);
 
         if (!typeSatisfies(expr.sema_type, .bool)) {
             return self.semaFailure(
-                position,
+                loc,
                 .{ .expected_expr_type = .bool },
             );
         }
 
-        return try SemaStmt.Kind.Assert.create(self.allocator, expr, position);
+        return try SemaStmt.Kind.Assert.create(self.allocator, expr, loc);
     }
 
     fn analyzePrintStmt(
         self: *Self,
-        print: *ParsedStmt.Kind.Print,
-        position: Loc,
+        index: Ast.Index,
+        loc: Loc,
     ) Error!*SemaStmt {
-        const expr = try self.analyzeExpr(print.expr, true);
+        const expr = try self.analyzeExpr(index, true);
 
-        return try SemaStmt.Kind.Print.create(self.allocator, expr, position);
+        return try SemaStmt.Kind.Print.create(self.allocator, expr, loc);
     }
 
     fn analyzeExprStmt(
         self: *Self,
-        expr: *ParsedStmt.Kind.Expr,
-        position: Loc,
+        index: Ast.Index,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaStmt {
-        const inner_expr = try self.analyzeExpr(expr.expr, evals);
+        const inner_expr = try self.analyzeExpr(index, evals);
 
         return try SemaStmt.Kind.Expr.create(
             self.allocator,
             inner_expr,
-            position,
+            loc,
         );
     }
 
     fn analyzeLetStmt(
         self: *Self,
-        let: *ParsedStmt.Kind.Let,
-        position: Loc,
+        key: Ast.Key,
+        let: Ast.Key.Let,
+        loc: Loc,
     ) Error!*SemaStmt {
-        const analyzed_type_opt: ?SemaType = if (let.parsed_type) |parsed_type|
+        const analyzed_type_opt: ?SemaType = if (let.type) |parsed_type|
             try self.analyzeType(parsed_type)
         else
             null;
 
         const parsed_expr = let.expr orelse {
             const index = try self.declareVariable(
-                let.is_mutable,
+                key == .let_mut,
                 false,
-                let.name,
+                let.identifier.toStr(self.ast),
                 analyzed_type_opt,
             );
 
@@ -296,16 +320,16 @@ pub const Sema = struct {
                 self.allocator,
                 index,
                 null,
-                position,
+                loc,
             );
         };
 
         const expr = self.analyzeExpr(parsed_expr, true) catch |err| switch (err) {
             error.SemaFailure => {
                 _ = try self.declareVariable(
-                    let.is_mutable,
+                    key == .let_mut,
                     true,
-                    let.name,
+                    let.identifier.toStr(self.ast),
                     .invalid,
                 );
                 return error.SemaFailure;
@@ -314,7 +338,7 @@ pub const Sema = struct {
         };
 
         if (self.fn_ctx.current_scope.locals_top >= limits.max_locals) {
-            try self.addDiag(position, .too_many_locals);
+            try self.addDiag(loc, .too_many_locals);
         }
 
         var sema_type = expr.sema_type;
@@ -323,15 +347,15 @@ pub const Sema = struct {
             if (typeSatisfies(expr.sema_type, analyzed_type)) {
                 sema_type = analyzed_type;
             } else {
-                try self.addDiag(position, .{ .expected_expr_type = analyzed_type });
+                try self.addDiag(loc, .{ .expected_expr_type = analyzed_type });
                 sema_type = .invalid;
             }
         }
 
         const index = try self.declareVariable(
-            let.is_mutable,
+            key == .let_mut,
             true,
-            let.name,
+            let.identifier.toStr(self.ast),
             sema_type,
         );
 
@@ -339,20 +363,21 @@ pub const Sema = struct {
             self.allocator,
             index,
             expr,
-            position,
+            loc,
         );
     }
 
     fn analyzeFnStmt(
         self: *Self,
-        @"fn": *ParsedStmt.Kind.Fn,
+        @"fn": Ast.Index,
         position: Loc,
     ) Error!*SemaStmt {
+        const key = @"fn".toKey(self.ast).@"fn";
         return self.analyzeFnStmtAux(
-            @"fn".name,
-            @"fn".args,
-            @"fn".return_type,
-            @"fn".body,
+            key.identifier.toLoc(self.ast).toSlice(self.source),
+            key.params,
+            key.return_type,
+            key.body,
             position,
         ) catch |err| {
             if (err == error.SemaFailure) {
@@ -366,9 +391,9 @@ pub const Sema = struct {
     fn analyzeFnStmtAux(
         self: *Self,
         name: []const u8,
-        args_opt: ?ArrayList(ParsedStmt.Kind.Fn.Arg),
-        parsed_return_type_opt: ?*ParsedType,
-        parsed_body: *ParsedExpr,
+        args_opt: ?[]const Ast.Key.FnArg,
+        parsed_return_type_opt: ?Ast.Index,
+        parsed_body: Ast.Index,
         position: Loc,
     ) Error!*SemaStmt {
         const return_type = if (parsed_return_type_opt) |parsed_return_type|
@@ -379,7 +404,7 @@ pub const Sema = struct {
         var arg_types = ArrayList(SemaType).init(self.allocator);
 
         if (args_opt) |args| {
-            for (args.items) |arg| {
+            for (args) |arg| {
                 try arg_types.append(try self.analyzeType(arg.type));
             }
         }
@@ -404,11 +429,11 @@ pub const Sema = struct {
             _ = try self.declareFn(name, fn_type);
 
             if (args_opt) |args| {
-                for (args.items, arg_types.items) |arg, arg_type| {
+                for (args, arg_types.items) |arg, arg_type| {
                     _ = try self.declareVariable(
                         false,
                         true,
-                        arg.name,
+                        arg.identifier.toStr(self.ast),
                         arg_type,
                     );
                 }
@@ -449,40 +474,104 @@ pub const Sema = struct {
         );
     }
 
-    fn analyzeType(self: *Self, parsed_type: *ParsedType) Error!SemaType {
-        return switch (parsed_type.kind) {
-            .identifier,
-            => |identifier| try self.analyzeIdentifierType(identifier, parsed_type.position),
+    fn analyzeType(self: *Self, parsed_type: Ast.Index) Error!SemaType {
+        const key = parsed_type.toKey(self.ast);
+        return switch (key) {
+            .identifier => try self.analyzeIdentifierType(parsed_type),
+            else => unreachable,
         };
     }
 
     fn analyzeIdentifierType(
         self: *Self,
-        identifier: ParsedType.Kind.Identifier,
-        position: Loc,
+        identifier: Ast.Index,
     ) Error!SemaType {
-        return self.getType(identifier.name) orelse
-            self.semaFailure(position, .{ .type_not_found = identifier.name });
+        const loc = identifier.toLoc(self.ast);
+        const name = identifier.toStr(self.ast);
+        return self.getType(name) orelse
+            self.semaFailure(loc, .{ .type_not_found = name });
     }
 
     fn analyzeExpr(
         self: *Self,
-        expr: *ParsedExpr,
+        expr: Ast.Index,
         evals: bool,
     ) Error!*SemaExpr {
-        const sema_expr = switch (expr.kind) {
-            .literal => |*literal| try self.analyzeLiteralExpr(literal, expr.position, evals),
-            .binary => |*binary| try self.analyzeBinaryExpr(binary, expr.position, evals),
-            .unary => |*unary| try self.analyzeUnaryExpr(unary, expr.position, evals),
-            .block => |*block| try self.analyzeBlockExpr(block, expr.position, evals),
-            .variable => |*variable| try self.analyzeVariableExpr(variable, expr.position, evals),
-            .assignment => |*assignment| try self.analyzeAssignmentExpr(assignment, expr.position, evals),
-            .@"if" => |*@"if"| try self.analyzeIfExpr(@"if", expr.position, evals),
-            .@"for" => |*@"for"| try self.analyzeForExpr(@"for", expr.position, evals),
-            .@"break" => try self.analyzeBreakExpr(expr.position, evals),
-            .@"continue" => try self.analyzeContinueExpr(expr.position, evals),
-            .@"return" => |*@"return"| try self.analyzeReturnExpr(@"return", expr.position, evals),
-            .call => |*call| try self.analyzeCallExpr(call, expr.position, evals),
+        const key = expr.toKey(self.ast);
+        const loc = expr.toLoc(self.ast);
+        const sema_expr = switch (key) {
+            .literal_unit,
+            .literal_int,
+            .literal_float,
+            .literal_bool,
+            .literal_string,
+            => try self.analyzeLiteralExpr(expr, key, loc, evals),
+
+            .add,
+            .sub,
+            .mul,
+            .div,
+            .concat,
+            .@"and",
+            .@"or",
+            .equal,
+            .not_equal,
+            .greater_than,
+            .greater_equal,
+            .less_than,
+            .less_equal,
+            => |binary| try self.analyzeBinaryExpr(
+                key,
+                binary,
+                loc,
+                evals,
+            ),
+
+            .neg_bool,
+            .neg_num,
+            => |rhs| try self.analyzeUnaryExpr(key, rhs, loc, evals),
+
+            .block,
+            .block_semicolon,
+            => |stmts| try self.analyzeBlockExpr(key, stmts, loc, evals),
+
+            .identifier,
+            => try self.analyzeVariableExpr(expr, loc, evals),
+
+            .assignment,
+            => |binary| try self.analyzeAssignmentExpr(binary, loc, evals),
+
+            .@"if",
+            .if_else,
+            .if_elseif,
+            .if_elseif_else,
+            => try self.analyzeIfExpr(key, loc, evals),
+
+            .@"for",
+            .for_conditional,
+            => try self.analyzeForExpr(key, loc, evals),
+
+            .@"break",
+            => try self.analyzeBreakExpr(loc, evals),
+
+            .@"continue",
+            => try self.analyzeContinueExpr(loc, evals),
+
+            .@"return",
+            .return_value,
+            => try self.analyzeReturnExpr(key, loc, evals),
+
+            .call,
+            .call_simple,
+            => try self.analyzeCallExpr(key, loc, evals),
+
+            .assert,
+            .print,
+            .expr_stmt,
+            .let,
+            .let_mut,
+            .@"fn",
+            => unreachable,
         };
 
         return sema_expr;
@@ -490,149 +579,155 @@ pub const Sema = struct {
 
     fn analyzeLiteralExpr(
         self: *Self,
-        literal: *ParsedExpr.Kind.Literal,
-        position: Loc,
+        expr: Ast.Index,
+        literal: Ast.Key,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        const literal_variant: SemaExpr.Kind.Literal = switch (literal.kind) {
-            .unit => .unit,
-            .int => |int| .{ .int = int },
-            .float => |float| .{ .float = float },
-            .bool => |bool_| .{ .bool = bool_ },
-            .string => |string| .{ .string = try self.allocator.dupe(u8, string) },
+        const str = expr.toStr(self.ast);
+        const literal_variant: SemaExpr.Kind.Literal = switch (literal) {
+            .literal_unit => .unit,
+            .literal_int => .{ .int = std.fmt.parseInt(i64, str, 10) catch unreachable },
+            .literal_float => .{ .float = std.fmt.parseFloat(f64, str) catch unreachable },
+            .literal_bool => .{ .bool = str.len == 4 },
+            .literal_string => .{ .string = try self.allocator.dupe(u8, str[1 .. str.len - 1]) },
+            else => unreachable,
         };
 
         return SemaExpr.Kind.Literal.create(
             self.allocator,
             literal_variant,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeBinaryExpr(
         self: *Self,
-        binary: *ParsedExpr.Kind.Binary,
-        position: Loc,
+        key: Ast.Key,
+        binary: Ast.Key.Binary,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        var left = try self.analyzeExpr(binary.left, true);
+        var lhs = try self.analyzeExpr(binary.lhs, true);
 
         self.fn_ctx.break_pops += 1;
 
-        var right = try self.analyzeExpr(binary.right, true);
+        var rhs = try self.analyzeExpr(binary.rhs, true);
 
         self.fn_ctx.break_pops -= 1;
 
-        if (left.sema_type == .invalid or right.sema_type == .invalid) {
+        if (lhs.sema_type == .invalid or rhs.sema_type == .invalid) {
             return try SemaExpr.Kind.Binary.create(
                 self.allocator,
                 .add_int, // binary kind doesn't matter here
-                left,
-                right,
+                lhs,
+                rhs,
                 .invalid,
                 evals,
-                position,
+                loc,
             );
         }
 
-        const sema_type = switch (binary.kind) {
+        const sema_type = switch (key) {
             .add,
-            .subtract,
-            .divide,
-            .multiply,
-            => try self.analyzeArithmeticBinaryExpr(left, right, position),
+            .sub,
+            .mul,
+            .div,
+            => try self.analyzeArithmeticBinaryExpr(lhs, rhs, loc),
 
             .concat,
-            => try self.analyzeConcatBinaryExpr(left, right, position),
+            => try self.analyzeConcatBinaryExpr(lhs, rhs, loc),
 
             .equal,
             .not_equal,
-            => try self.analyzeEqualBinaryExpr(left, right, position),
+            => try self.analyzeEqualBinaryExpr(lhs, rhs, loc),
 
-            .greater,
+            .greater_than,
             .greater_equal,
-            .less,
+            .less_than,
             .less_equal,
-            => try self.analyzeComparisonBinaryExpr(left, right, position),
+            => try self.analyzeComparisonBinaryExpr(lhs, rhs, loc),
 
-            .@"or",
             .@"and",
+            .@"or",
             => blk: {
-                const res = try self.analyzeLogicalBinaryExpr(left, right, position);
+                const res = try self.analyzeLogicalBinaryExpr(lhs, rhs, loc);
 
-                if (!isBranching(left)) {
-                    left = try self.wrapInBoolComparison(left);
+                if (!isBranching(lhs)) {
+                    lhs = try self.wrapInBoolComparison(lhs);
                 }
 
-                if (!isBranching(right)) {
-                    right = try self.wrapInBoolComparison(right);
+                if (!isBranching(rhs)) {
+                    rhs = try self.wrapInBoolComparison(rhs);
                 }
 
                 break :blk res;
             },
+
+            else => unreachable,
         };
 
         return try SemaExpr.Kind.Binary.create(
             self.allocator,
-            translateBinaryKind(left.sema_type, binary.kind),
-            left,
-            right,
+            translateBinaryKind(lhs.sema_type, key),
+            lhs,
+            rhs,
             sema_type,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeArithmeticBinaryExpr(
         self: *Self,
-        left: *SemaExpr,
-        right: *SemaExpr,
-        position: Loc,
+        lhs: *SemaExpr,
+        rhs: *SemaExpr,
+        loc: Loc,
     ) Error!SemaType {
-        if (!typeSatisfies(left.sema_type, .int) and !typeSatisfies(right.sema_type, .float)) {
+        if (!typeSatisfies(lhs.sema_type, .int) and !typeSatisfies(rhs.sema_type, .float)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_arithmetic_type = left.sema_type },
+                loc,
+                .{ .unexpected_arithmetic_type = lhs.sema_type },
             );
         }
 
-        if (!typeSatisfies(right.sema_type, left.sema_type)) {
+        if (!typeSatisfies(rhs.sema_type, lhs.sema_type)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_operand_type = .{ left.sema_type, right.sema_type } },
+                loc,
+                .{ .unexpected_operand_type = .{ lhs.sema_type, rhs.sema_type } },
             );
         }
 
-        return left.sema_type;
+        return lhs.sema_type;
     }
 
     fn analyzeConcatBinaryExpr(
         self: *Self,
-        left: *SemaExpr,
-        right: *SemaExpr,
-        position: Loc,
+        lhs: *SemaExpr,
+        rhs: *SemaExpr,
+        loc: Loc,
     ) Error!SemaType {
-        if (!typeSatisfies(left.sema_type, .string) or !typeSatisfies(right.sema_type, .string)) {
+        if (!typeSatisfies(lhs.sema_type, .string) or !typeSatisfies(rhs.sema_type, .string)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_concat_type = .{ left.sema_type, right.sema_type } },
+                loc,
+                .{ .unexpected_concat_type = .{ lhs.sema_type, rhs.sema_type } },
             );
         }
 
-        return left.sema_type;
+        return lhs.sema_type;
     }
 
     fn analyzeEqualBinaryExpr(
         self: *Self,
-        left: *SemaExpr,
-        right: *SemaExpr,
-        position: Loc,
+        lhs: *SemaExpr,
+        rhs: *SemaExpr,
+        loc: Loc,
     ) Error!SemaType {
-        if (!typeSatisfies(right.sema_type, left.sema_type)) {
+        if (!typeSatisfies(rhs.sema_type, lhs.sema_type)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_equality_type = .{ left.sema_type, right.sema_type } },
+                loc,
+                .{ .unexpected_equality_type = .{ lhs.sema_type, rhs.sema_type } },
             );
         }
 
@@ -641,21 +736,21 @@ pub const Sema = struct {
 
     fn analyzeComparisonBinaryExpr(
         self: *Self,
-        left: *SemaExpr,
-        right: *SemaExpr,
-        position: Loc,
+        lhs: *SemaExpr,
+        rhs: *SemaExpr,
+        loc: Loc,
     ) Error!SemaType {
-        if (!typeSatisfies(left.sema_type, .int) and !typeSatisfies(right.sema_type, .float)) {
+        if (!typeSatisfies(lhs.sema_type, .int) and !typeSatisfies(rhs.sema_type, .float)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_comparison_type = left.sema_type },
+                loc,
+                .{ .unexpected_comparison_type = lhs.sema_type },
             );
         }
 
-        if (!typeSatisfies(right.sema_type, left.sema_type)) {
+        if (!typeSatisfies(rhs.sema_type, lhs.sema_type)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_operand_type = .{ left.sema_type, right.sema_type } },
+                loc,
+                .{ .unexpected_operand_type = .{ lhs.sema_type, rhs.sema_type } },
             );
         }
 
@@ -664,21 +759,21 @@ pub const Sema = struct {
 
     fn analyzeLogicalBinaryExpr(
         self: *Self,
-        left: *SemaExpr,
-        right: *SemaExpr,
-        position: Loc,
+        lhs: *SemaExpr,
+        rhs: *SemaExpr,
+        loc: Loc,
     ) Error!SemaType {
-        if (!typeSatisfies(left.sema_type, .bool)) {
+        if (!typeSatisfies(lhs.sema_type, .bool)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_logical_type = left.sema_type },
+                loc,
+                .{ .unexpected_logical_type = lhs.sema_type },
             );
         }
 
-        if (!typeSatisfies(right.sema_type, left.sema_type)) {
+        if (!typeSatisfies(rhs.sema_type, lhs.sema_type)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_operand_type = .{ left.sema_type, right.sema_type } },
+                loc,
+                .{ .unexpected_operand_type = .{ lhs.sema_type, rhs.sema_type } },
             );
         }
 
@@ -687,11 +782,13 @@ pub const Sema = struct {
 
     fn analyzeUnaryExpr(
         self: *Self,
-        unary: *ParsedExpr.Kind.Unary,
-        position: Loc,
+        key: Ast.Key,
+        rhs: Ast.Index,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        const right = try self.analyzeExpr(unary.right, true);
+        const rhs_key = rhs.toKey(self.ast);
+        const right = try self.analyzeExpr(rhs, true);
 
         if (right.sema_type == .invalid) {
             return try SemaExpr.Kind.Unary.create(
@@ -700,131 +797,146 @@ pub const Sema = struct {
                 right,
                 .invalid,
                 evals,
-                position,
+                loc,
             );
         }
 
-        const sema_type = switch (unary.kind) {
-            .negate_bool,
-            => try self.analyzeNegateBoolUnaryExpr(right, position),
+        const sema_type = switch (key) {
+            .neg_bool,
+            => try self.analyzeNegateBoolUnaryExpr(right, loc),
 
-            .negate_num,
-            => try self.analyzeNegateNumUnaryExpr(right, position),
+            .neg_num,
+            => try self.analyzeNegateNumUnaryExpr(right, loc),
+
+            else => {
+                std.debug.print("{any}\n", .{rhs_key});
+                unreachable;
+            },
         };
 
         return try SemaExpr.Kind.Unary.create(
             self.allocator,
-            translateUnaryKind(right.sema_type, unary.kind),
+            translateUnaryKind(right.sema_type, rhs_key),
             right,
             sema_type,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeNegateBoolUnaryExpr(
         self: *Self,
-        right: *SemaExpr,
-        position: Loc,
+        rhs: *SemaExpr,
+        loc: Loc,
     ) Error!SemaType {
-        if (!typeSatisfies(right.sema_type, .bool)) {
+        if (!typeSatisfies(rhs.sema_type, .bool)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_logical_negation_type = right.sema_type },
+                loc,
+                .{ .unexpected_logical_negation_type = rhs.sema_type },
             );
         }
 
-        return right.sema_type;
+        return rhs.sema_type;
     }
 
     fn analyzeNegateNumUnaryExpr(
         self: *Self,
-        right: *SemaExpr,
-        position: Loc,
+        rhs: *SemaExpr,
+        loc: Loc,
     ) Error!SemaType {
-        if (!typeSatisfies(right.sema_type, .int) and !typeSatisfies(right.sema_type, .float)) {
+        if (!typeSatisfies(rhs.sema_type, .int) and !typeSatisfies(rhs.sema_type, .float)) {
             return self.semaFailure(
-                position,
-                .{ .unexpected_arithmetic_negation_type = right.sema_type },
+                loc,
+                .{ .unexpected_arithmetic_negation_type = rhs.sema_type },
             );
         }
 
-        return right.sema_type;
+        return rhs.sema_type;
     }
 
     fn analyzeBlockExpr(
         self: *Self,
-        block: *ParsedExpr.Kind.Block,
-        position: Loc,
+        key: Ast.Key,
+        stmts: []const Ast.Index,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         var scope = FnCtx.Scope.init(self.allocator, self.fn_ctx.current_scope);
-
-        self.fn_ctx.current_scope = &scope;
-
         var sema_stmts = ArrayList(*SemaStmt).init(self.allocator);
-        var is_never = false;
+        var sema_type: SemaType = undefined;
 
-        for (block.stmts.items, 0..) |parser_stmt, index| {
-            const should_eval =
-                index == block.stmts.items.len - 1 and
-                !block.ends_with_semicolon and
-                parser_stmt.kind == .expr and
-                evals;
-
-            const sema_stmt = self.analyzeStmt(parser_stmt, should_eval) catch |err| switch (err) {
-                error.SemaFailure => continue,
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-
-            try sema_stmts.append(sema_stmt);
-
-            if (isNeverStmt(sema_stmt)) {
-                is_never = true;
-                break;
-            }
-        }
-
-        if (!is_never and (sema_stmts.items.len == 0 or
-            sema_stmts.getLast().kind != .expr or
-            block.ends_with_semicolon))
         {
-            try sema_stmts.append(try self.unitStmt(position, evals));
+            self.fn_ctx.current_scope = &scope;
+            defer self.fn_ctx.current_scope = self.fn_ctx.current_scope.prev.?;
+
+            var is_never = false;
+
+            for (stmts, 0..) |stmt, index| {
+                const stmt_key = stmt.toKey(self.ast);
+                const stmt_loc = stmt.toLoc(self.ast);
+                const should_eval =
+                    index == stmts.len - 1 and
+                    key == .block and
+                    stmt_key == .expr_stmt and
+                    evals;
+
+                const sema_stmt = self.analyzeStmt(
+                    stmt_key,
+                    stmt_loc,
+                    should_eval,
+                ) catch |err| switch (err) {
+                    error.SemaFailure => continue,
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+
+                try sema_stmts.append(sema_stmt);
+
+                if (isNeverStmt(sema_stmt)) {
+                    is_never = true;
+                    break;
+                }
+            }
+
+            if (!is_never and (sema_stmts.items.len == 0 or
+                sema_stmts.getLast().kind != .expr or
+                key == .block_semicolon))
+            {
+                try sema_stmts.append(try self.unitStmt(loc, evals));
+            }
+
+            sema_type = if (is_never)
+                .never
+            else
+                sema_stmts.getLast().kind.expr.expr.sema_type;
         }
-
-        const sema_type = if (is_never)
-            .never
-        else
-            sema_stmts.getLast().kind.expr.expr.sema_type;
-
-        self.fn_ctx.current_scope = self.fn_ctx.current_scope.prev.?;
 
         return try SemaExpr.Kind.Block.create(
             self.allocator,
             sema_stmts,
             sema_type,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeVariableExpr(
         self: *Self,
-        variable: *ParsedExpr.Kind.Variable,
-        position: Loc,
+        expr: Ast.Index,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        const index, const local = self.getVariable(variable.name) orelse {
+        const name = expr.toStr(self.ast);
+        const index, const local = self.getVariable(name) orelse {
             return self.semaFailure(
-                position,
-                .{ .value_not_found = variable.name },
+                loc,
+                .{ .value_not_found = name },
             );
         };
 
         if (!local.is_assigned) {
             return self.semaFailure(
-                position,
-                .{ .value_not_assigned = variable.name },
+                loc,
+                .{ .value_not_assigned = name },
             );
         }
 
@@ -833,37 +945,39 @@ pub const Sema = struct {
             index,
             local.sema_type.?,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeAssignmentExpr(
         self: *Self,
-        assignment: *ParsedExpr.Kind.Assigment,
-        position: Loc,
+        binary: Ast.Key.Binary,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        const index, const local = self.getVariable(assignment.name) orelse {
+        const name = binary.lhs.toStr(self.ast);
+
+        const index, const local = self.getVariable(name) orelse {
             return self.semaFailure(
-                position,
-                .{ .value_not_found = assignment.name },
+                loc,
+                .{ .value_not_found = name },
             );
         };
 
         if (!local.is_mutable and local.is_assigned) {
             return self.semaFailure(
-                position,
-                .{ .immutable_mutation = assignment.name },
+                loc,
+                .{ .immutable_mutation = name },
             );
         }
 
-        const right = try self.analyzeExpr(assignment.right, true);
+        const right = try self.analyzeExpr(binary.rhs, true);
 
         self.fn_ctx.locals.items[index].is_assigned = true;
 
         if (local.sema_type != null and !typeSatisfies(right.sema_type, local.sema_type.?)) {
             return self.semaFailure(
-                position,
+                loc,
                 .{ .unexpected_assignment_type = .{ local.sema_type.?, right.sema_type } },
             );
         } else if (local.sema_type == null) {
@@ -875,51 +989,91 @@ pub const Sema = struct {
             index,
             right,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeIfExpr(
         self: *Self,
-        @"if": *ParsedExpr.Kind.If,
-        position: Loc,
+        key: Ast.Key,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
+        var condition: Ast.Key.Conditional = undefined;
+        var elseif_blocks: []const Ast.Key.Conditional = &[_]Ast.Key.Conditional{};
+        var else_block: ?Ast.Index = null;
+
+        switch (key) {
+            .@"if" => |index| {
+                condition = index;
+            },
+            .if_else => |if_else| {
+                condition = if_else.conditional;
+                else_block = if_else.else_block;
+            },
+            .if_elseif => |if_elseif| {
+                condition = if_elseif.conditionals[0];
+                elseif_blocks = if_elseif.conditionals[1..];
+            },
+            .if_elseif_else => |if_elseif_else| {
+                condition = if_elseif_else.conditionals[0];
+                elseif_blocks = if_elseif_else.conditionals[1..];
+                else_block = if_elseif_else.else_block;
+            },
+            else => unreachable,
+        }
+
         return self.analyzeIfAux(
-            @"if".conditional_block,
-            @"if".elseif_blocks.items[0..],
-            @"if".else_block,
+            condition,
+            elseif_blocks,
+            else_block,
             null,
-            position,
+            loc,
             evals,
         );
     }
 
     fn analyzeIfAux(
         self: *Self,
-        conditional_block: ParsedExpr.Kind.If.ConditionalBlock,
-        elseif_blocks: []ParsedExpr.Kind.If.ConditionalBlock,
-        else_block_opt: ?*ParsedExpr,
+        conditional_block: Ast.Key.Conditional,
+        elseif_blocks: []const Ast.Key.Conditional,
+        else_block_opt: ?Ast.Index,
         sema_type_opt: ?SemaType,
-        position: Loc,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        if (evals and else_block_opt == null) {
-            try conditional_block.block.kind.block.stmts.append(
-                try ParsedStmt.Kind.Expr.create(
+        const condition = try self.analyzeCondition(conditional_block.condition);
+        const then_block = try self.analyzeExpr(conditional_block.body, evals);
+        const last_then = then_block.kind.block.stmts.getLastOrNull();
+
+        if (evals and else_block_opt == null and
+            (last_then == null or
+            last_then.?.kind != .expr or
+            last_then.?.kind.expr.expr.kind != .literal or
+            last_then.?.kind.expr.expr.kind.literal != .unit))
+        {
+            try then_block.kind.block.stmts.append(
+                try SemaStmt.Kind.Expr.create(
                     self.allocator,
-                    try ParsedExpr.Kind.Literal.create(
+                    try SemaExpr.Kind.Literal.create(
                         self.allocator,
                         .unit,
-                        position,
+                        true,
+                        loc,
                     ),
-                    position,
+                    loc,
                 ),
             );
+            then_block.sema_type = if (then_block.sema_type != .never)
+                .unit
+            else
+                .never;
+
+            if (last_then.?.kind == .expr) {
+                last_then.?.kind.expr.expr.evals = false;
+            }
         }
 
-        const condition = try self.analyzeCondition(conditional_block.condition);
-        const then_block = try self.analyzeExpr(conditional_block.block, evals);
         const sema_type = if (sema_type_opt != null and sema_type_opt.? != .never)
             sema_type_opt.?
         else
@@ -930,7 +1084,7 @@ pub const Sema = struct {
             !typeSatisfies(then_block.sema_type, sema_type))
         {
             return self.semaFailure(
-                position,
+                loc,
                 .{
                     .unexpected_elseif_type = .{
                         sema_type,
@@ -946,7 +1100,7 @@ pub const Sema = struct {
                 elseif_blocks[1..],
                 else_block_opt,
                 sema_type,
-                elseif_blocks[0].block.position,
+                elseif_blocks[0].body.toLoc(self.ast),
                 evals,
             )
         else if (else_block_opt) |else_block|
@@ -956,12 +1110,12 @@ pub const Sema = struct {
                 self.allocator,
                 blk: {
                     var else_block_stmts = ArrayList(*SemaStmt).init(self.allocator);
-                    try else_block_stmts.append(try self.unitStmt(position, evals));
+                    try else_block_stmts.append(try self.unitStmt(loc, evals));
                     break :blk else_block_stmts;
                 },
                 .unit,
                 evals,
-                position,
+                loc,
             );
 
         if (evals and
@@ -989,13 +1143,13 @@ pub const Sema = struct {
             else
                 then_block.sema_type,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeCondition(
         self: *Self,
-        expr: *ParsedExpr,
+        expr: Ast.Index,
     ) Error!*SemaExpr {
         const condition = try self.analyzeExpr(expr, true);
 
@@ -1014,8 +1168,8 @@ pub const Sema = struct {
 
     fn analyzeForExpr(
         self: *Self,
-        @"for": *ParsedExpr.Kind.For,
-        position: Loc,
+        key: Ast.Key,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         var condition: *SemaExpr = undefined;
@@ -1027,16 +1181,15 @@ pub const Sema = struct {
             self.fn_ctx.break_pops = 0;
             defer self.fn_ctx.break_pops = prev_pops;
 
-            condition = try self.analyzeCondition(
-                if (@"for".condition) |unwrapped|
-                    unwrapped
-                else
-                    try ParsedExpr.Kind.Literal.create(
-                        self.allocator,
-                        .{ .bool = true },
-                        position,
-                    ),
-            );
+            condition = if (key == .for_conditional)
+                try self.analyzeCondition(key.for_conditional.condition)
+            else
+                try self.wrapInBoolComparison(try SemaExpr.Kind.Literal.create(
+                    self.allocator,
+                    .{ .bool = true },
+                    true,
+                    loc,
+                ));
 
             {
                 const prev_is_in_loop = self.fn_ctx.is_in_loop;
@@ -1044,7 +1197,13 @@ pub const Sema = struct {
                 self.fn_ctx.is_in_loop = true;
                 defer self.fn_ctx.is_in_loop = prev_is_in_loop;
 
-                body_block = try self.analyzeExpr(@"for".body_block, false);
+                body_block = try self.analyzeExpr(
+                    if (key == .for_conditional)
+                        key.for_conditional.body
+                    else
+                        key.@"for",
+                    false,
+                );
             }
         }
 
@@ -1053,18 +1212,18 @@ pub const Sema = struct {
             condition,
             body_block,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeBreakExpr(
         self: *Self,
-        position: Loc,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         if (!self.fn_ctx.is_in_loop) {
             return self.semaFailure(
-                position,
+                loc,
                 .break_outside_loop,
             );
         }
@@ -1073,18 +1232,18 @@ pub const Sema = struct {
             self.allocator,
             self.fn_ctx.break_pops,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeContinueExpr(
         self: *Self,
-        position: Loc,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
         if (!self.fn_ctx.is_in_loop) {
             return self.semaFailure(
-                position,
+                loc,
                 .continue_outside_loop,
             );
         }
@@ -1093,18 +1252,18 @@ pub const Sema = struct {
             self.allocator,
             self.fn_ctx.break_pops,
             evals,
-            position,
+            loc,
         );
     }
 
     fn analyzeReturnExpr(
         self: *Self,
-        @"return": *const ParsedExpr.Kind.Return,
+        key: Ast.Key,
         position: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        const sema_right: *SemaExpr = if (@"return".right) |right|
-            self.analyzeExpr(right, true) catch |err| switch (err) {
+        const sema_right: *SemaExpr = if (key == .return_value)
+            self.analyzeExpr(key.return_value, true) catch |err| switch (err) {
                 error.SemaFailure => return try SemaExpr.Kind.Return.create(
                     self.allocator,
                     try self.unitLiteral(position, evals),
@@ -1138,11 +1297,14 @@ pub const Sema = struct {
 
     fn analyzeCallExpr(
         self: *Self,
-        call: *const ParsedExpr.Kind.Call,
-        position: Loc,
+        key: Ast.Key,
+        loc: Loc,
         evals: bool,
     ) Error!*SemaExpr {
-        const callee = try self.analyzeExpr(call.callee, true);
+        const callee = if (key == .call)
+            try self.analyzeExpr(key.call.callee, true)
+        else
+            try self.analyzeExpr(key.call_simple.callee, true);
 
         if (callee.sema_type == .invalid) {
             return SemaExpr.Kind.Call.create(
@@ -1151,23 +1313,30 @@ pub const Sema = struct {
                 ArrayList(*SemaExpr).init(self.allocator),
                 .invalid,
                 evals,
-                position,
+                loc,
             );
         }
 
         if (callee.sema_type != .@"fn") {
-            return self.semaFailure(position, .not_callable);
+            return self.semaFailure(loc, .not_callable);
         }
+
+        const args = if (key == .call)
+            key.call.args
+        else if (key == .call_simple and key.call_simple.arg == null)
+            &[_]Ast.Index{}
+        else
+            &[_]Ast.Index{key.call_simple.arg.?};
 
         const arg_types = callee.sema_type.@"fn".arg_types;
 
-        if (arg_types.items.len != call.args.items.len) {
+        if (arg_types.items.len != args.len) {
             return self.semaFailure(
-                position,
+                loc,
                 .{
                     .arity_mismatch = .{
                         @intCast(arg_types.items.len),
-                        @intCast(call.args.items.len),
+                        @intCast(args.len),
                     },
                 },
             );
@@ -1175,12 +1344,12 @@ pub const Sema = struct {
 
         var sema_args = ArrayList(*SemaExpr).init(self.allocator);
 
-        for (arg_types.items, call.args.items, 1..) |arg_type, arg, index| {
+        for (arg_types.items, args, 1..) |arg_type, arg, index| {
             const arg_expr = try self.analyzeExpr(arg, true);
 
             if (!typeSatisfies(arg_expr.sema_type, arg_type)) {
                 return self.semaFailure(
-                    arg.position,
+                    arg.toLoc(self.ast),
                     .{
                         .unexpected_arg_type = .{
                             @intCast(index),
@@ -1200,7 +1369,7 @@ pub const Sema = struct {
             sema_args,
             callee.sema_type.@"fn".return_type.*,
             evals,
-            position,
+            loc,
         );
     }
 
@@ -1454,76 +1623,51 @@ pub const Sema = struct {
 
     fn translateBinaryKind(
         sema_type: SemaType,
-        binary_kind: ParsedExpr.Kind.Binary.Kind,
+        key: Ast.Key,
     ) SemaExpr.Kind.Binary.Kind {
         return switch (sema_type) {
-            .int => switch (binary_kind) {
+            .int => switch (key) {
                 .add => .add_int,
-                .subtract => .subtract_int,
-                .divide => .divide_int,
-                .multiply => .multiply_int,
+                .sub => .subtract_int,
+                .div => .divide_int,
+                .mul => .multiply_int,
                 .equal => .equal_int,
                 .not_equal => .not_equal_int,
-                .greater => .greater_int,
+                .greater_than => .greater_int,
                 .greater_equal => .greater_equal_int,
-                .less => .less_int,
+                .less_than => .less_int,
                 .less_equal => .less_equal_int,
 
-                .concat,
-                .@"and",
-                .@"or",
-                => unreachable,
+                else => unreachable,
             },
-            .float => switch (binary_kind) {
+            .float => switch (key) {
                 .add => .add_float,
-                .subtract => .subtract_float,
-                .divide => .divide_float,
-                .multiply => .multiply_float,
+                .sub => .subtract_float,
+                .div => .divide_float,
+                .mul => .multiply_float,
                 .equal => .equal_float,
                 .not_equal => .not_equal_float,
-                .greater => .greater_float,
+                .greater_than => .greater_float,
                 .greater_equal => .greater_equal_float,
-                .less => .less_float,
+                .less_than => .less_float,
                 .less_equal => .less_equal_float,
 
-                .concat,
-                .@"and",
-                .@"or",
-                => unreachable,
+                else => unreachable,
             },
-            .bool => switch (binary_kind) {
+            .bool => switch (key) {
                 .equal => .equal_bool,
                 .not_equal => .not_equal_bool,
                 .@"and" => .@"and",
                 .@"or" => .@"or",
 
-                .add,
-                .subtract,
-                .divide,
-                .multiply,
-                .concat,
-                .greater,
-                .greater_equal,
-                .less,
-                .less_equal,
-                => unreachable,
+                else => unreachable,
             },
-            .string => switch (binary_kind) {
+            .string => switch (key) {
                 .concat => .concat,
                 .equal => .equal_obj,
                 .not_equal => .not_equal_obj,
 
-                .add,
-                .subtract,
-                .divide,
-                .multiply,
-                .greater,
-                .greater_equal,
-                .less,
-                .less_equal,
-                .@"and",
-                .@"or",
-                => unreachable,
+                else => unreachable,
             },
 
             .unit,
@@ -1536,29 +1680,26 @@ pub const Sema = struct {
 
     fn translateUnaryKind(
         sema_type: SemaType,
-        unary_kind: ParsedExpr.Kind.Unary.Kind,
+        unary_rhs_key: Ast.Key,
     ) SemaExpr.Kind.Unary.Kind {
         return switch (sema_type) {
-            .int => switch (unary_kind) {
-                .negate_num,
+            .int => switch (unary_rhs_key) {
+                .neg_num,
                 => .negate_int,
 
-                .negate_bool,
-                => unreachable,
+                else => unreachable,
             },
-            .float => switch (unary_kind) {
-                .negate_num,
+            .float => switch (unary_rhs_key) {
+                .neg_num,
                 => .negate_float,
 
-                .negate_bool,
-                => unreachable,
+                else => unreachable,
             },
-            .bool => switch (unary_kind) {
-                .negate_bool,
+            .bool => switch (unary_rhs_key) {
+                .neg_bool,
                 => .negate_bool,
 
-                .negate_num,
-                => unreachable,
+                else => unreachable,
             },
 
             .string,
@@ -1580,12 +1721,19 @@ test "should free all memory on successful analysis" {
 
     const source = "print (2 + 2) * -2";
     var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(&arena_allocator);
-    const parsed_expr = try parser.parse(&tokenizer, null);
+
+    var diags: std.ArrayListUnmanaged(Parser.Diag) = .{};
+    defer diags.deinit(allocator);
+
+    var parser = Parser.init(allocator);
+    defer parser.deinit();
+
+    var ast = try parser.parse(&tokenizer, &diags);
+    defer ast.deinit(allocator);
 
     // WHEN - THEN
     var sema = Sema.init(&arena_allocator);
-    _ = try sema.analyze(parsed_expr, null);
+    _ = try sema.analyze(&ast, null);
 }
 
 test "should free all memory on unsuccessful analysis" {
@@ -1597,13 +1745,19 @@ test "should free all memory on unsuccessful analysis" {
 
     const source = "print (2 + 2) * -false";
     var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(&arena_allocator);
 
-    const parsed_expr = try parser.parse(&tokenizer, null);
+    var parser = Parser.init(allocator);
+    defer parser.deinit();
+
+    var diags: std.ArrayListUnmanaged(Parser.Diag) = .{};
+    defer diags.deinit(allocator);
+
+    var ast = try parser.parse(&tokenizer, &diags);
+    defer ast.deinit(allocator);
 
     // WHEN - THEN
     var sema = Sema.init(&arena_allocator);
 
-    const result = sema.analyze(parsed_expr, null);
+    const result = sema.analyze(&ast, null);
     try expectError(Sema.Error.SemaFailure, result);
 }
