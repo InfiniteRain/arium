@@ -240,7 +240,6 @@ fn reportValueAux(
         var line = value.index;
 
         if (source_opt) |source| {
-            std.debug.print("here?", .{});
             line, _ = value.toLineCol(source);
         }
 

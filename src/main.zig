@@ -2,6 +2,12 @@ const std = @import("std");
 const cli_mod = @import("cli.zig");
 const Tokenizer = @import("arium").Tokenizer;
 const Parser = @import("arium").NewParser;
+const Ast = @import("arium").Ast;
+
+const K = packed struct {
+    foo: u32,
+    bar: u32,
+};
 
 pub fn main() !void {
     // try cli_mod.runCli();
@@ -9,25 +15,21 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var tokenizer = Tokenizer.init(
-        \\ print 123 + 333 * - 3212
-        \\ print "hello"
-        \\ print true
-        \\ print false
-        \\ print asd = 1230
-        \\ print not true
-        \\ true
+        \\ print 5 <= 10
     );
 
     var diags: std.ArrayListUnmanaged(Parser.Diag) = .{};
-    var parser = Parser.init(allocator, &diags);
-    var ast = try parser.parse(&tokenizer);
+    var parser = Parser.init(allocator);
+    defer parser.deinit();
 
-    std.debug.print("'{any}'\n", .{
-        ast.root.toKey(&ast).block[4].toKey(&ast).print
-            .toKey(&ast),
-    });
+    var ast = parser.parse(&tokenizer, &diags) catch {
+        std.debug.print("{any}\n", .{diags.items});
+        return;
+    };
 
-    std.debug.print("{any}\n", .{diags.items});
+    const idx = Ast.Index.from(0).toKey(&ast).block[0].toKey(&ast).print;
+
+    std.debug.print("{any}", .{idx.toKey(&ast)});
 }
 
 test {
