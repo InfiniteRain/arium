@@ -166,15 +166,15 @@ pub const Ast = struct {
             return @intFromEnum(self);
         }
 
-        pub fn toKey(self: Index, ast: *Ast) Key {
+        pub fn toKey(self: Index, ast: *const Ast) Key {
             return ast.get(self);
         }
 
-        pub fn toLoc(self: Index, ast: *Ast) Loc {
+        pub fn toLoc(self: Index, ast: *const Ast) Loc {
             return ast.locs.items[@intFromEnum(self)];
         }
 
-        pub fn toTag(self: Index, ast: *Ast) Node.Tag {
+        pub fn toTag(self: Index, ast: *const Ast) Node.Tag {
             return ast.nodes.items(.tag)[self.toInt()];
         }
     };
@@ -185,7 +185,7 @@ pub const Ast = struct {
         self.extra.deinit(allocator);
     }
 
-    fn get(self: *Ast, index: Index) Key {
+    fn get(self: *const Ast, index: Index) Key {
         const node = self.nodes.get(index.toInt());
         const a = node.a;
         const b = node.b;
@@ -285,7 +285,7 @@ pub const Ast = struct {
         });
     }
 
-    fn getLet(self: *Ast, comptime tag: []const u8, a: u32, b: u32) Key {
+    fn getLet(self: *const Ast, comptime tag: []const u8, a: u32, b: u32) Key {
         const extra = self.extra.items[b..][0..2];
         return @unionInit(Key, tag, .{
             .identifier = Index.from(a),

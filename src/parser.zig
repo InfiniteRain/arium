@@ -63,6 +63,8 @@ pub const Parser = struct {
         newline_terminated,
     };
 
+    pub const Diags = ArrayListUnmanaged(Diag);
+
     pub fn init(
         allocator: Allocator,
     ) Parser {
@@ -178,7 +180,6 @@ pub const Parser = struct {
         const scratch_top = self.scratch.items.len;
         defer self.scratch.shrinkRetainingCapacity(scratch_top);
 
-        const loc = self.prev().loc;
         const fn_token = self.advance();
         const identifier = try self.parseIdentifier();
 
@@ -220,7 +221,7 @@ pub const Parser = struct {
                 .return_type = return_type,
                 .body = body,
             } },
-            loc.extend(body.toLoc(&self.ast)),
+            fn_token.loc.extend(body.toLoc(&self.ast)),
         );
     }
 
