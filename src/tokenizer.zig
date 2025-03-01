@@ -4,9 +4,7 @@ pub const Loc = struct {
     index: u32,
     len: u32,
 
-    const Self = @This();
-
-    pub fn toLineCol(self: Self, source: []const u8) struct { u32, u32 } {
+    pub fn toLineCol(self: Loc, source: []const u8) struct { u32, u32 } {
         var line: u32 = 1;
         var column: u32 = 1;
 
@@ -37,8 +35,6 @@ pub const Loc = struct {
 pub const Token = struct {
     tag: Tag,
     loc: Loc,
-
-    const Self = @This();
 
     pub const Tag = enum {
         left_paren,
@@ -99,8 +95,6 @@ pub const Tokenizer = struct {
     source: [:0]const u8,
     index: usize,
 
-    const Self = @This();
-
     const State = enum {
         start,
         minus,
@@ -141,14 +135,14 @@ pub const Tokenizer = struct {
         .{ "return", .@"return" },
     });
 
-    pub fn init(source: [:0]const u8) Self {
+    pub fn init(source: [:0]const u8) Tokenizer {
         return .{
             .source = source,
             .index = 0,
         };
     }
 
-    pub fn next(self: *Self) Token {
+    pub fn next(self: *Tokenizer) Token {
         var token: Token = .{
             .tag = undefined,
             .loc = .{
@@ -392,11 +386,11 @@ pub const Tokenizer = struct {
         return token;
     }
 
-    fn current(self: *Self) u8 {
+    fn current(self: *Tokenizer) u8 {
         return self.source[self.index];
     }
 
-    fn advance(self: *Self) u8 {
+    fn advance(self: *Tokenizer) u8 {
         std.debug.assert(self.index < self.source.len);
         self.index += 1;
         return self.source[self.index];
