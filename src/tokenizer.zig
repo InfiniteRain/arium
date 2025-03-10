@@ -216,7 +216,6 @@ pub const Tokenizer = struct {
                     token.tag = .comma;
                 },
                 '"' => {
-                    _ = self.advance();
                     continue :state .string;
                 },
                 '0'...'9' => {
