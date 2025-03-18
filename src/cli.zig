@@ -110,7 +110,15 @@ fn runFile(
     defer ast.deinit(allocator);
 
     if (args.@"dprint-parsed-ast" > 0) {
-        debug_ast_reporter.printAstIndex(&ast, Ast.Index.from(0), null, out_writer);
+        debug_ast_reporter.printAstIndex(
+            Ast.Index,
+            Ast.Key,
+            null,
+            &ast,
+            Ast.Index.from(0),
+            null,
+            out_writer,
+        );
     }
 
     var sema = Sema.init(&arena_allocator);

@@ -75,29 +75,13 @@ pub fn normalizeArgs(args: anytype) blk: {
         .{args};
 }
 
-pub fn sliceCast(TargetType: type, slice: anytype) []const TargetType {
-    const SliceType = @TypeOf(slice);
-    const type_info = @typeInfo(SliceType);
-    const target_size = @sizeOf(TargetType);
+pub fn nullableArrayFrom(T: type, values: anytype) T {
+    const tuple = normalizeArgs(values);
+    var array: T = .{null} ** @typeInfo(T).array.len;
 
-    if (type_info != .pointer or type_info.pointer.size != .slice) {
-        @compileError("slice expected");
+    inline for (meta.fields(@TypeOf(tuple)), 0..) |field, index| {
+        array[index] = @field(tuple, field.name);
     }
 
-    const Child = meta.Child(SliceType);
-    const child_size = @sizeOf(Child);
-    const ptr: [*]const TargetType = @ptrCast(slice);
-
-    if (@sizeOf(TargetType) > child_size) {
-        if (builtin.mode == .Debug and
-            (child_size * slice.len) % target_size != 0)
-        {
-            @panic(
-                "slice cannot be equally devided into a slice of target type",
-            );
-        }
-        return ptr[0 .. slice.len / (target_size / child_size)];
-    } else {
-        return ptr[0 .. slice.len * (child_size / target_size)];
-    }
+    return array;
 }
