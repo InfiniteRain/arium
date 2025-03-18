@@ -241,17 +241,13 @@ pub const Ast = struct {
                 },
                 .else_block = Index.from(self.extra.items[b + 1]),
             } },
-            .if_elseif => .{ .if_elseif = .{
-                .conditionals = shared.meta.sliceCast(
-                    Key.Conditional,
-                    self.extra.items[b..][0 .. a * 2],
-                ),
-            } },
+            .if_elseif => .{
+                .if_elseif = .{
+                    .conditionals = @ptrCast(self.extra.items[b..][0 .. a * 2]),
+                },
+            },
             .if_elseif_else => .{ .if_elseif_else = .{
-                .conditionals = shared.meta.sliceCast(
-                    Key.Conditional,
-                    self.extra.items[b..][0 .. a * 2],
-                ),
+                .conditionals = @ptrCast(self.extra.items[b..][0 .. a * 2]),
                 .else_block = Index.from(self.extra.items[b + a * 2]),
             } },
             .@"for" => .{ .@"for" = Index.from(a) },
@@ -274,7 +270,7 @@ pub const Ast = struct {
                 .arg = if (b == 0) null else Index.from(b),
             } },
 
-            .assert => .{ .print = Index.from(a) },
+            .assert => .{ .assert = Index.from(a) },
             .print => .{ .print = Index.from(a) },
             .expr_stmt => .{ .expr_stmt = Index.from(a) },
             .let => self.getLet("let", a, b),
@@ -287,7 +283,7 @@ pub const Ast = struct {
 
                 break :blk .{ .@"fn" = .{
                     .identifier = Index.from(a),
-                    .params = shared.meta.sliceCast(Ast.Key.FnArg, params),
+                    .params = @ptrCast(params),
                     .return_type = Index.from(return_type),
                     .body = Index.from(body),
                 } };

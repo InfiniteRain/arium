@@ -809,7 +809,6 @@ pub const Sema = struct {
             => try self.analyzeNegateNumUnaryExpr(right, loc),
 
             else => {
-                std.debug.print("{any}\n", .{rhs_key});
                 unreachable;
             },
         };
@@ -1048,9 +1047,9 @@ pub const Sema = struct {
 
         if (evals and else_block_opt == null and
             (last_then == null or
-            last_then.?.kind != .expr or
-            last_then.?.kind.expr.expr.kind != .literal or
-            last_then.?.kind.expr.expr.kind.literal != .unit))
+                last_then.?.kind != .expr or
+                last_then.?.kind.expr.expr.kind != .literal or
+                last_then.?.kind.expr.expr.kind.literal != .unit))
         {
             try then_block.kind.block.stmts.append(
                 try SemaStmt.Kind.Expr.create(

@@ -19,8 +19,8 @@ pub const Parser = struct {
     ast: Ast = undefined,
     prev_token: Token = undefined,
     current_token: Token = undefined,
-    scratch: ArrayListUnmanaged(Ast.Index) = undefined,
     diags: *ArrayListUnmanaged(Diag) = undefined,
+    scratch: ArrayListUnmanaged(Ast.Index) = undefined,
 
     pub const Error = error{ParseFailure} || Allocator.Error;
 
@@ -42,20 +42,7 @@ pub const Parser = struct {
             invalid_assignment_target,
             invalid_token,
 
-            const end_tokens_size = 3;
-
-            pub const EndTokens = [end_tokens_size]?Token.Tag;
-
-            fn endTokensFrom(tokens: anytype) EndTokens {
-                const tuple = shared.meta.normalizeArgs(tokens);
-                var end_tokens: EndTokens = .{null} ** end_tokens_size;
-
-                inline for (meta.fields(@TypeOf(tuple)), 0..) |field, index| {
-                    end_tokens[index] = @field(tuple, field.name);
-                }
-
-                return end_tokens;
-            }
+            pub const EndTokens = [3]?Token.Tag;
         };
     };
 
@@ -64,6 +51,14 @@ pub const Parser = struct {
         newline_terminated,
     };
 
+    // todo: get rid of init and deinit
+    // todo: pass scratch as pointer to parse
+    // todo: get rid of defaults ^
+    // todo: use decl literal initialization (.default/.init)
+    // todo: use expandCapacity for lists before appending stuff to it
+    // todo: change unreachable to panic with good enough descriptions
+    // todo: look into line 243
+    // todo: use FixedArray for EndTokens
     pub fn init(
         allocator: Allocator,
     ) Parser {
@@ -74,7 +69,7 @@ pub const Parser = struct {
     }
 
     pub fn deinit(self: *Parser) void {
-        self.scratch.clearAndFree(self.allocator);
+        self.scratch.deinit(self.allocator);
     }
 
     pub fn parse(
@@ -89,12 +84,10 @@ pub const Parser = struct {
         self.ast = .{
             .source = tokenizer.source,
         };
+        errdefer self.ast.deinit(self.allocator);
 
         try self.ast.nodes.append(self.allocator, undefined);
-        errdefer self.ast.nodes.deinit(self.allocator);
-
         try self.ast.locs.append(self.allocator, undefined);
-        errdefer self.ast.locs.deinit(self.allocator);
 
         const block, const loc = try self.parseBlockExprKey(
             .eof,
@@ -113,9 +106,9 @@ pub const Parser = struct {
             .identifier => try self.addNode(.identifier, token.loc),
             else => {
                 if (token.tag == .invalid) {
-                    try self.diagsAdd(.invalid_token, token.loc);
+                    try self.addDiag(.invalid_token, token.loc);
                 } else {
-                    try self.diagsAdd(.expected_expression, self.peek().loc);
+                    try self.addDiag(.expected_expression, self.peek().loc);
                 }
                 return error.ParseFailure;
             },
@@ -202,7 +195,7 @@ pub const Parser = struct {
             if (self.match(.comma, .greedy) == null and
                 self.peek().tag != .right_paren)
             {
-                try self.diagsAdd(
+                try self.addDiag(
                     .expected_right_paren_after_params,
                     self.peek().loc,
                 );
@@ -218,10 +211,7 @@ pub const Parser = struct {
         return try self.addNode(
             .{ .@"fn" = .{
                 .identifier = identifier,
-                .params = shared.meta.sliceCast(
-                    Ast.Key.FnArg,
-                    self.scratch.items[scratch_top..],
-                ),
+                .params = @ptrCast(self.scratch.items[scratch_top..]),
                 .return_type = return_type,
                 .body = body,
             } },
@@ -263,7 +253,7 @@ pub const Parser = struct {
                 );
             }
 
-            try self.diagsAdd(.invalid_assignment_target, token.loc);
+            try self.addDiag(.invalid_assignment_target, token.loc);
         }
 
         return expr;
@@ -488,7 +478,7 @@ pub const Parser = struct {
                 if (self.match(.comma, .greedy) == null and
                     self.peek().tag != .right_paren)
                 {
-                    try self.diagsAdd(
+                    try self.addDiag(
                         .expected_right_paren_after_args,
                         self.peek().loc,
                     );
@@ -535,9 +525,9 @@ pub const Parser = struct {
             .@"return" => try self.parseReturnExpr(),
             else => {
                 if (token.tag == .invalid) {
-                    try self.diagsAdd(.invalid_token, token.loc);
+                    try self.addDiag(.invalid_token, token.loc);
                 } else {
-                    try self.diagsAdd(.expected_expression, self.peek().loc);
+                    try self.addDiag(.expected_expression, self.peek().loc);
                 }
                 return error.ParseFailure;
             },
@@ -606,7 +596,10 @@ pub const Parser = struct {
 
         const end_token = try self.consume(
             end_tokens,
-            .{ .expected_end_token = Diag.Tag.endTokensFrom(end_tokens) },
+            .{ .expected_end_token = shared.meta.nullableArrayFrom(
+                Diag.Tag.EndTokens,
+                end_tokens,
+            ) },
         );
 
         if (self.diags.items.len > old_errors_num) {
@@ -698,8 +691,7 @@ pub const Parser = struct {
                     .end => {
                         return try self.addNode(
                             .{ .if_elseif = .{
-                                .conditionals = shared.meta.sliceCast(
-                                    Ast.Key.Conditional,
+                                .conditionals = @ptrCast(
                                     self.scratch.items[scratch_top..],
                                 ),
                             } },
@@ -717,8 +709,7 @@ pub const Parser = struct {
 
                         return try self.addNode(
                             .{ .if_elseif_else = .{
-                                .conditionals = shared.meta.sliceCast(
-                                    Ast.Key.Conditional,
+                                .conditionals = @ptrCast(
                                     self.scratch.items[scratch_top..],
                                 ),
                                 .else_block = else_block,
@@ -816,7 +807,7 @@ pub const Parser = struct {
             return self.advance();
         }
 
-        try self.diagsAdd(diag, self.peek().loc);
+        try self.addDiag(diag, self.peek().loc);
         return error.ParseFailure;
     }
 
@@ -966,7 +957,7 @@ pub const Parser = struct {
                 };
             },
             .if_elseif => |if_elseif| blk: {
-                const data = shared.meta.sliceCast(u32, if_elseif.conditionals);
+                const data: []const u32 = @ptrCast(if_elseif.conditionals);
 
                 try self.ast.extra.appendSlice(
                     self.allocator,
@@ -980,10 +971,7 @@ pub const Parser = struct {
                 };
             },
             .if_elseif_else => |if_elseif_else| blk: {
-                const data = shared.meta.sliceCast(
-                    u32,
-                    if_elseif_else.conditionals,
-                );
+                const data: []const u32 = @ptrCast(if_elseif_else.conditionals);
 
                 try self.ast.extra.appendSlice(
                     self.allocator,
@@ -1050,7 +1038,7 @@ pub const Parser = struct {
                 );
                 try self.ast.extra.appendSlice(
                     self.allocator,
-                    shared.meta.sliceCast(u32, @"fn".params),
+                    @ptrCast(@"fn".params),
                 );
                 try self.ast.extra.appendSlice(self.allocator, &[_]u32{
                     @"fn".return_type.toInt(),
@@ -1110,7 +1098,7 @@ pub const Parser = struct {
         };
     }
 
-    fn diagsAdd(self: *Parser, diag: Diag.Tag, loc: Loc) Allocator.Error!void {
+    fn addDiag(self: *Parser, diag: Diag.Tag, loc: Loc) Allocator.Error!void {
         try self.diags.append(self.allocator, .{ .tag = diag, .loc = loc });
     }
 };
