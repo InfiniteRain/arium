@@ -13,6 +13,12 @@ pub fn main() !void {
         \\ 123
         \\ print 123
         \\ print -(123.123)
+        \\ let foo = "hello"
+        \\ do
+        \\    let kek = 123
+        \\    let foo = "hello2"
+        \\ end
+        \\ let bye = 123
         \\ 
     ;
 
@@ -61,10 +67,7 @@ pub fn main() !void {
                 .{ item.tag, source[item.loc.index..][0..item.loc.len] },
             );
             switch (item.tag) {
-                .unexpected_binary_operand_type => |x| {
-                    std.debug.print("expected: {any}\n", .{x.expected.slice()});
-                },
-                .unexpected_unary_operand_type => |x| {
+                .unexpected_expr_type => |x| {
                     std.debug.print("expected: {any}\n", .{x.expected.slice()});
                 },
                 else => {},

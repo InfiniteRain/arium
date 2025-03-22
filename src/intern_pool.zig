@@ -27,7 +27,7 @@ pub const InternPool = struct {
         data: u32,
 
         pub const Tag = enum(u32) {
-            invalid,
+            none,
 
             type_simple,
 
@@ -38,11 +38,13 @@ pub const InternPool = struct {
             value_float_big,
             value_string_short,
             value_string_long,
+
+            invalid,
         };
     };
 
     pub const Key = union(enum) {
-        invalid,
+        none,
 
         type_simple: TypeSimple,
 
@@ -50,6 +52,8 @@ pub const InternPool = struct {
         value_int: i64,
         value_float: f64,
         value_string: []const u8,
+
+        invalid,
 
         pub const TypeSimple = enum(u32) {
             int = @intFromEnum(Index.type_int),
@@ -74,7 +78,7 @@ pub const InternPool = struct {
                 const KeyTag = @typeInfo(Key).@"union".tag_type.?;
                 const seed = @intFromEnum(@as(KeyTag, key));
                 const wyhash = switch (key) {
-                    .invalid => Wyhash.hash(seed, mem.asBytes(&key)),
+                    .none => Wyhash.hash(seed, mem.asBytes(&key)),
                     .type_simple => |type_simple| Wyhash.hash(
                         seed,
                         mem.asBytes(&type_simple),
@@ -89,6 +93,7 @@ pub const InternPool = struct {
                         mem.asBytes(&float),
                     ),
                     .value_string => |string| Wyhash.hash(seed, string),
+                    .invalid => Wyhash.hash(seed, mem.asBytes(&key)),
                 };
 
                 return @truncate(wyhash);
@@ -111,7 +116,7 @@ pub const InternPool = struct {
                 }
 
                 return switch (a) {
-                    .invalid => true,
+                    .none => true,
                     .type_simple => |type_simple| meta.eql(
                         type_simple,
                         b.type_simple,
@@ -127,13 +132,14 @@ pub const InternPool = struct {
                         string,
                         b.value_string,
                     ),
+                    .invalid => true,
                 };
             }
         };
     };
 
     pub const Index = enum(u32) {
-        invalid,
+        none,
 
         type_int,
         type_float,
@@ -146,6 +152,8 @@ pub const InternPool = struct {
         value_unit,
         value_bool_true,
         value_bool_false,
+
+        invalid,
 
         _,
 
@@ -162,7 +170,7 @@ pub const InternPool = struct {
             const data = item.data;
 
             return switch (item.tag) {
-                .invalid => .invalid,
+                .none => .none,
                 .type_simple => .{ .type_simple = @enumFromInt(data) },
                 .value_simple => .{ .value_simple = @enumFromInt(data) },
                 .value_int_small => .{ .value_int = mem.bytesToValue(
@@ -196,13 +204,15 @@ pub const InternPool = struct {
                         .strings
                         .items[loc[0]..][0..loc[1]] };
                 },
+                .invalid => .invalid,
             };
         }
 
         pub fn toType(self: Index, intern_pool: *const InternPool) Index {
             return switch (self) {
+                .none,
                 .invalid,
-                => .invalid,
+                => self,
 
                 .type_int,
                 .type_float,
@@ -224,9 +234,10 @@ pub const InternPool = struct {
                     const tag = intern_pool.items.items(.tag)[self.toInt()];
 
                     break :blk switch (tag) {
-                        .invalid,
+                        .none,
                         .type_simple,
                         .value_simple,
+                        .invalid,
                         => unreachable, // already handled above
 
                         .value_int_small,
@@ -263,7 +274,7 @@ pub const InternPool = struct {
             _ = try intern_pool.get(
                 allocator,
                 switch (@field(Index, field.name)) {
-                    .invalid => .invalid,
+                    .none => .none,
                     .type_int => .{ .type_simple = .int },
                     .type_float => .{ .type_simple = .float },
                     .type_bool => .{ .type_simple = .bool },
@@ -274,6 +285,7 @@ pub const InternPool = struct {
                     .value_unit => .{ .value_simple = .unit },
                     .value_bool_true => .{ .value_simple = .bool_true },
                     .value_bool_false => .{ .value_simple = .bool_false },
+                    .invalid => .invalid,
                     _ => unreachable,
                 },
             );
@@ -306,20 +318,20 @@ pub const InternPool = struct {
         try self.items.ensureUnusedCapacity(allocator, 1);
 
         switch (key) {
-            .invalid => {
-                try self.items.append(allocator, .{
-                    .tag = .invalid,
+            .none => {
+                self.items.appendAssumeCapacity(.{
+                    .tag = .none,
                     .data = undefined,
                 });
             },
             .type_simple => |type_simple| {
-                try self.items.append(allocator, .{
+                self.items.appendAssumeCapacity(.{
                     .tag = .type_simple,
                     .data = @intFromEnum(type_simple),
                 });
             },
             .value_simple => |value_simple| {
-                try self.items.append(allocator, .{
+                self.items.appendAssumeCapacity(.{
                     .tag = .value_simple,
                     .data = @intFromEnum(value_simple),
                 });
@@ -328,13 +340,13 @@ pub const InternPool = struct {
                 const bits: [2]u32 = @bitCast(int);
 
                 if (bits[1] == 0) {
-                    try self.items.append(allocator, .{
+                    self.items.appendAssumeCapacity(.{
                         .tag = .value_int_small,
                         .data = bits[0],
                     });
                 } else {
                     try self.extra.appendSlice(allocator, &bits);
-                    try self.items.append(allocator, .{
+                    self.items.appendAssumeCapacity(.{
                         .tag = .value_int_big,
                         .data = @intCast(self.extra.items.len - 2),
                     });
@@ -344,13 +356,13 @@ pub const InternPool = struct {
                 const bits: [2]u32 = @bitCast(float);
 
                 if (bits[0] == 0) {
-                    try self.items.append(allocator, .{
+                    self.items.appendAssumeCapacity(.{
                         .tag = .value_float_small,
                         .data = bits[1],
                     });
                 } else {
                     try self.extra.appendSlice(allocator, &bits);
-                    try self.items.append(allocator, .{
+                    self.items.appendAssumeCapacity(.{
                         .tag = .value_float_big,
                         .data = @intCast(self.extra.items.len - 2),
                     });
@@ -364,7 +376,7 @@ pub const InternPool = struct {
                         bytes[string.len] = 0;
                     }
 
-                    try self.items.append(allocator, .{
+                    self.items.appendAssumeCapacity(.{
                         .tag = .value_string_short,
                         .data = @bitCast(bytes),
                     });
@@ -374,11 +386,17 @@ pub const InternPool = struct {
                         @intCast(self.strings.items.len - string.len),
                         @intCast(string.len),
                     });
-                    try self.items.append(allocator, .{
+                    self.items.appendAssumeCapacity(.{
                         .tag = .value_string_long,
                         .data = @intCast(self.extra.items.len - 2),
                     });
                 }
+            },
+            .invalid => {
+                self.items.appendAssumeCapacity(.{
+                    .tag = .invalid,
+                    .data = undefined,
+                });
             },
         }
 
