@@ -32,6 +32,7 @@ pub const Air = struct {
             neg,
             block,
             variable,
+            assignment,
 
             assert,
             print,
@@ -60,6 +61,7 @@ pub const Air = struct {
         assert: Index,
         print: Index,
         let: Let,
+        assignment: Assignment,
 
         pub const Binary = struct {
             lhs: Index,
@@ -81,6 +83,11 @@ pub const Air = struct {
             stack_index: u32,
             rhs: ?Index,
         };
+
+        pub const Assignment = struct {
+            stack_index: u32,
+            rhs: Index,
+        };
     };
 
     pub const Index = enum(u32) {
@@ -101,7 +108,7 @@ pub const Air = struct {
         pub fn toType(
             self: Index,
             air: *const Air,
-            intern_pool: *InternPool,
+            intern_pool: *const InternPool,
         ) InternPool.Index {
             const idx = self.toInt();
             const tag = air.nodes.items(.tag)[idx];
@@ -113,8 +120,6 @@ pub const Air = struct {
                 .mul,
                 .div,
                 .concat,
-                .equal,
-                .not_equal,
                 .neg,
                 => InternPool.Index
                     .from(air.nodes.items(.a)[idx])
@@ -124,6 +129,8 @@ pub const Air = struct {
                 .greater_equal,
                 .less_than,
                 .less_equal,
+                .equal,
+                .not_equal,
                 => .type_bool,
 
                 .cond => Air.Index
@@ -146,6 +153,7 @@ pub const Air = struct {
                 .assert,
                 .print,
                 .let,
+                .assignment,
                 => .type_unit,
             };
         }
@@ -195,10 +203,11 @@ pub const Air = struct {
             .print => .{ .print = Index.from(a) },
             .let => .{ .let = .{
                 .stack_index = a,
-                .rhs = if (b == 0)
-                    null
-                else
-                    Index.from(b),
+                .rhs = if (b == 0) null else Index.from(b),
+            } },
+            .assignment => .{ .assignment = .{
+                .stack_index = a,
+                .rhs = Index.from(b),
             } },
         };
     }

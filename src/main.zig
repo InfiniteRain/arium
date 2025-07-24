@@ -22,7 +22,8 @@ pub fn main() !void {
         \\    end
         \\    let c = 123
         \\ end
-        \\ let bye = 123
+        \\ let mut bye
+        \\ bye = "arst"
     ;
 
     const stdout = std.io.getStdOut().writer().any();
