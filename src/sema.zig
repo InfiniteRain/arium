@@ -46,6 +46,7 @@ pub const Sema = struct {
             too_many_locals,
             unassigned_variable,
             immutable_mutation: Loc,
+            unreachable_stmt,
 
             pub const BadExprType = struct {
                 expected: TypeArray,
@@ -160,6 +161,16 @@ pub const Sema = struct {
         };
     };
 
+    const EvalMode = enum {
+        eval,
+        no_eval,
+    };
+
+    const ForceAppendUnitMode = enum {
+        force_append_unit,
+        no_force_append_unit,
+    };
+
     pub fn analyze(
         allocator: Allocator,
         intern_pool: *InternPool,
@@ -209,7 +220,11 @@ pub const Sema = struct {
 
         try sema.air.nodes.append(allocator, undefined);
 
-        const block = try sema.analyzeBlockExprKey(Ast.Index.from(0).toKey(ast));
+        const block = try sema.analyzeBlockExprKey(
+            Ast.Index.from(0).toKey(ast),
+            .no_eval,
+            .no_force_append_unit,
+        );
 
         if (diags.items.len > diags_top) {
             return error.AnalyzeFailure;
@@ -220,7 +235,11 @@ pub const Sema = struct {
         return air;
     }
 
-    fn analyzeStmt(self: *Sema, ast_stmt: Ast.Index) Error!Air.Index {
+    fn analyzeStmt(
+        self: *Sema,
+        ast_stmt: Ast.Index,
+        eval_mode: EvalMode,
+    ) Error!Air.Index {
         const ast_key = ast_stmt.toKey(self.ast);
 
         return switch (ast_key) {
@@ -231,7 +250,7 @@ pub const Sema = struct {
             => |child_expr| try self.analyzePrintStmt(child_expr),
 
             .expr_stmt,
-            => |expr| try self.analyzeExpr(expr),
+            => |expr| try self.analyzeExpr(expr, eval_mode),
 
             .let,
             .let_mut,
@@ -245,7 +264,10 @@ pub const Sema = struct {
         self: *Sema,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
-        const sema_child_expr = try self.analyzeExpr(child_ast_expr);
+        const sema_child_expr = try self.analyzeExpr(
+            child_ast_expr,
+            .eval,
+        );
         const child_type = sema_child_expr.toType(self.air, self.intern_pool);
 
         if (self.typeCheck(child_type, .from(.type_bool)) == .mismatch) {
@@ -266,7 +288,10 @@ pub const Sema = struct {
         self: *Sema,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
-        const sema_child_expr = try self.analyzeExpr(child_ast_expr);
+        const sema_child_expr = try self.analyzeExpr(
+            child_ast_expr,
+            .eval,
+        );
 
         return try self.addNode(.{ .print = sema_child_expr });
     }
@@ -305,7 +330,7 @@ pub const Sema = struct {
             } });
         };
 
-        const air_expr = try self.analyzeExpr(ast_expr);
+        const air_expr = try self.analyzeExpr(ast_expr, .eval);
 
         if (self.scope.runtime_scope_top >= limits.max_locals) {
             try self.addDiag(
@@ -352,6 +377,7 @@ pub const Sema = struct {
     fn analyzeExpr(
         self: *Sema,
         ast_expr: Ast.Index,
+        eval_mode: EvalMode,
     ) Error!Air.Index {
         const ast_key = ast_expr.toKey(self.ast);
 
@@ -387,13 +413,23 @@ pub const Sema = struct {
 
             .block,
             .block_semicolon,
-            => try self.analyzeBlockExpr(ast_key),
+            => try self.analyzeBlockExpr(
+                ast_key,
+                eval_mode,
+                .no_force_append_unit,
+            ),
 
             .identifier,
             => try self.analyzeVariableExpr(ast_expr),
 
             .assignment,
             => |binary| try self.analyzeAssignmentExpr(ast_expr, binary),
+
+            .@"if",
+            .if_else,
+            .if_elseif,
+            .if_elseif_else,
+            => try self.analyzeIfExpr(ast_key, eval_mode),
 
             else => unreachable, // non-expr node
         };
@@ -460,8 +496,8 @@ pub const Sema = struct {
         ast_binary: Ast.Key.Binary,
     ) Error!Air.Index {
         const air_binary: Air.Key.Binary = .{
-            .lhs = try self.analyzeExpr(ast_binary.lhs),
-            .rhs = try self.analyzeExpr(ast_binary.rhs),
+            .lhs = try self.analyzeExpr(ast_binary.lhs, .eval),
+            .rhs = try self.analyzeExpr(ast_binary.rhs, .eval),
         };
 
         if (air_binary.lhs.toType(self.air, self.intern_pool) == .invalid or
@@ -624,7 +660,7 @@ pub const Sema = struct {
         ast_key: Ast.Key,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
-        const child_air_expr = try self.analyzeExpr(child_ast_expr);
+        const child_air_expr = try self.analyzeExpr(child_ast_expr, .eval);
         const child_type = child_air_expr.toType(self.air, self.intern_pool);
 
         if (child_type == .invalid) {
@@ -651,11 +687,27 @@ pub const Sema = struct {
         return try self.addNode(.{ .neg = child_air_expr });
     }
 
-    fn analyzeBlockExpr(self: *Sema, ast_expr_key: Ast.Key) Error!Air.Index {
-        return try self.addNode(try self.analyzeBlockExprKey(ast_expr_key));
+    fn analyzeBlockExpr(
+        self: *Sema,
+        ast_expr_key: Ast.Key,
+        eval_mode: EvalMode,
+        force_append_unit_mode: ForceAppendUnitMode,
+    ) Error!Air.Index {
+        return try self.addNode(
+            try self.analyzeBlockExprKey(
+                ast_expr_key,
+                eval_mode,
+                force_append_unit_mode,
+            ),
+        );
     }
 
-    fn analyzeBlockExprKey(self: *Sema, ast_expr_key: Ast.Key) Error!Air.Key {
+    fn analyzeBlockExprKey(
+        self: *Sema,
+        ast_expr_key: Ast.Key,
+        eval_mode: EvalMode,
+        force_append_unit_mode: ForceAppendUnitMode,
+    ) Error!Air.Key {
         const scratch_top = self.scratch.items.len;
         defer self.scratch.shrinkRetainingCapacity(scratch_top);
 
@@ -669,20 +721,57 @@ pub const Sema = struct {
 
             else => unreachable, // non-block node
         };
+        var is_last_stmt_never = false;
 
-        for (stmts) |stmt| {
-            const sema_stmt = self.analyzeStmt(stmt) catch |err| switch (err) {
-                error.AnalyzeFailure => continue,
-                else => return err,
-            };
+        for (stmts, 0..) |stmt, i| {
+            const is_last = i == stmts.len - 1;
+            const stmt_eval_mode = if (is_last)
+                eval_mode
+            else
+                .no_eval;
+            const sema_stmt = self.analyzeStmt(stmt, stmt_eval_mode) catch |err|
+                switch (err) {
+                    error.AnalyzeFailure => continue,
+                    else => return err,
+                };
             try self.scratch.append(self.allocator, sema_stmt);
+
+            if (sema_stmt.toType(self.air, self.intern_pool) == .type_never) {
+                is_last_stmt_never = true;
+
+                if (!is_last) {
+                    try self.addDiag(
+                        .unreachable_stmt,
+                        stmts[i + 1].toLoc(self.ast),
+                    );
+                    break;
+                }
+            }
         }
 
+        const last_stmt = self.scratch.getLast();
+        const is_block_empty = scratch_top == self.scratch.items.len;
+        const is_last_stmt_not_expr = switch (last_stmt.toKey(self.air)) {
+            .assert,
+            .print,
+            .let,
+            .assignment,
+            => true,
+
+            else => false,
+        };
+        const is_last_stmt_unit = !is_block_empty and
+            last_stmt.toType(self.air, self.intern_pool) != .type_unit;
+        const is_block_sm_no_unit = ast_expr_key == .block_semicolon and
+            is_last_stmt_unit;
+
         const should_append_unit =
-            scratch_top == self.scratch.items.len or
-            (ast_expr_key == .block_semicolon and
-                self.scratch.getLast().toType(self.air, self.intern_pool) !=
-                    .type_unit);
+            !is_last_stmt_never and
+            eval_mode == .eval and
+            (is_block_empty or
+                is_last_stmt_not_expr or
+                is_block_sm_no_unit or
+                force_append_unit_mode == .force_append_unit);
 
         if (should_append_unit) {
             const unit_node = try self.addNode(.{
@@ -697,7 +786,10 @@ pub const Sema = struct {
         return .{ .block = self.scratch.items[scratch_top..] };
     }
 
-    fn analyzeVariableExpr(self: *Sema, ast_expr: Ast.Index) Error!Air.Index {
+    fn analyzeVariableExpr(
+        self: *Sema,
+        ast_expr: Ast.Index,
+    ) Error!Air.Index {
         const result = self.resolveIdentifier(ast_expr) catch |err|
             switch (err) {
                 error.UndeclaredIdentifier => {
@@ -761,7 +853,7 @@ pub const Sema = struct {
             return try self.addInvalidNode();
         }
 
-        const rhs = try self.analyzeExpr(binary.rhs);
+        const rhs = try self.analyzeExpr(binary.rhs, .eval);
         const rhs_type = rhs.toType(self.air, self.intern_pool);
         const lhs_type = local.index.toItemPtr(&self.scope, .type);
 
@@ -785,6 +877,150 @@ pub const Sema = struct {
         return try self.addNode(.{ .assignment = .{
             .stack_index = @intCast(local.stack_index),
             .rhs = rhs,
+        } });
+    }
+
+    fn analyzeIfExpr(
+        self: *Sema,
+        ast_key: Ast.Key,
+        eval_mode: EvalMode,
+    ) Error!Air.Index {
+        var condition: Ast.Key.Conditional = undefined;
+        var elseif_blocks: []const Ast.Key.Conditional = &[_]Ast.Key.Conditional{};
+        var else_block: ?Ast.Index = null;
+
+        switch (ast_key) {
+            .@"if" => |index| {
+                condition = index;
+            },
+            .if_else => |if_else| {
+                condition = if_else.conditional;
+                else_block = if_else.else_block;
+            },
+            .if_elseif => |if_elseif| {
+                condition = if_elseif.conditionals[0];
+                elseif_blocks = if_elseif.conditionals[1..];
+            },
+            .if_elseif_else => |if_elseif_else| {
+                condition = if_elseif_else.conditionals[0];
+                elseif_blocks = if_elseif_else.conditionals[1..];
+                else_block = if_elseif_else.else_block;
+            },
+            else => unreachable,
+        }
+
+        return try self.analyzeIfExprAux(
+            condition,
+            elseif_blocks,
+            else_block,
+            null,
+            eval_mode,
+        );
+    }
+
+    fn analyzeIfExprAux(
+        self: *Sema,
+        cond: Ast.Key.Conditional,
+        elseif_blocks: []const Ast.Key.Conditional,
+        else_block_opt: ?Ast.Index,
+        type_opt: ?InternPool.Index,
+        eval_mode: EvalMode,
+    ) Error!Air.Index {
+        const air_cond = try self.analyzeExpr(cond.condition, .eval);
+        const air_cond_type = air_cond.toType(self.air, self.intern_pool);
+
+        if (self.typeCheck(air_cond_type, .from(.type_bool)) == .mismatch) {
+            try self.addDiag(.{ .unexpected_expr_type = .{
+                .expected = .from(.type_bool),
+                .actual = air_cond_type,
+            } }, cond.condition.toLoc(self.ast));
+            return try self.addInvalidNode();
+        }
+
+        const then_key = cond.body.toKey(self.ast);
+        const then_stmts = then_key.block;
+        const force_append_unit_mode: ForceAppendUnitMode =
+            if (eval_mode == .eval and else_block_opt == null)
+                if (then_stmts.len > 0)
+                    switch (then_stmts[then_stmts.len - 1].toKey(self.ast)) {
+                        .expr_stmt,
+                        => |stmt| if (stmt.toKey(self.ast) == .literal_unit)
+                            .no_force_append_unit
+                        else
+                            .force_append_unit,
+
+                        else => .force_append_unit, // the last stmt isn't expr stmt
+                    }
+                else
+                    .force_append_unit // then block is empty
+            else
+                .no_force_append_unit; // doesn't eval or else block is present
+
+        const then_block = try self.analyzeBlockExpr(
+            then_key,
+            eval_mode,
+            force_append_unit_mode,
+        );
+        const then_block_type = then_block.toType(self.air, self.intern_pool);
+
+        const @"type" = if (type_opt != null and type_opt.? != .type_never)
+            type_opt.?
+        else
+            then_block_type;
+
+        if (eval_mode == .eval and
+            @"type" != .type_never and
+            self.typeCheck(then_block_type, .from(@"type")) == .mismatch)
+        {
+            try self.addDiag(.{ .unexpected_expr_type = .{
+                .expected = .from(@"type"),
+                .actual = then_block_type,
+            } }, cond.body.toLoc(self.ast));
+            return try self.addInvalidNode();
+        }
+
+        const else_block, const else_block_loc = if (elseif_blocks.len > 0)
+            .{
+                try self.analyzeIfExprAux(
+                    elseif_blocks[0],
+                    elseif_blocks[1..],
+                    else_block_opt,
+                    @"type",
+                    eval_mode,
+                ),
+                elseif_blocks[0].body.toLoc(self.ast),
+            }
+        else if (else_block_opt) |else_block|
+            .{
+                try self.analyzeExpr(else_block, eval_mode),
+                else_block.toLoc(self.ast),
+            }
+        else blk: {
+            const unit = try self.addNode(.{ .constant = .value_unit });
+            break :blk .{
+                try self.addNode(.{ .block = &[_]Air.Index{unit} }),
+                cond.body.toLoc(self.ast),
+            };
+        };
+        const else_block_type = else_block.toType(self.air, self.intern_pool);
+
+        std.debug.print("{any}\n", .{else_block_type});
+
+        if (eval_mode == .eval and
+            @"type" != .type_never and
+            self.typeCheck(else_block_type, .from(@"type")) == .mismatch)
+        {
+            try self.addDiag(.{ .unexpected_expr_type = .{
+                .expected = .from(@"type"),
+                .actual = else_block_type,
+            } }, else_block_loc);
+            return try self.addInvalidNode();
+        }
+
+        return try self.addNode(.{ .cond = .{
+            .cond = air_cond,
+            .then_branch = then_block,
+            .else_branch = else_block,
         } });
     }
 
@@ -887,7 +1123,8 @@ pub const Sema = struct {
         subject: InternPool.Index,
         targets: TypeArray,
     ) enum { ok, mismatch } {
-        assert(subject.toType(self.intern_pool) == .type_type);
+        assert(subject == .invalid or
+            subject.toType(self.intern_pool) == .type_type);
 
         if (subject == .invalid or subject == .type_never) {
             return .ok;

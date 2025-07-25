@@ -22,8 +22,10 @@ pub fn main() !void {
         \\    end
         \\    let c = 123
         \\ end
-        \\ let mut bye
-        \\ bye = "arst"
+        \\ let hi = if true then
+        \\   print "hi"
+        \\   123
+        \\ end
     ;
 
     const stdout = std.io.getStdOut().writer().any();
