@@ -44,6 +44,7 @@ pub const Sema = struct {
             integer_overflow,
             undeclared_identifier,
             too_many_locals,
+            unassigned_variable,
 
             pub const BadExprType = struct {
                 expected: TypeArray,
@@ -378,6 +379,9 @@ pub const Sema = struct {
             .block_semicolon,
             => try self.analyzeBlockExpr(ast_key),
 
+            .identifier,
+            => try self.analyzeVariableExpr(ast_expr),
+
             else => unreachable, // non-expr node
         };
     }
@@ -680,6 +684,39 @@ pub const Sema = struct {
         return .{ .block = self.scratch.items[scratch_top..] };
     }
 
+    fn analyzeVariableExpr(self: *Sema, ast_expr: Ast.Index) Error!Air.Index {
+        const result = self.resolveIdentifier(ast_expr) catch |err|
+            switch (err) {
+                error.UndeclaredIdentifier => {
+                    try self.addDiag(
+                        .undeclared_identifier,
+                        ast_expr.toLoc(self.ast),
+                    );
+                    return error.AnalyzeFailure;
+                },
+            };
+
+        const local = switch (result) {
+            .@"comptime" => @panic("TODO: variables can't be comptime"), // todo: add proper logic after proper comptime support
+            .runtime => |data| data,
+        };
+
+        const flags = local.index.toItem(&self.scope, .flags);
+
+        if (flags.assignment == .unassigned) {
+            try self.addDiag(
+                .unassigned_variable,
+                ast_expr.toLoc(self.ast),
+            );
+            return error.AnalyzeFailure;
+        }
+
+        return try self.addNode(.{ .variable = .{
+            .stack_index = @intCast(local.stack_index),
+            .type = local.index.toItem(&self.scope, .type),
+        } });
+    }
+
     fn analyzeTypeExpr(
         self: *Sema,
         ast_expr: Ast.Index,
@@ -715,7 +752,7 @@ pub const Sema = struct {
         const local_type = local.toItem(&self.scope, .type);
         const flags = local.toItem(&self.scope, .flags);
 
-        if (flags.role != .type) {
+        if (flags.type_hood != .type) {
             try self.addDiag(
                 .{ .unexpected_expr_type = .{
                     .expected = .from(.type_type),
