@@ -31,7 +31,9 @@ pub const Sema = struct {
     air: *Air,
     diags: *ArrayListUnmanaged(Diag),
     scratch: *ArrayListUnmanaged(Air.Index),
+
     scope: Scope,
+    loop_mode: LoopMode,
 
     pub const Error = error{AnalyzeFailure} || Allocator.Error;
 
@@ -47,6 +49,8 @@ pub const Sema = struct {
             unassigned_variable,
             immutable_mutation: Loc,
             unreachable_stmt,
+            break_outside_loop,
+            continue_outside_loop,
 
             pub const BadExprType = struct {
                 expected: TypeArray,
@@ -171,6 +175,11 @@ pub const Sema = struct {
         no_force_append_unit,
     };
 
+    const LoopMode = enum {
+        in_loop,
+        not_in_loop,
+    };
+
     pub fn analyze(
         allocator: Allocator,
         intern_pool: *InternPool,
@@ -213,7 +222,9 @@ pub const Sema = struct {
             .air = &air,
             .diags = diags,
             .scratch = scratch,
+
             .scope = scope,
+            .loop_mode = .not_in_loop,
         };
 
         errdefer sema.air.deinit(allocator);
@@ -434,6 +445,12 @@ pub const Sema = struct {
             .@"for",
             .for_conditional,
             => try self.analyzeForExpr(ast_key),
+
+            .@"break",
+            => try self.analyzeBreakExpr(ast_expr),
+
+            .@"continue",
+            => try self.analyzeContinueExpr(ast_expr),
 
             else => unreachable, // non-expr node
         };
@@ -1056,12 +1073,47 @@ pub const Sema = struct {
             return try self.addInvalidNode();
         }
 
+        const prev_loop_mode = self.loop_mode;
+
+        self.loop_mode = .in_loop;
+        defer self.loop_mode = prev_loop_mode;
+
         const air_body = try self.analyzeExpr(body, .no_eval);
 
         return try self.addNode(.{ .@"for" = .{
             .cond = air_cond,
             .body = air_body,
         } });
+    }
+
+    fn analyzeBreakExpr(
+        self: *Sema,
+        ast_expr: Ast.Index,
+    ) Error!Air.Index {
+        if (self.loop_mode != .in_loop) {
+            try self.addDiag(
+                .break_outside_loop,
+                ast_expr.toLoc(self.ast),
+            );
+            return self.addInvalidNode();
+        }
+
+        return try self.addNode(.@"break");
+    }
+
+    fn analyzeContinueExpr(
+        self: *Sema,
+        ast_expr: Ast.Index,
+    ) Error!Air.Index {
+        if (self.loop_mode != .in_loop) {
+            try self.addDiag(
+                .continue_outside_loop,
+                ast_expr.toLoc(self.ast),
+            );
+            return self.addInvalidNode();
+        }
+
+        return try self.addNode(.@"continue");
     }
 
     fn analyzeTypeExpr(
@@ -1219,7 +1271,7 @@ pub const Sema = struct {
 
         const rhs_type = air_binary.rhs.toType(self.air, self.intern_pool);
 
-        if (self.typeCheck(rhs_type, .from(lhs_type)) == .mismatch) {
+        if (self.typeCheck(rhs_type, target_types) == .mismatch) {
             try self.addDiag(
                 .{ .unexpected_expr_type = .{
                     .expected = .from(lhs_type),
@@ -1301,6 +1353,8 @@ pub const Sema = struct {
                 .a = @"for".cond.toInt(),
                 .b = @"for".body.toInt(),
             },
+            .@"break" => .{ .tag = .@"break" },
+            .@"continue" => .{ .tag = .@"continue" },
 
             .assert => |index| .{
                 .tag = .assert,

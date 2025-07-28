@@ -72,7 +72,11 @@ pub fn printAstIndex(
             if (field.type != void) {
                 writer.print(" = ");
             } else {
-                writer.printf(" '{s}'", .{index.toStr(ast)});
+                const str = index.toStr(ast);
+
+                if (str.len > 0) {
+                    writer.printf(" '{s}'", .{index.toStr(ast)});
+                }
             }
 
             printAstField(

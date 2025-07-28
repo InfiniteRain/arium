@@ -24,7 +24,9 @@ pub fn main() !void {
         \\ end
         \\ let a = for true do
         \\    print("hello")
-        \\    
+        \\    print do
+        \\       let a =  234 > 12
+        \\    end
         \\ end
     ;
 

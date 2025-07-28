@@ -34,6 +34,8 @@ pub const Air = struct {
             variable,
             assignment,
             @"for",
+            @"break",
+            @"continue",
 
             assert,
             print,
@@ -59,6 +61,8 @@ pub const Air = struct {
         block: []const Index,
         variable: Variable,
         @"for": For,
+        @"break",
+        @"continue",
 
         assert: Index,
         print: Index,
@@ -110,6 +114,12 @@ pub const Air = struct {
 
         pub fn toKey(self: Index, air: *const Air) Key {
             return air.get(self);
+        }
+
+        pub fn toStr(self: Index, air: *const Air) []const u8 {
+            _ = self;
+            _ = air;
+            return "";
         }
 
         pub fn toType(
@@ -248,6 +258,10 @@ pub const Air = struct {
                     else
                         .type_unit;
                 },
+
+                .@"break",
+                .@"continue",
+                => .type_never,
             };
         }
     };
@@ -295,6 +309,8 @@ pub const Air = struct {
                 .cond = .from(a),
                 .body = .from(b),
             } },
+            .@"break" => .@"break",
+            .@"continue" => .@"continue",
 
             .assert => .{ .assert = .from(a) },
             .print => .{ .print = .from(a) },
