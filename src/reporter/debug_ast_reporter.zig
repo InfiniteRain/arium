@@ -2,6 +2,7 @@ const std = @import("std");
 const shared = @import("shared");
 const sema_ast_mod = @import("../sema/sema_ast.zig");
 const ast_mod = @import("../ast.zig");
+const intern_pool_mod = @import("../intern_pool.zig");
 
 const ArrayList = std.ArrayList;
 const comptimePrint = std.fmt.comptimePrint;
@@ -11,6 +12,7 @@ const SemaExpr = sema_ast_mod.SemaExpr;
 const SemaStmt = sema_ast_mod.SemaStmt;
 const SemaType = sema_ast_mod.SemaType;
 const Ast = ast_mod.Ast;
+const InternPool = intern_pool_mod.InternPool;
 
 const style_end = "\x1b[0m";
 const styles = [_][]const u8{
@@ -53,19 +55,19 @@ pub const Indent = struct {
 };
 
 pub fn printAstIndex(
-    ast: *Ast,
-    index: Ast.Index,
+    Index: type,
+    Key: type,
+    intern_pool: ?*InternPool,
+    ast: anytype,
+    index: Index,
     indent_opt: ?Indent,
     writer: *const Writer,
 ) void {
     const key = index.toKey(ast);
 
-    writer.printf(
-        ".{s}{s}{s}",
-        .{ style_underline, @tagName(key), style_end },
-    );
+    writer.printf("{s}.{s}{s}", .{ style_underline, @tagName(key), style_end });
 
-    inline for (meta.fields(Ast.Key)) |field| {
+    inline for (meta.fields(Key)) |field| {
         if (std.mem.eql(u8, field.name, @tagName(key))) {
             if (field.type != void) {
                 writer.print(" = ");
@@ -74,6 +76,9 @@ pub fn printAstIndex(
             }
 
             printAstField(
+                Index,
+                Key,
+                intern_pool,
                 ast,
                 @field(key, field.name),
                 indent_opt,
@@ -87,8 +92,43 @@ pub fn printAstIndex(
     }
 }
 
+pub fn printInternPoolIndex(
+    Index: type,
+    Key: type,
+    intern_pool: *InternPool,
+    ast: anytype,
+    index: InternPool.Index,
+    indent_opt: ?Indent,
+    writer: *const Writer,
+) void {
+    const key = index.toKey(intern_pool);
+
+    writer.printf(
+        ".{s}",
+        .{@tagName(key)},
+    );
+
+    inline for (meta.fields(InternPool.Key)) |field| {
+        if (std.mem.eql(u8, field.name, @tagName(key))) {
+            writer.print(" = ");
+            printAstField(
+                Index,
+                Key,
+                intern_pool,
+                ast,
+                @field(key, field.name),
+                indent_opt,
+                writer,
+            );
+        }
+    }
+}
+
 fn printAstField(
-    ast: *Ast,
+    Index: type,
+    Key: type,
+    intern_pool: ?*InternPool,
+    ast: anytype,
     field: anytype,
     indent_opt: ?Indent,
     writer: *const Writer,
@@ -101,8 +141,30 @@ fn printAstField(
         return;
     }
 
-    if (Type == Ast.Index) {
-        printAstIndex(ast, field, indent_opt, writer);
+    if (Type == []u8 or Type == []const u8) {
+        writer.printf("\"{s}\"", .{field});
+        return;
+    }
+
+    if (Type == Index) {
+        printAstIndex(Index, Key, intern_pool, ast, field, indent_opt, writer);
+        return;
+    }
+
+    if (Type == InternPool.Index) {
+        if (intern_pool) |ip| {
+            printInternPoolIndex(
+                Index,
+                Key,
+                ip,
+                ast,
+                field,
+                indent_opt,
+                writer,
+            );
+        } else {
+            @panic("attempt to print intern pool index while being set to null");
+        }
         return;
     }
 
@@ -123,7 +185,15 @@ fn printAstField(
                 const is_last = index == field.len - 1;
 
                 printIndent(Indent.wrap(indent_ptr, is_last), writer);
-                printAstField(ast, element, Indent.wrapNewLevel(indent_ptr, is_last), writer);
+                printAstField(
+                    Index,
+                    Key,
+                    intern_pool,
+                    ast,
+                    element,
+                    Indent.wrapNewLevel(indent_ptr, is_last),
+                    writer,
+                );
                 writer.print("\n");
             }
 
@@ -146,7 +216,11 @@ fn printAstField(
                 printIndent(Indent.wrap(indent_ptr, is_last), writer);
                 writer.printf(".{s} = ", .{child_field.name});
                 printAstField(
+                    Index,
+                    Key,
+                    intern_pool,
                     ast,
+
                     @field(field, child_field.name),
                     Indent.wrapNewLevel(indent_ptr, is_last),
                     writer,
@@ -158,12 +232,32 @@ fn printAstField(
             writer.print("}");
         },
 
+        .@"enum" => {
+            writer.printf(".{s}", .{@tagName(field)});
+        },
+
         .optional => {
             if (field == null) {
                 writer.print("null");
             } else {
-                printAstField(ast, field.?, indent_opt, writer);
+                printAstField(
+                    Index,
+                    Key,
+                    intern_pool,
+                    ast,
+                    field.?,
+                    indent_opt,
+                    writer,
+                );
             }
+        },
+
+        .int => {
+            writer.printf("{d}", .{field});
+        },
+
+        .float => {
+            writer.printf("{d}", .{field});
         },
 
         else => @compileError(comptimePrint(
