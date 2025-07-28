@@ -55,7 +55,7 @@ pub const Air = struct {
         less_equal: Binary,
         cond: Cond,
         neg: Index,
-        block: []Index,
+        block: []const Index,
         variable: Variable,
 
         assert: Index,
@@ -152,9 +152,32 @@ pub const Air = struct {
 
                 .assert,
                 .print,
+                => blk: {
+                    const a = air.nodes.items(.a)[idx];
+                    const expr_type = Index.from(a).toType(air, intern_pool);
+
+                    break :blk if (expr_type == .type_never)
+                        .type_never
+                    else
+                        .type_unit;
+                },
+
                 .let,
                 .assignment,
-                => .type_unit,
+                => blk: {
+                    const b = air.nodes.items(.b)[idx];
+
+                    if (b == 0) {
+                        break :blk .type_unit;
+                    }
+
+                    const expr_type = Index.from(b).toType(air, intern_pool);
+
+                    break :blk if (expr_type == .type_never)
+                        .type_never
+                    else
+                        .type_unit;
+                },
             };
         }
     };
