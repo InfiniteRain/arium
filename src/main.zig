@@ -4,7 +4,6 @@ const arium = @import("arium");
 const Writer = @import("shared").Writer;
 
 pub fn main() !void {
-    // try cli_mod.runCli();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
@@ -17,9 +16,13 @@ pub fn main() !void {
         \\ do
         \\    let kek = 123
         \\    let foo = "hello2"
+        \\    do
+        \\       let a = 123
+        \\       let b = 123
+        \\    end
+        \\    let c = 123
         \\ end
         \\ let bye = 123
-        \\ 
     ;
 
     const stdout = std.io.getStdOut().writer().any();

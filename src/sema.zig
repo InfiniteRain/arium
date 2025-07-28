@@ -31,8 +31,7 @@ pub const Sema = struct {
     air: *Air,
     diags: *ArrayListUnmanaged(Diag),
     scratch: *ArrayListUnmanaged(Air.Index),
-    comptime_scope: MultiArrayListUnmanaged(ComptimeLocal),
-    scope: MultiArrayListUnmanaged(Local),
+    scope: Scope,
 
     pub const Error = error{AnalyzeFailure} || Allocator.Error;
 
@@ -55,14 +54,9 @@ pub const Sema = struct {
 
     pub const TypeArray = FixedArray(InternPool.Index, 2);
 
-    const ComptimeLocal = struct {
-        name: LocalName,
-        type: InternPool.Index,
-        flags: packed struct {
-            mutability: LocalMutability,
-            assignment: LocalAssignement,
-            role: ComptimeLocalRole,
-        },
+    const Scope = struct {
+        locals: MultiArrayListUnmanaged(Local),
+        runtime_scope_top: usize,
 
         pub const Index = enum(u32) {
             _,
@@ -73,60 +67,88 @@ pub const Sema = struct {
 
             pub fn toItem(
                 self: Index,
-                comptime_scope: *const MultiArrayListUnmanaged(ComptimeLocal),
-                comptime field: meta.FieldEnum(ComptimeLocal),
-            ) meta.fieldInfo(ComptimeLocal, field).type {
-                return comptime_scope.items(field)[@intFromEnum(self)];
-            }
-        };
-    };
-
-    const Local = struct {
-        name: LocalName,
-        type: InternPool.Index,
-        flags: packed struct {
-            mutability: LocalMutability,
-            assignment: LocalAssignement,
-        },
-
-        pub const Index = enum(u32) {
-            _,
-
-            pub fn from(int: anytype) Index {
-                return @enumFromInt(int);
-            }
-
-            pub fn toItem(
-                self: Index,
-                scope: *const MultiArrayListUnmanaged(Local),
+                scope: *const Scope,
                 comptime field: meta.FieldEnum(Local),
             ) meta.fieldInfo(Local, field).type {
-                return scope.items(field)[@intFromEnum(self)];
+                return scope.locals.items(field)[@intFromEnum(self)];
             }
         };
-    };
 
-    const LocalName = packed struct(u32) {
-        tag: enum(u1) { ast, intern_pool },
-        index: u31,
+        const Top = struct {
+            scope_top: usize,
+            runtime_scope_top: usize,
+        };
 
-        fn from(value: anytype) @This() {
+        fn init() Scope {
             return .{
-                .tag = switch (@TypeOf(value)) {
-                    Ast.Index => .ast,
-                    InternPool.Index => .intern_pool,
-                    else => unreachable, // not an intern pool/ast index
-                },
-                .index = @intCast(value.toInt()),
+                .locals = .empty,
+                .runtime_scope_top = 0,
             };
+        }
+
+        fn deinit(self: *Scope, allocator: Allocator) void {
+            self.locals.clearAndFree(allocator);
+        }
+
+        fn append(
+            self: *Scope,
+            allocator: Allocator,
+            local: Local,
+        ) Allocator.Error!void {
+            if (local.flags.eval_time == .runtime) {
+                self.runtime_scope_top += 1;
+            }
+
+            try self.locals.append(allocator, local);
+        }
+
+        fn top(self: *Scope) Top {
+            return .{
+                .scope_top = self.locals.len,
+                .runtime_scope_top = self.runtime_scope_top,
+            };
+        }
+
+        fn restore(self: *Scope, top_info: Top) void {
+            self.locals.shrinkRetainingCapacity(top_info.scope_top);
+            self.runtime_scope_top = top_info.runtime_scope_top;
         }
     };
 
-    const LocalMutability = enum(u1) { mutable, immutable };
+    const Local = struct {
+        name: Name,
+        type: InternPool.Index,
+        flags: packed struct {
+            mutability: Mutability,
+            assignment: Assignement,
+            eval_time: EvalTime,
+            type_hood: TypeHood,
+        },
 
-    const LocalAssignement = enum(u1) { assigned, unassigned };
+        pub const Mutability = enum(u1) { mutable, immutable };
 
-    const ComptimeLocalRole = enum(u1) { variable, type };
+        pub const Assignement = enum(u1) { assigned, unassigned };
+
+        pub const EvalTime = enum(u1) { @"comptime", runtime };
+
+        pub const TypeHood = enum(u1) { type, not_type };
+
+        pub const Name = packed struct(u32) {
+            tag: enum(u1) { ast, intern_pool },
+            index: u31,
+
+            fn from(value: anytype) @This() {
+                return .{
+                    .tag = switch (@TypeOf(value)) {
+                        Ast.Index => .ast,
+                        InternPool.Index => .intern_pool,
+                        else => unreachable, // not an intern pool/ast index
+                    },
+                    .index = @intCast(value.toInt()),
+                };
+            }
+        };
+    };
 
     pub fn analyze(
         allocator: Allocator,
@@ -137,7 +159,9 @@ pub const Sema = struct {
     ) Error!Air {
         const diags_top = diags.items.len;
         var air: Air = .empty;
-        var comptime_scope: MultiArrayListUnmanaged(ComptimeLocal) = .empty;
+
+        var scope = Scope.init();
+        defer scope.deinit(allocator);
 
         inline for (.{
             .{ "Int", .type_int },
@@ -146,7 +170,7 @@ pub const Sema = struct {
             .{ "String", .type_string },
             .{ "Unit", .type_unit },
         }) |entry| {
-            try comptime_scope.append(allocator, .{
+            try scope.append(allocator, .{
                 .name = .from(try intern_pool.get(
                     allocator,
                     .{ .value_string = entry[0] },
@@ -155,12 +179,12 @@ pub const Sema = struct {
                 .flags = .{
                     .mutability = .immutable,
                     .assignment = .assigned,
-                    .role = .type,
+                    .eval_time = .@"comptime",
+                    .type_hood = .type,
                 },
             });
         }
 
-        const scope: MultiArrayListUnmanaged(Local) = .empty;
         var sema: Sema = .{
             .allocator = allocator,
             .intern_pool = intern_pool,
@@ -168,7 +192,6 @@ pub const Sema = struct {
             .air = &air,
             .diags = diags,
             .scratch = scratch,
-            .comptime_scope = comptime_scope,
             .scope = scope,
         };
 
@@ -247,7 +270,7 @@ pub const Sema = struct {
             try self.analyzeTypeExpr(ast_type_expr)
         else
             null;
-        const mutability: LocalMutability = if (ast_stmt_key == .let)
+        const mutability: Local.Mutability = if (ast_stmt_key == .let)
             .immutable
         else
             .mutable;
@@ -260,18 +283,20 @@ pub const Sema = struct {
                 .flags = .{
                     .mutability = mutability,
                     .assignment = .unassigned,
+                    .eval_time = .runtime,
+                    .type_hood = .not_type,
                 },
             });
 
             return try self.addNode(.{ .let = .{
-                .stack_index = @intCast(self.scope.len - 1),
+                .stack_index = @intCast(self.scope.runtime_scope_top - 1),
                 .rhs = null,
             } });
         };
 
         const air_expr = try self.analyzeExpr(ast_expr);
 
-        if (self.scope.len >= limits.max_locals) {
+        if (self.scope.runtime_scope_top >= limits.max_locals) {
             try self.addDiag(
                 .too_many_locals,
                 ast_stmt.toLoc(self.ast),
@@ -302,11 +327,13 @@ pub const Sema = struct {
             .flags = .{
                 .mutability = mutability,
                 .assignment = .assigned,
+                .eval_time = .runtime,
+                .type_hood = .not_type,
             },
         });
 
         return try self.addNode(.{ .let = .{
-            .stack_index = @intCast(self.scope.len - 1),
+            .stack_index = @intCast(self.scope.runtime_scope_top - 1),
             .rhs = air_expr,
         } });
     }
@@ -615,11 +642,8 @@ pub const Sema = struct {
         const scratch_top = self.scratch.items.len;
         defer self.scratch.shrinkRetainingCapacity(scratch_top);
 
-        const comptime_scope_top = self.comptime_scope.len;
-        defer self.comptime_scope.shrinkRetainingCapacity(comptime_scope_top);
-
-        const scope_top = self.scope.len;
-        defer self.scope.shrinkRetainingCapacity(scope_top);
+        const scope_top = self.scope.top();
+        defer self.scope.restore(scope_top);
 
         const stmts = switch (ast_expr_key) {
             .block,
@@ -684,12 +708,12 @@ pub const Sema = struct {
             };
 
         const local = switch (result) {
-            .comptime_local => |comptime_local| comptime_local,
-            .local => @panic("TODO: types can't be runtime"), // todo: add proper logic after proper comptime support
+            .@"comptime" => |data| data.index,
+            .runtime => @panic("TODO: types can't be runtime"), // todo: add proper logic after proper comptime support
         };
 
-        const local_type = local.toItem(&self.comptime_scope, .type);
-        const flags = local.toItem(&self.comptime_scope, .flags);
+        const local_type = local.toItem(&self.scope, .type);
+        const flags = local.toItem(&self.scope, .flags);
 
         if (flags.role != .type) {
             try self.addDiag(
@@ -709,31 +733,41 @@ pub const Sema = struct {
         self: *const Sema,
         ast_expr: Ast.Index,
     ) error{UndeclaredIdentifier}!union(enum) {
-        comptime_local: ComptimeLocal.Index,
-        local: Local.Index,
+        runtime: struct { index: Scope.Index, stack_index: usize },
+        @"comptime": struct { index: Scope.Index },
     } {
         const identifier = ast_expr.toStr(self.ast);
+        var runtime_locals_count: usize = 0;
+        var idx = self.scope.locals.len;
 
-        inline for (.{ self.comptime_scope, self.scope }) |scope| {
-            var idx = scope.len;
-            while (idx > 0) {
-                idx -= 1;
+        while (idx > 0) {
+            idx -= 1;
 
-                const local_name = scope.items(.name)[idx];
-                const local_name_str = if (local_name.tag == .ast)
-                    Ast.Index.from(local_name.index).toStr(self.ast)
-                else
-                    InternPool.Index
-                        .from(local_name.index)
-                        .toKey(self.intern_pool)
-                        .value_string;
+            const eval_time = self.scope.locals.items(.flags)[idx].eval_time;
 
-                if (mem.eql(u8, identifier, local_name_str)) {
-                    return if (@TypeOf(scope) == @TypeOf(self.comptime_scope))
-                        .{ .comptime_local = ComptimeLocal.Index.from(idx) }
-                    else
-                        .{ .local = Local.Index.from(idx) };
-                }
+            if (eval_time == .runtime) {
+                runtime_locals_count += 1;
+            }
+
+            const local_name = self.scope.locals.items(.name)[idx];
+            const local_name_str = if (local_name.tag == .ast)
+                Ast.Index.from(local_name.index).toStr(self.ast)
+            else
+                InternPool.Index
+                    .from(local_name.index)
+                    .toKey(self.intern_pool)
+                    .value_string;
+
+            if (mem.eql(u8, identifier, local_name_str)) {
+                const index = Scope.Index.from(idx);
+
+                return if (eval_time == .runtime) .{ .runtime = .{
+                    .index = index,
+                    .stack_index = self.scope.runtime_scope_top -
+                        runtime_locals_count,
+                } } else .{ .@"comptime" = .{
+                    .index = index,
+                } };
             }
         }
 
