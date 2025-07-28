@@ -22,9 +22,9 @@ pub fn main() !void {
         \\    end
         \\    let c = 123
         \\ end
-        \\ let hi = if true then
-        \\   print "hi"
-        \\   123
+        \\ let a = for true do
+        \\    print("hello")
+        \\    
         \\ end
     ;
 

@@ -431,6 +431,10 @@ pub const Sema = struct {
             .if_elseif_else,
             => try self.analyzeIfExpr(ast_key, eval_mode),
 
+            .@"for",
+            .for_conditional,
+            => try self.analyzeForExpr(ast_key),
+
             else => unreachable, // non-expr node
         };
     }
@@ -1024,6 +1028,42 @@ pub const Sema = struct {
         } });
     }
 
+    fn analyzeForExpr(
+        self: *Sema,
+        ast_key: Ast.Key,
+    ) Error!Air.Index {
+        const air_cond, const body = switch (ast_key) {
+            .@"for" => |body| .{
+                try self.addNode(.{ .constant = .value_bool_true }),
+                body,
+            },
+            .for_conditional => |cond| .{
+                try self.analyzeExpr(cond.condition, .eval),
+                cond.body,
+            },
+            else => unreachable, // non-for expr
+        };
+
+        const air_cond_type = air_cond.toType(self.air, self.intern_pool);
+
+        if (ast_key == .for_conditional and
+            self.typeCheck(air_cond_type, .from(.type_bool)) == .mismatch)
+        {
+            try self.addDiag(.{ .unexpected_expr_type = .{
+                .expected = .from(.type_bool),
+                .actual = air_cond_type,
+            } }, ast_key.for_conditional.condition.toLoc(self.ast));
+            return try self.addInvalidNode();
+        }
+
+        const air_body = try self.analyzeExpr(body, .no_eval);
+
+        return try self.addNode(.{ .@"for" = .{
+            .cond = air_cond,
+            .body = air_body,
+        } });
+    }
+
     fn analyzeTypeExpr(
         self: *Sema,
         ast_expr: Ast.Index,
@@ -1255,6 +1295,11 @@ pub const Sema = struct {
                 .tag = .variable,
                 .a = variable.stack_index,
                 .b = variable.type.toInt(),
+            },
+            .@"for" => |@"for"| .{
+                .tag = .@"for",
+                .a = @"for".cond.toInt(),
+                .b = @"for".body.toInt(),
             },
 
             .assert => |index| .{

@@ -33,6 +33,7 @@ pub const Air = struct {
             block,
             variable,
             assignment,
+            @"for",
 
             assert,
             print,
@@ -57,6 +58,7 @@ pub const Air = struct {
         neg: Index,
         block: []const Index,
         variable: Variable,
+        @"for": For,
 
         assert: Index,
         print: Index,
@@ -88,6 +90,11 @@ pub const Air = struct {
             stack_index: u32,
             rhs: Index,
         };
+
+        pub const For = struct {
+            cond: Index,
+            body: Index,
+        };
     };
 
     pub const Index = enum(u32) {
@@ -115,15 +122,29 @@ pub const Air = struct {
 
             return switch (tag) {
                 .constant,
+                => InternPool.Index
+                    .from(air.nodes.items(.a)[idx])
+                    .toType(intern_pool),
+
                 .add,
                 .sub,
                 .mul,
                 .div,
                 .concat,
                 .neg,
-                => InternPool.Index
-                    .from(air.nodes.items(.a)[idx])
-                    .toType(intern_pool),
+                => blk: {
+                    const lhs_type = Index
+                        .from(air.nodes.items(.a)[idx])
+                        .toType(air, intern_pool);
+                    const rhs_type = Index
+                        .from(air.nodes.items(.b)[idx])
+                        .toType(air, intern_pool);
+
+                    break :blk if (lhs_type == .type_never or rhs_type == .type_never)
+                        .type_never
+                    else
+                        lhs_type;
+                },
 
                 .greater_than,
                 .greater_equal,
@@ -131,11 +152,42 @@ pub const Air = struct {
                 .less_equal,
                 .equal,
                 .not_equal,
-                => .type_bool,
+                => blk: {
+                    const lhs_type = Index
+                        .from(air.nodes.items(.a)[idx])
+                        .toType(air, intern_pool);
+                    const rhs_type = Index
+                        .from(air.nodes.items(.b)[idx])
+                        .toType(air, intern_pool);
 
-                .cond => Air.Index
-                    .from(air.extra.items[air.nodes.items(.b)[idx]])
-                    .toType(air, intern_pool),
+                    break :blk if (lhs_type == .type_never or rhs_type == .type_never)
+                        .type_never
+                    else
+                        .type_bool;
+                },
+
+                .cond,
+                => blk: {
+                    const cond = air.nodes.items(.a)[idx];
+                    const cond_type = Index.from(cond).toType(air, intern_pool);
+
+                    if (cond_type == .type_never) {
+                        break :blk .type_never;
+                    }
+
+                    const extra_idx = air.nodes.items(.b)[idx];
+                    const then = air.extra.items[extra_idx];
+                    const then_type = Index.from(then).toType(air, intern_pool);
+                    const @"else" = air.extra.items[extra_idx + 1];
+                    const else_type = Index.from(@"else").toType(air, intern_pool);
+
+                    break :blk if (then_type != .type_never)
+                        then_type
+                    else if (else_type != .type_never)
+                        else_type
+                    else
+                        .type_never;
+                },
 
                 .block,
                 => blk: {
@@ -178,6 +230,24 @@ pub const Air = struct {
                     else
                         .type_unit;
                 },
+
+                .@"for",
+                => blk: {
+                    const cond = air.nodes.items(.a)[idx];
+                    const cond_type = Index.from(cond).toType(air, intern_pool);
+
+                    if (cond_type == .type_never) {
+                        break :blk .type_never;
+                    }
+
+                    const body = air.nodes.items(.b)[idx];
+                    const body_type = Index.from(body).toType(air, intern_pool);
+
+                    break :blk if (body_type == .type_never)
+                        .type_never
+                    else
+                        .type_unit;
+                },
             };
         }
     };
@@ -198,7 +268,7 @@ pub const Air = struct {
         const b = node.b;
 
         return switch (node.tag) {
-            .constant => .{ .constant = InternPool.Index.from(a) },
+            .constant => .{ .constant = .from(a) },
             .add => getBinary("add", a, b),
             .sub => getBinary("sub", a, b),
             .mul => getBinary("mul", a, b),
@@ -211,34 +281,38 @@ pub const Air = struct {
             .less_than => getBinary("less_than", a, b),
             .less_equal => getBinary("less_equal", a, b),
             .cond => .{ .cond = .{
-                .cond = Index.from(a),
-                .then_branch = Index.from(self.extra.items[b]),
-                .else_branch = Index.from(self.extra.items[b + 1]),
+                .cond = .from(a),
+                .then_branch = .from(self.extra.items[b]),
+                .else_branch = .from(self.extra.items[b + 1]),
             } },
-            .neg => .{ .neg = Index.from(a) },
+            .neg => .{ .neg = .from(a) },
             .block => .{ .block = @ptrCast(self.extra.items[b..][0..a]) },
             .variable => .{ .variable = .{
                 .stack_index = a,
-                .type = InternPool.Index.from(b),
+                .type = .from(b),
+            } },
+            .@"for" => .{ .@"for" = .{
+                .cond = .from(a),
+                .body = .from(b),
             } },
 
-            .assert => .{ .assert = Index.from(a) },
-            .print => .{ .print = Index.from(a) },
+            .assert => .{ .assert = .from(a) },
+            .print => .{ .print = .from(a) },
             .let => .{ .let = .{
                 .stack_index = a,
-                .rhs = if (b == 0) null else Index.from(b),
+                .rhs = if (b == 0) null else .from(b),
             } },
             .assignment => .{ .assignment = .{
                 .stack_index = a,
-                .rhs = Index.from(b),
+                .rhs = .from(b),
             } },
         };
     }
 
     fn getBinary(comptime tag: []const u8, a: u32, b: u32) Key {
         return @unionInit(Key, tag, .{
-            .lhs = Index.from(a),
-            .rhs = Index.from(b),
+            .lhs = .from(a),
+            .rhs = .from(b),
         });
     }
 };
