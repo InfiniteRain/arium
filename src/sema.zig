@@ -45,6 +45,7 @@ pub const Sema = struct {
             undeclared_identifier,
             too_many_locals,
             unassigned_variable,
+            immutable_mutation: Loc,
 
             pub const BadExprType = struct {
                 expected: TypeArray,
@@ -72,6 +73,14 @@ pub const Sema = struct {
                 comptime field: meta.FieldEnum(Local),
             ) meta.fieldInfo(Local, field).type {
                 return scope.locals.items(field)[@intFromEnum(self)];
+            }
+
+            pub fn toItemPtr(
+                self: Index,
+                scope: *const Scope,
+                comptime field: meta.FieldEnum(Local),
+            ) *meta.fieldInfo(Local, field).type {
+                return &scope.locals.items(field)[@intFromEnum(self)];
             }
         };
 
@@ -226,7 +235,7 @@ pub const Sema = struct {
 
             .let,
             .let_mut,
-            => try self.analyzeLetStmt(ast_stmt, ast_key),
+            => |let| try self.analyzeLetStmt(ast_stmt, ast_key, let),
 
             else => unreachable, // non-stmt node
         };
@@ -266,8 +275,9 @@ pub const Sema = struct {
         self: *Sema,
         ast_stmt: Ast.Index,
         ast_stmt_key: Ast.Key,
+        let: Ast.Key.Let,
     ) Error!Air.Index {
-        const let_type_opt = if (ast_stmt_key.let.type) |ast_type_expr|
+        const let_type_opt = if (let.type) |ast_type_expr|
             try self.analyzeTypeExpr(ast_type_expr)
         else
             null;
@@ -275,9 +285,9 @@ pub const Sema = struct {
             .immutable
         else
             .mutable;
-        const identifier = ast_stmt_key.let.identifier;
+        const identifier = let.identifier;
 
-        const ast_expr = ast_stmt_key.let.expr orelse {
+        const ast_expr = let.expr orelse {
             try self.scope.append(self.allocator, .{
                 .name = .from(identifier),
                 .type = if (let_type_opt) |let_type| let_type else .none,
@@ -381,6 +391,9 @@ pub const Sema = struct {
 
             .identifier,
             => try self.analyzeVariableExpr(ast_expr),
+
+            .assignment,
+            => |binary| try self.analyzeAssignmentExpr(ast_expr, binary),
 
             else => unreachable, // non-expr node
         };
@@ -692,7 +705,7 @@ pub const Sema = struct {
                         .undeclared_identifier,
                         ast_expr.toLoc(self.ast),
                     );
-                    return error.AnalyzeFailure;
+                    return try self.addInvalidNode();
                 },
             };
 
@@ -708,12 +721,70 @@ pub const Sema = struct {
                 .unassigned_variable,
                 ast_expr.toLoc(self.ast),
             );
-            return error.AnalyzeFailure;
+            return try self.addInvalidNode();
         }
 
         return try self.addNode(.{ .variable = .{
             .stack_index = @intCast(local.stack_index),
             .type = local.index.toItem(&self.scope, .type),
+        } });
+    }
+
+    fn analyzeAssignmentExpr(
+        self: *Sema,
+        ast_expr: Ast.Index,
+        binary: Ast.Key.Binary,
+    ) Error!Air.Index {
+        const result = self.resolveIdentifier(binary.lhs) catch |err|
+            switch (err) {
+                error.UndeclaredIdentifier => {
+                    try self.addDiag(
+                        .undeclared_identifier,
+                        binary.lhs.toLoc(self.ast),
+                    );
+                    return try self.addInvalidNode();
+                },
+            };
+
+        const local = switch (result) {
+            .@"comptime" => @panic("TODO: variables can't be comptime"), // todo: add proper logic after proper comptime support
+            .runtime => |data| data,
+        };
+
+        const flags = local.index.toItemPtr(&self.scope, .flags);
+
+        if (flags.mutability == .immutable and flags.assignment == .assigned) {
+            try self.addDiag(
+                .{ .immutable_mutation = binary.lhs.toLoc(self.ast) },
+                ast_expr.toLoc(self.ast),
+            );
+            return try self.addInvalidNode();
+        }
+
+        const rhs = try self.analyzeExpr(binary.rhs);
+        const rhs_type = rhs.toType(self.air, self.intern_pool);
+        const lhs_type = local.index.toItemPtr(&self.scope, .type);
+
+        flags.assignment = .assigned;
+
+        if (lhs_type.* != .none and
+            self.typeCheck(rhs_type, .from(lhs_type.*)) == .mismatch)
+        {
+            try self.addDiag(
+                .{ .unexpected_expr_type = .{
+                    .expected = .from(lhs_type.*),
+                    .actual = rhs_type,
+                } },
+                binary.rhs.toLoc(self.ast),
+            );
+            return try self.addInvalidNode();
+        } else if (lhs_type.* == .none) {
+            lhs_type.* = rhs_type;
+        }
+
+        return try self.addNode(.{ .assignment = .{
+            .stack_index = @intCast(local.stack_index),
+            .rhs = rhs,
         } });
     }
 
@@ -964,6 +1035,11 @@ pub const Sema = struct {
                     rhs.toInt()
                 else
                     0,
+            },
+            .assignment => |assignment| .{
+                .tag = .assignment,
+                .a = assignment.stack_index,
+                .b = assignment.rhs.toInt(),
             },
         };
     }
