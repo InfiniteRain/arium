@@ -8,26 +8,12 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const source =
-        \\ print 123
+        \\ let t = 123
+        \\ fn hello(a: Int, b: Int): String
+        \\     return "arst"
+        \\ end
+        \\ print hello(12, 12) ++ "123"
         \\ 123
-        \\ print 123
-        \\ print -(123.123)
-        \\ let foo = "hello"
-        \\ do
-        \\    let kek = 123
-        \\    let foo = "hello2"
-        \\    do
-        \\       let a = 123
-        \\       let b = 123
-        \\    end
-        \\    let c = 123
-        \\ end
-        \\ let a = for true do
-        \\    print("hello")
-        \\    print do
-        \\       let a =  234 > 12
-        \\    end
-        \\ end
     ;
 
     const stdout = std.io.getStdOut().writer().any();
@@ -59,7 +45,7 @@ pub fn main() !void {
     var sema_diags: std.ArrayListUnmanaged(arium.SemaNew.Diag) = .empty;
     defer sema_diags.deinit(allocator);
 
-    var scratch: std.ArrayListUnmanaged(arium.Air.Index) = .empty;
+    var scratch: std.ArrayListUnmanaged(u32) = .empty;
     defer scratch.deinit(allocator);
 
     var air = arium.SemaNew.analyze(

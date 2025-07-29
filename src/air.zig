@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -36,10 +37,14 @@ pub const Air = struct {
             @"for",
             @"break",
             @"continue",
+            @"return",
+            call_simple,
+            call,
 
             assert,
             print,
             let,
+            @"fn",
         };
     };
 
@@ -63,11 +68,15 @@ pub const Air = struct {
         @"for": For,
         @"break",
         @"continue",
+        call_simple: CallSimple,
+        call: Call,
 
         assert: Index,
         print: Index,
         let: Let,
         assignment: Assignment,
+        @"fn": Fn,
+        @"return": Index,
 
         pub const Binary = struct {
             lhs: Index,
@@ -98,6 +107,22 @@ pub const Air = struct {
         pub const For = struct {
             cond: Index,
             body: Index,
+        };
+
+        pub const Fn = struct {
+            stack_index: u32,
+            body: Index,
+            fn_type: InternPool.Index,
+        };
+
+        pub const CallSimple = struct {
+            callee: Index,
+            arg: ?Index,
+        };
+
+        pub const Call = struct {
+            callee: Index,
+            args: []const Index,
         };
     };
 
@@ -261,7 +286,59 @@ pub const Air = struct {
 
                 .@"break",
                 .@"continue",
+                .@"return",
                 => .type_never,
+
+                .@"fn",
+                => .type_unit,
+
+                .call_simple,
+                .call,
+                => blk: {
+                    const callee = air.nodes.items(.a)[idx];
+                    const callee_type = Index.from(callee)
+                        .toType(air, intern_pool)
+                        .toKey(intern_pool);
+
+                    assert(callee_type == .type_fn);
+
+                    break :blk callee_type.type_fn.return_type;
+                },
+            };
+        }
+
+        pub fn toKind(self: Index, air: *const Air) enum { expr, stmt } {
+            return switch (self.toKey(air)) {
+                .constant,
+                .add,
+                .sub,
+                .mul,
+                .div,
+                .concat,
+                .equal,
+                .not_equal,
+                .greater_than,
+                .greater_equal,
+                .less_than,
+                .less_equal,
+                .cond,
+                .neg,
+                .block,
+                .variable,
+                .@"for",
+                .@"break",
+                .@"continue",
+                .@"return",
+                .call_simple,
+                .call,
+                => .expr,
+
+                .assert,
+                .print,
+                .let,
+                .assignment,
+                .@"fn",
+                => .stmt,
             };
         }
     };
@@ -321,6 +398,20 @@ pub const Air = struct {
             .assignment => .{ .assignment = .{
                 .stack_index = a,
                 .rhs = .from(b),
+            } },
+            .@"fn" => .{ .@"fn" = .{
+                .stack_index = a,
+                .body = .from(self.extra.items[b]),
+                .fn_type = .from(self.extra.items[b + 1]),
+            } },
+            .@"return" => .{ .@"return" = .from(a) },
+            .call_simple => .{ .call_simple = .{
+                .callee = .from(a),
+                .arg = if (b == 0) null else .from(b),
+            } },
+            .call => .{ .call = .{
+                .callee = .from(a),
+                .args = @ptrCast(self.extra.items[b + 1 ..][0..self.extra.items[b]]),
             } },
         };
     }
