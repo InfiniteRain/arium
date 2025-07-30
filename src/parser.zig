@@ -462,7 +462,7 @@ pub const Parser = struct {
         self: *Parser,
         termination: TerminationMode,
     ) Error!Ast.Index {
-        const loc = self.prev().loc;
+        const loc = self.peek().loc;
         var expr = try self.parsePrimaryExpr(termination);
 
         while (self.match(.left_paren, termination) != null) {
