@@ -299,6 +299,55 @@ pub const InternPool = struct {
                 },
             };
         }
+
+        pub fn toKind(self: Index, intern_pool: *const InternPool) enum {
+            type,
+            value,
+            invalid,
+        } {
+            return switch (self) {
+                .none,
+                .invalid,
+                => .invalid,
+
+                .type_int,
+                .type_float,
+                .type_bool,
+                .type_string,
+                .type_unit,
+                .type_never,
+                .type_type,
+                => .type,
+
+                .value_unit,
+                .value_bool_true,
+                .value_bool_false,
+                => .value,
+
+                _ => blk: {
+                    const tag = intern_pool.items.items(.tag)[self.toInt()];
+
+                    break :blk switch (tag) {
+                        .none,
+                        .type_simple,
+                        .value_simple,
+                        .invalid,
+                        => unreachable, // already handled above
+
+                        .value_int_small,
+                        .value_int_big,
+                        .value_float_small,
+                        .value_float_big,
+                        .value_string_short,
+                        .value_string_long,
+                        => .value,
+
+                        .type_fn,
+                        => .type,
+                    };
+                },
+            };
+        }
     };
 
     pub fn init(allocator: Allocator) Allocator.Error!InternPool {

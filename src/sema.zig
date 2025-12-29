@@ -76,7 +76,7 @@ pub const Sema = struct {
         };
     };
 
-    pub const TypeArray = FixedArray(InternPool.Index, 2);
+    const TypeArray = FixedArray(InternPool.Index, 2);
 
     const Scope = struct {
         locals: MultiArrayListUnmanaged(Local),
@@ -208,9 +208,9 @@ pub const Sema = struct {
         };
     };
 
-    const EvalMode = enum {
-        eval,
-        no_eval,
+    const ValueUsage = enum {
+        use,
+        discard,
     };
 
     const ForceAppendUnitMode = enum {
@@ -300,7 +300,7 @@ pub const Sema = struct {
     fn analyzeStmt(
         self: *Sema,
         ast_stmt: Ast.Index,
-        eval_mode: EvalMode,
+        value_usage: ValueUsage,
     ) Error!Air.Index {
         const ast_key = ast_stmt.toKey(self.ast);
 
@@ -312,7 +312,7 @@ pub const Sema = struct {
             => |child_expr| try self.analyzePrintStmt(child_expr),
 
             .expr_stmt,
-            => |expr| try self.analyzeExpr(expr, eval_mode),
+            => |expr| try self.analyzeExpr(expr, value_usage),
 
             .let,
             .let_mut,
@@ -336,7 +336,7 @@ pub const Sema = struct {
     ) Error!Air.Index {
         const sema_child_expr = try self.analyzeExpr(
             child_ast_expr,
-            .eval,
+            .use,
         );
         const child_type = sema_child_expr.toType(self.air, self.intern_pool);
 
@@ -360,7 +360,7 @@ pub const Sema = struct {
     ) Error!Air.Index {
         const sema_child_expr = try self.analyzeExpr(
             child_ast_expr,
-            .eval,
+            .use,
         );
 
         return try self.addNode(.{ .print = sema_child_expr });
@@ -400,7 +400,7 @@ pub const Sema = struct {
             } });
         };
 
-        const air_expr = try self.analyzeExpr(ast_expr, .eval);
+        const air_expr = try self.analyzeExpr(ast_expr, .use);
 
         if (self.scope.runtime_scope_top >= limits.max_locals) {
             try self.addDiag(
@@ -554,7 +554,7 @@ pub const Sema = struct {
                 });
             }
 
-            air_body = try self.analyzeExpr(body, .no_eval);
+            air_body = try self.analyzeExpr(body, .discard);
 
             if (identifier_opt != null and
                 return_type_index != .type_unit and
@@ -583,7 +583,7 @@ pub const Sema = struct {
     fn analyzeExpr(
         self: *Sema,
         ast_expr: Ast.Index,
-        eval_mode: EvalMode,
+        value_usage: ValueUsage,
     ) Error!Air.Index {
         const ast_key = ast_expr.toKey(self.ast);
 
@@ -621,7 +621,7 @@ pub const Sema = struct {
             .block_semicolon,
             => try self.analyzeBlockExpr(
                 ast_key,
-                eval_mode,
+                value_usage,
                 .no_force_append_unit,
             ),
 
@@ -635,7 +635,7 @@ pub const Sema = struct {
             .if_else,
             .if_elseif,
             .if_elseif_else,
-            => try self.analyzeIfExpr(ast_key, eval_mode),
+            => try self.analyzeIfExpr(ast_key, value_usage),
 
             .@"for",
             .for_conditional,
@@ -720,8 +720,8 @@ pub const Sema = struct {
         ast_binary: Ast.Key.Binary,
     ) Error!Air.Index {
         const air_binary: Air.Key.Binary = .{
-            .lhs = try self.analyzeExpr(ast_binary.lhs, .eval),
-            .rhs = try self.analyzeExpr(ast_binary.rhs, .eval),
+            .lhs = try self.analyzeExpr(ast_binary.lhs, .use),
+            .rhs = try self.analyzeExpr(ast_binary.rhs, .use),
         };
 
         if (air_binary.lhs.toType(self.air, self.intern_pool) == .invalid or
@@ -884,7 +884,7 @@ pub const Sema = struct {
         ast_key: Ast.Key,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
-        const child_air_expr = try self.analyzeExpr(child_ast_expr, .eval);
+        const child_air_expr = try self.analyzeExpr(child_ast_expr, .use);
         const child_type = child_air_expr.toType(self.air, self.intern_pool);
 
         if (child_type == .invalid) {
@@ -914,7 +914,7 @@ pub const Sema = struct {
     fn analyzeBlockExpr(
         self: *Sema,
         ast_expr_key: Ast.Key,
-        eval_mode: EvalMode,
+        value_usage: ValueUsage,
         force_append_unit_mode: ForceAppendUnitMode,
     ) Error!Air.Index {
         const scratch_top = self.scratch.items.len;
@@ -934,11 +934,11 @@ pub const Sema = struct {
 
         for (stmts, 0..) |stmt, i| {
             const is_last = i == stmts.len - 1;
-            const stmt_eval_mode = if (is_last)
-                eval_mode
+            const stmt_value_usage = if (is_last)
+                value_usage
             else
-                .no_eval;
-            const sema_stmt = self.analyzeStmt(stmt, stmt_eval_mode) catch |err|
+                .discard;
+            const sema_stmt = self.analyzeStmt(stmt, stmt_value_usage) catch |err|
                 switch (err) {
                     error.AnalyzeFailure => continue,
                     else => return err,
@@ -978,7 +978,7 @@ pub const Sema = struct {
         const should_append_unit =
             is_block_empty or
             (!is_last_stmt_never and
-                eval_mode == .eval and
+                value_usage == .use and
                 (is_last_stmt_not_expr or
                     is_block_sm_no_unit or
                     force_append_unit_mode == .force_append_unit));
@@ -1065,7 +1065,7 @@ pub const Sema = struct {
             return try self.addInvalidNode();
         }
 
-        const rhs = try self.analyzeExpr(binary.rhs, .eval);
+        const rhs = try self.analyzeExpr(binary.rhs, .use);
         const rhs_type = rhs.toType(self.air, self.intern_pool);
         const lhs_type = local.index.toItemPtr(&self.scope, .type);
 
@@ -1095,7 +1095,7 @@ pub const Sema = struct {
     fn analyzeIfExpr(
         self: *Sema,
         ast_key: Ast.Key,
-        eval_mode: EvalMode,
+        value_usage: ValueUsage,
     ) Error!Air.Index {
         var condition: Ast.Key.Conditional = undefined;
         var elseif_blocks: []const Ast.Key.Conditional = &[_]Ast.Key.Conditional{};
@@ -1126,7 +1126,7 @@ pub const Sema = struct {
             elseif_blocks,
             else_block,
             null,
-            eval_mode,
+            value_usage,
         );
     }
 
@@ -1136,9 +1136,9 @@ pub const Sema = struct {
         elseif_blocks: []const Ast.Key.Conditional,
         else_block_opt: ?Ast.Index,
         type_opt: ?InternPool.Index,
-        eval_mode: EvalMode,
+        value_usage: ValueUsage,
     ) Error!Air.Index {
-        const air_cond = try self.analyzeExpr(cond.condition, .eval);
+        const air_cond = try self.analyzeExpr(cond.condition, .use);
         const air_cond_type = air_cond.toType(self.air, self.intern_pool);
 
         if (self.typeCheck(air_cond_type, .from(.type_bool)) == .mismatch) {
@@ -1152,7 +1152,7 @@ pub const Sema = struct {
         const then_key = cond.body.toKey(self.ast);
         const then_stmts = then_key.block;
         const force_append_unit_mode: ForceAppendUnitMode =
-            if (eval_mode == .eval and else_block_opt == null)
+            if (value_usage == .use and else_block_opt == null)
                 if (then_stmts.len > 0)
                     switch (then_stmts[then_stmts.len - 1].toKey(self.ast)) {
                         .expr_stmt,
@@ -1170,7 +1170,7 @@ pub const Sema = struct {
 
         const then_block = try self.analyzeBlockExpr(
             then_key,
-            eval_mode,
+            value_usage,
             force_append_unit_mode,
         );
         const then_block_type = then_block.toType(self.air, self.intern_pool);
@@ -1180,7 +1180,7 @@ pub const Sema = struct {
         else
             then_block_type;
 
-        if (eval_mode == .eval and
+        if (value_usage == .use and
             @"type" != .type_never and
             self.typeCheck(then_block_type, .from(@"type")) == .mismatch)
         {
@@ -1198,13 +1198,13 @@ pub const Sema = struct {
                     elseif_blocks[1..],
                     else_block_opt,
                     @"type",
-                    eval_mode,
+                    value_usage,
                 ),
                 elseif_blocks[0].body.toLoc(self.ast),
             }
         else if (else_block_opt) |else_block|
             .{
-                try self.analyzeExpr(else_block, eval_mode),
+                try self.analyzeExpr(else_block, value_usage),
                 else_block.toLoc(self.ast),
             }
         else blk: {
@@ -1216,9 +1216,7 @@ pub const Sema = struct {
         };
         const else_block_type = else_block.toType(self.air, self.intern_pool);
 
-        std.debug.print("{any}\n", .{else_block_type});
-
-        if (eval_mode == .eval and
+        if (value_usage == .use and
             @"type" != .type_never and
             self.typeCheck(else_block_type, .from(@"type")) == .mismatch)
         {
@@ -1246,7 +1244,7 @@ pub const Sema = struct {
                 body,
             },
             .for_conditional => |cond| .{
-                try self.analyzeExpr(cond.condition, .eval),
+                try self.analyzeExpr(cond.condition, .use),
                 cond.body,
             },
             else => unreachable, // non-for expr
@@ -1269,7 +1267,7 @@ pub const Sema = struct {
         self.loop_mode = .in_loop;
         defer self.loop_mode = prev_loop_mode;
 
-        const air_body = try self.analyzeExpr(body, .no_eval);
+        const air_body = try self.analyzeExpr(body, .discard);
 
         return try self.addNode(.{ .@"for" = .{
             .cond = air_cond,
@@ -1313,7 +1311,7 @@ pub const Sema = struct {
         ast_expr: Ast.Index,
     ) Error!Air.Index {
         const rhs = if (ast_key == .return_value)
-            try self.analyzeExpr(ast_key.return_value, .eval)
+            try self.analyzeExpr(ast_key.return_value, .use)
         else
             try self.addNode(.{ .constant = .value_unit });
         const rhs_type = rhs.toType(self.air, self.intern_pool);
@@ -1342,7 +1340,7 @@ pub const Sema = struct {
             .call => |call| call.callee,
             else => unreachable, // non-call expr
         };
-        const callee = try self.analyzeExpr(ast_callee, .eval);
+        const callee = try self.analyzeExpr(ast_callee, .use);
         const callee_type = callee.toType(self.air, self.intern_pool);
 
         if (callee_type == .invalid) {
@@ -1385,7 +1383,7 @@ pub const Sema = struct {
         try self.scratch.ensureUnusedCapacity(self.allocator, arg_types.len);
 
         for (arg_types, args, 0..) |arg_type, arg, index| {
-            const expr = try self.analyzeExpr(arg, .eval);
+            const expr = try self.analyzeExpr(arg, .use);
             const expr_type = expr.toType(self.air, self.intern_pool);
 
             if (self.typeCheck(expr_type, .from(arg_type)) == .mismatch) {
@@ -1657,6 +1655,10 @@ pub const Sema = struct {
             .mul => |binary| prepareBinary(.mul, binary),
             .div => |binary| prepareBinary(.div, binary),
             .concat => |binary| prepareBinary(.concat, binary),
+            .neg => |index| .{
+                .tag = .neg,
+                .a = index.toInt(),
+            },
             .equal => |binary| prepareBinary(.equal, binary),
             .not_equal => |binary| prepareBinary(.not_equal, binary),
             .greater_than => |binary| prepareBinary(.greater_than, binary),
@@ -1678,10 +1680,6 @@ pub const Sema = struct {
                     .b = @intCast(self.air.extra.items.len - 2),
                 };
             },
-            .neg => |index| .{
-                .tag = .neg,
-                .a = index.toInt(),
-            },
             .block => |indexes| blk: {
                 try self.air.extra.appendSlice(
                     self.allocator,
@@ -1698,6 +1696,11 @@ pub const Sema = struct {
                 .tag = .variable,
                 .a = variable.stack_index,
                 .b = variable.type.toInt(),
+            },
+            .assignment => |assignment| .{
+                .tag = .assignment,
+                .a = assignment.stack_index,
+                .b = assignment.rhs.toInt(),
             },
             .@"for" => |@"for"| .{
                 .tag = .@"for",
@@ -1722,11 +1725,6 @@ pub const Sema = struct {
                     rhs.toInt()
                 else
                     0,
-            },
-            .assignment => |assignment| .{
-                .tag = .assignment,
-                .a = assignment.stack_index,
-                .b = assignment.rhs.toInt(),
             },
             .@"fn" => |@"fn"| blk: {
                 try self.air.extra.appendSlice(

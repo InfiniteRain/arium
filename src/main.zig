@@ -1,19 +1,82 @@
 const std = @import("std");
-const cli_mod = @import("cli.zig");
+const Allocator = std.mem.Allocator;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
+
 const arium = @import("arium");
 const Writer = @import("shared").Writer;
+
+const cli_mod = @import("cli.zig");
+
+pub const VmTracer = struct {
+    allocator: Allocator,
+    writer: *const Writer,
+
+    pub fn init(
+        allocator: Allocator,
+        writer: *const Writer,
+    ) VmTracer {
+        return .{
+            .allocator = allocator,
+            .writer = writer,
+        };
+    }
+
+    pub fn debugTracer(self: *VmTracer) arium.VmNew.DebugTracer {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .step = step,
+            },
+        };
+    }
+
+    fn step(ctx: *anyopaque, vm: *const arium.VmNew) void {
+        const self: *VmTracer = @ptrCast(@alignCast(ctx));
+
+        for (vm.st.items, 0..) |item, i| {
+            self.writer.print("[");
+
+            switch (vm.st_tags.items[i]) {
+                .int => self.writer.printf("{}", .{item.int}),
+                .float => self.writer.printf("{d}", .{item.float}),
+                .bool => self.writer.printf("{}", .{item.bool}),
+                .@"fn" => self.writer.printf("<fn {}>", .{item.@"fn"}),
+                .object => switch (item.object.tag) {
+                    .string => self.writer.printf(
+                        "\"{s}\"",
+                        .{item.object.as(arium.Object.String).chars},
+                    ),
+                },
+            }
+
+            self.writer.print("] ");
+        }
+
+        self.writer.print("\n");
+
+        _ = arium.module_reporter.printInstruction(
+            vm.module,
+            self.writer,
+            8,
+            vm.ip,
+        );
+    }
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     const source =
-        \\ let t = 123
-        \\ fn hello(a: Int, b: Int): String
-        \\     return "arst"
-        \\ end
-        \\ print hello(12, 12) ++ "123"
-        \\ 123
+        // \\ if (1 > 0 and 1 < 0 or 1 > 0) then
+        // \\ if 10 > 0 and 20 > 0 and 30 > 0 or 40 > 0 and 50 > 0 then
+        \\ let a = 10 > 0 and 20 > 0 or 30 > 0 or 40 > 0
+        \\ print(a)
+        // \\ if 10 > 0 or 20 > 0 or 30 > 0 then
+        // \\   print "hi"
+        // \\ else
+        // \\   print "bye"
+        // \\ end
     ;
 
     const stdout = std.io.getStdOut().writer().any();
@@ -27,7 +90,18 @@ pub fn main() !void {
     var parser = arium.Parser.init(allocator);
     defer parser.deinit();
 
-    var ast = try parser.parse(&tokenizer, &parser_diags);
+    var ast = parser.parse(
+        &tokenizer,
+        &parser_diags,
+    ) catch |err| {
+        for (parser_diags.items) |item| {
+            std.debug.print(
+                "{any} in '{s}'\n",
+                .{ item.tag, source[item.loc.index..][0..item.loc.len] },
+            );
+        }
+        return err;
+    };
     defer ast.deinit(allocator);
 
     arium.debug_ast_reporter.printAstIndex(
@@ -83,6 +157,37 @@ pub fn main() !void {
         root,
         null,
         &stdout_writer,
+    );
+
+    var memory = arium.Memory.init(allocator);
+    defer memory.deinit();
+
+    var compiler_diags: std.ArrayListUnmanaged(arium.CompilerNew.Diag) = .empty;
+    defer compiler_diags.deinit(allocator);
+
+    var compiler_scratch: arium.CompilerNew.Scratch = .empty;
+    defer compiler_scratch.deinit(allocator);
+
+    var module = try arium.CompilerNew.compile(
+        allocator,
+        &memory,
+        root,
+        &intern_pool,
+        &air,
+        &compiler_diags,
+        &compiler_scratch,
+        .debug,
+    );
+    defer module.deinit(allocator);
+
+    arium.module_reporter.printModule(&module, &stdout_writer);
+
+    var vm_tracer = VmTracer.init(allocator, &stdout_writer);
+
+    try arium.VmNew.interpret(
+        &memory,
+        &module,
+        vm_tracer.debugTracer(),
     );
 }
 
