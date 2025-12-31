@@ -68,15 +68,11 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const source =
-        // \\ if (1 > 0 and 1 < 0 or 1 > 0) then
-        // \\ if 10 > 0 and 20 > 0 and 30 > 0 or 40 > 0 and 50 > 0 then
-        \\ let a = 10 > 0 and 20 > 0 or 30 > 0 or 40 > 0
-        \\ print(a)
-        // \\ if 10 > 0 or 20 > 0 or 30 > 0 then
-        // \\   print "hi"
-        // \\ else
-        // \\   print "bye"
-        // \\ end
+        \\ let mut i = 0
+        \\ for i < 10 or if true and i < 15 then true else false end do
+        \\     // print i
+        \\     // i = i + 1
+        \\ end
     ;
 
     const stdout = std.io.getStdOut().writer().any();
@@ -182,12 +178,13 @@ pub fn main() !void {
 
     arium.module_reporter.printModule(&module, &stdout_writer);
 
-    var vm_tracer = VmTracer.init(allocator, &stdout_writer);
+    // var vm_tracer = VmTracer.init(allocator, &stdout_writer);
 
     try arium.VmNew.interpret(
         &memory,
         &module,
-        vm_tracer.debugTracer(),
+        // vm_tracer.debugTracer(),
+        null,
     );
 }
 

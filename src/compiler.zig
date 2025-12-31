@@ -246,16 +246,28 @@ pub const Compiler = struct {
                 value_usage,
             ),
 
+            .cond,
+            => |cond| try self.compileCondExpr(cond, value_usage),
+
             .block,
             => |block| try self.compileBlockExpr(block, value_usage),
 
             .variable,
             => |variable| try self.compileVariableExpr(variable, value_usage),
 
-            .cond,
-            => |cond| try self.compileCondExpr(cond, value_usage),
+            .assignment,
+            => |assignment| try self.compileAssignmentExpr(
+                assignment,
+                value_usage,
+            ),
 
-            else => unreachable,
+            .@"for",
+            => |@"for"| try self.compileForExpr(@"for", value_usage),
+
+            else => {
+                std.debug.print("not implemented: {any}\n", .{key});
+                unreachable;
+            },
         }
     }
 
@@ -413,6 +425,58 @@ pub const Compiler = struct {
         try self.writeU8(op_code);
     }
 
+    fn compileComparisonExpr(
+        self: *Compiler,
+        air_key: Air.Key,
+        binary: Air.Key.Binary,
+        value_usage: ValueUsage,
+    ) Error!void {
+        const else_offset = self.compileComparisonExprJumpOps(
+            air_key,
+            binary,
+        ) catch |err| switch (err) {
+            error.EncounteredNever => return,
+            else => |compiler_err| return compiler_err,
+        };
+
+        try self.writeU8(.constant_int_1);
+        const then_offset = try self.writeJump(.jump);
+        try self.patchJump(else_offset);
+        try self.writeU8(.constant_int_0);
+        try self.patchJump(then_offset);
+
+        if (value_usage == .discard) {
+            try self.writeU8(.pop);
+        }
+    }
+
+    fn compileComparisonExprJumpOps(
+        self: *Compiler,
+        air_key: Air.Key,
+        binary: Air.Key.Binary,
+    ) (Error || error{EncounteredNever})!usize {
+        const types = try self.compileBinaryExprOperands(binary);
+
+        switch (types.lhs) {
+            .type_int,
+            .type_bool,
+            .type_unit,
+            => try self.writeU8(.compare_int),
+
+            .type_float,
+            => try self.writeU8(.compare_float),
+
+            .type_string,
+            => try self.writeU8(.compare_object),
+
+            else => unreachable, // unexpected comparison type
+        }
+
+        return try self.writeJump(
+            invertComparisonJumpOp(airComparisonKeyToJumpOp(air_key)),
+        );
+    }
+
     fn compileBlockExpr(
         self: *Compiler,
         block: []const Air.Index,
@@ -453,6 +517,21 @@ pub const Compiler = struct {
         }
     }
 
+    fn compileAssignmentExpr(
+        self: *Compiler,
+        assignment: Air.Key.Assignment,
+        value_usage: ValueUsage,
+    ) Error!void {
+        try self.compileVariableMutation(
+            assignment.stack_index,
+            assignment.rhs,
+        );
+
+        if (value_usage == .use) {
+            try self.writeU8(.constant_int_0);
+        }
+    }
+
     fn compileCondExpr(
         self: *Compiler,
         cond: Air.Key.Cond,
@@ -467,7 +546,9 @@ pub const Compiler = struct {
 
         const is_logical_operator = blk: {
             self.compileCondExprAsLogicalOp(cond) catch |err| switch (err) {
-                error.NotLogicalOp => break :blk false,
+                error.NotLogicalOp => {
+                    break :blk false;
+                },
                 error.EncounteredNever => return,
                 else => |compiler_err| return compiler_err,
             };
@@ -584,93 +665,63 @@ pub const Compiler = struct {
             .else_jumps => &self.scratch.else_jumps,
         };
 
-        const should_add_jump = switch (airKeyToCondKind(expr_key)) {
-            .comparison => |binary| blk: {
+        swt: switch (airKeyToBranchingKind(expr_key)) {
+            .comparison => |binary| {
                 const offset = try self.compileComparisonExprJumpOps(
                     expr_key,
                     binary,
                 );
 
                 try jumps.append(self.allocator, offset);
-
-                break :blk false;
             },
-            .cond => |nested_cond| blk: {
+            .cond => |nested_cond| {
                 self.compileCondExprAsLogicalOp(nested_cond) catch |err|
                     switch (err) {
-                        error.NotLogicalOp => break :blk true,
+                        error.NotLogicalOp => continue :swt .non_branching,
                         else => |compiler_err| return compiler_err,
                     };
-
-                break :blk false;
             },
-            .non_comparison => blk: {
+            .non_branching => {
                 try self.compileExpr(air_expr, .use);
 
                 if (expr_type == .type_never) {
                     return error.EncounteredNever;
                 }
 
-                break :blk true;
+                const offset = try self.writeJump(.if_false);
+                try jumps.append(self.allocator, offset);
             },
-        };
-
-        if (should_add_jump) {
-            const offset = try self.writeJump(.if_false);
-            try jumps.append(self.allocator, offset);
         }
     }
 
-    fn compileComparisonExpr(
+    fn compileForExpr(
         self: *Compiler,
-        air_key: Air.Key,
-        binary: Air.Key.Binary,
+        @"for": Air.Key.For,
         value_usage: ValueUsage,
     ) Error!void {
-        const else_offset = self.compileComparisonExprJumpOps(
-            air_key,
-            binary,
-        ) catch |err| switch (err) {
-            error.EncounteredNever => return,
-            else => |compiler_err| return compiler_err,
-        };
-
-        try self.writeU8(.constant_int_1);
-        const then_offset = try self.writeJump(.jump);
-        try self.patchJump(else_offset);
-        try self.writeU8(.constant_int_0);
-        try self.patchJump(then_offset);
-
-        if (value_usage == .discard) {
-            try self.writeU8(.pop);
-        }
-    }
-
-    fn compileComparisonExprJumpOps(
-        self: *Compiler,
-        air_key: Air.Key,
-        binary: Air.Key.Binary,
-    ) (Error || error{EncounteredNever})!usize {
-        const types = try self.compileBinaryExprOperands(binary);
-
-        switch (types.lhs) {
-            .type_int,
-            .type_bool,
-            .type_unit,
-            => try self.writeU8(.compare_int),
-
-            .type_float,
-            => try self.writeU8(.compare_float),
-
-            .type_string,
-            => try self.writeU8(.compare_object),
-
-            else => unreachable, // unexpected comparison type
+        const then_scratch_top = self.scratch.then_jumps.items.len;
+        const else_scratch_top = self.scratch.else_jumps.items.len;
+        defer {
+            self.scratch.then_jumps.shrinkRetainingCapacity(then_scratch_top);
+            self.scratch.else_jumps.shrinkRetainingCapacity(else_scratch_top);
         }
 
-        return try self.writeJump(
-            invertComparisonJumpOp(airComparisonKeyToJumpOp(air_key)),
-        );
+        const loop_start = self.scratch.code.items.len;
+
+        self.compileCondExprBranch(@"for".cond, .else_jumps) catch |err|
+            switch (err) {
+                error.EncounteredNever => return,
+                else => |compare_err| return compare_err,
+            };
+
+        try self.patchJumps(self.scratch.then_jumps.items[then_scratch_top..]);
+        try self.compileExpr(@"for".body, .discard);
+        try self.writeNegativeJump(loop_start);
+        try self.patchJumps(self.scratch.else_jumps.items[else_scratch_top..]);
+
+        if (value_usage == .use) {
+            try self.writeU8(.constant_int_0);
+        }
     }
 
     fn writeU8(self: *Compiler, data: anytype) Allocator.Error!void {
@@ -761,12 +812,27 @@ pub const Compiler = struct {
         return self.scratch.code.items.len - 2;
     }
 
+    fn writeNegativeJump(
+        self: *Compiler,
+        offset: usize,
+    ) Error!void {
+        const jump = (self.scratch.code.items.len - self.scratch.code_bottom) -
+            offset + 3;
+
+        if (jump > math.maxInt(u16)) {
+            return self.compilerError(.jump_too_big);
+        }
+
+        try self.writeU8(.negative_jump);
+        try self.writeU16(@intCast(jump));
+    }
+
     fn patchJump(
         self: *Compiler,
         offset: usize,
     ) Error!void {
-        const jump = (self.scratch.code.items.len -
-            self.scratch.code_bottom) - offset - 2;
+        const jump = (self.scratch.code.items.len - self.scratch.code_bottom) -
+            offset - 2;
 
         if (jump > math.maxInt(u16)) {
             return self.compilerError(.jump_too_big);
@@ -792,12 +858,12 @@ pub const Compiler = struct {
         return error.CompileFailure;
     }
 
-    fn airKeyToCondKind(
+    fn airKeyToBranchingKind(
         air_key: Air.Key,
     ) union(enum) {
         comparison: Air.Key.Binary,
         cond: Air.Key.Cond,
-        non_comparison,
+        non_branching,
     } {
         return switch (air_key) {
             .equal,
@@ -831,7 +897,7 @@ pub const Compiler = struct {
             .print,
             .let,
             .@"fn",
-            => .non_comparison,
+            => .non_branching,
         };
     }
 
