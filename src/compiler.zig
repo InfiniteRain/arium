@@ -58,6 +58,9 @@ pub const Compiler = struct {
         then_jumps: ArrayListUnmanaged(usize),
         else_jumps: ArrayListUnmanaged(usize),
         last_jump: usize,
+        break_jumps: ArrayListUnmanaged(usize),
+        break_never_pops: usize,
+        loop_top: usize,
 
         pub const CodeSnapshot = struct {
             top: usize,
@@ -70,12 +73,16 @@ pub const Compiler = struct {
             .then_jumps = .empty,
             .else_jumps = .empty,
             .last_jump = undefined,
+            .break_jumps = .empty,
+            .break_never_pops = 0,
+            .loop_top = 0,
         };
 
         pub fn deinit(self: *Scratch, allocator: Allocator) void {
             self.code.deinit(allocator);
             self.then_jumps.deinit(allocator);
             self.else_jumps.deinit(allocator);
+            self.break_jumps.deinit(allocator);
         }
 
         pub fn code_snapshot(self: *const Scratch) CodeSnapshot {
@@ -264,6 +271,12 @@ pub const Compiler = struct {
             .@"for",
             => |@"for"| try self.compileForExpr(@"for", value_usage),
 
+            .@"break",
+            => try self.compileBreakExpr(),
+
+            .@"continue",
+            => try self.compileContinueExpr(),
+
             else => {
                 std.debug.print("not implemented: {any}\n", .{key});
                 unreachable;
@@ -386,8 +399,10 @@ pub const Compiler = struct {
         }
 
         if (rhs_type == .type_never) {
-            // the instruction will never get executed, so need to manually pop lhs result
+            // rhs results in never, so popping lhs beforehand
             try self.writeU8(.pop);
+        } else {
+            self.scratch.break_never_pops += 1;
         }
 
         try self.compileExpr(binary.rhs, .use);
@@ -395,6 +410,8 @@ pub const Compiler = struct {
         if (rhs_type == .type_never) {
             // the instruction will never get executed, so no need to compile further
             return error.EncounteredNever;
+        } else {
+            self.scratch.break_never_pops -= 1;
         }
 
         return .{ .lhs = lhs_type, .rhs = rhs_type };
@@ -701,12 +718,18 @@ pub const Compiler = struct {
     ) Error!void {
         const then_scratch_top = self.scratch.then_jumps.items.len;
         const else_scratch_top = self.scratch.else_jumps.items.len;
+        const break_scratch_top = self.scratch.break_jumps.items.len;
+        const last_break_pops = self.scratch.break_never_pops;
+        const last_loop_top = self.scratch.loop_top;
         defer {
             self.scratch.then_jumps.shrinkRetainingCapacity(then_scratch_top);
             self.scratch.else_jumps.shrinkRetainingCapacity(else_scratch_top);
+            self.scratch.break_jumps.shrinkRetainingCapacity(break_scratch_top);
+            self.scratch.break_never_pops = last_break_pops;
+            self.scratch.loop_top = last_loop_top;
         }
 
-        const loop_start = self.scratch.code.items.len;
+        self.scratch.loop_top = self.scratch.code.items.len;
 
         self.compileCondExprBranch(@"for".cond, .else_jumps) catch |err|
             switch (err) {
@@ -716,12 +739,32 @@ pub const Compiler = struct {
 
         try self.patchJumps(self.scratch.then_jumps.items[then_scratch_top..]);
         try self.compileExpr(@"for".body, .discard);
-        try self.writeNegativeJump(loop_start);
+        try self.writeNegativeJump(self.scratch.loop_top);
         try self.patchJumps(self.scratch.else_jumps.items[else_scratch_top..]);
+        try self.patchJumps(
+            self.scratch.break_jumps.items[break_scratch_top..],
+        );
 
         if (value_usage == .use) {
             try self.writeU8(.constant_int_0);
         }
+    }
+
+    fn compileBreakExpr(self: *Compiler) Error!void {
+        for (0..self.scratch.break_never_pops) |_| {
+            try self.writeU8(.pop);
+        }
+
+        const offset = try self.writeJump(.jump);
+        try self.scratch.break_jumps.append(self.allocator, offset);
+    }
+
+    fn compileContinueExpr(self: *Compiler) Error!void {
+        for (0..self.scratch.break_never_pops) |_| {
+            try self.writeU8(.pop);
+        }
+
+        try self.writeNegativeJump(self.scratch.loop_top);
     }
 
     fn writeU8(self: *Compiler, data: anytype) Allocator.Error!void {

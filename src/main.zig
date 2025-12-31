@@ -67,13 +67,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    const source =
-        \\ let mut i = 0
-        \\ for i < 10 or if true and i < 15 then true else false end do
-        \\     // print i
-        \\     // i = i + 1
-        \\ end
-    ;
+    const source = @embedFile("test.aum");
 
     const stdout = std.io.getStdOut().writer().any();
     const stdout_writer = Writer.init(&stdout);
