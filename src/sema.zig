@@ -499,12 +499,12 @@ pub const Sema = struct {
 
         const fn_type = try self.intern_pool.get(
             self.allocator,
-            .{ .type_fn = .{
-                .id = id,
-                .locals_count = 0,
-                .arg_types = @ptrCast(self.scratch.items[scratch_top..]),
-                .return_type = return_type_index,
-            } },
+            .{
+                .type_fn = .{
+                    .arg_types = @ptrCast(self.scratch.items[scratch_top..]),
+                    .return_type = return_type_index,
+                },
+            },
         );
 
         const fn_name: Local.Name = if (identifier_opt) |identifier|
@@ -528,7 +528,7 @@ pub const Sema = struct {
 
         var air_body: Air.Index = undefined;
 
-        {
+        const locals_count: u32 = blk: {
             const scope_snapshot = self.scope.snapshot();
             defer self.scope.restore(scope_snapshot, .reset_max);
 
@@ -567,15 +567,14 @@ pub const Sema = struct {
                 return .{ .constant = .invalid };
             }
 
-            self.intern_pool.patchFnLocalsCount(
-                fn_type,
-                @intCast(self.scope.max_runtime_scope_top),
-            );
-        }
+            break :blk @intCast(self.scope.max_runtime_scope_top);
+        };
 
         return .{ .@"fn" = .{
             .stack_index = @intCast(self.scope.runtime_scope_top - 1),
             .body = air_body,
+            .id = id,
+            .locals_count = locals_count,
             .fn_type = fn_type,
         } };
     }
@@ -1400,14 +1399,6 @@ pub const Sema = struct {
 
         return try self.addNode(
             switch (arg_types.len) {
-                0 => .{ .call_simple = .{
-                    .callee = callee,
-                    .arg = null,
-                } },
-                1 => .{ .call_simple = .{
-                    .callee = callee,
-                    .arg = .from(self.scratch.items[scratch_top]),
-                } },
                 else => .{ .call = .{
                     .callee = callee,
                     .args = @ptrCast(self.scratch.items[scratch_top..]),
@@ -1581,10 +1572,22 @@ pub const Sema = struct {
 
                         .type_fn,
                         => |@"fn"| {
-                            if (target_key != .type_fn or
-                                @"fn".id != target_key.type_fn.id)
+                            const target_fn = target_key.type_fn;
+
+                            if (@"fn".return_type != target_fn.return_type) {
+                                return .mismatch;
+                            }
+
+                            if (@"fn".arg_types.len !=
+                                target_fn.arg_types.len)
                             {
                                 return .mismatch;
+                            }
+
+                            for (@"fn".arg_types, 0..) |arg_type, index| {
+                                if (arg_type != target_fn.arg_types[index]) {
+                                    return .mismatch;
+                                }
                             }
 
                             return .ok;
@@ -1731,6 +1734,8 @@ pub const Sema = struct {
                     self.allocator,
                     &[_]u32{
                         @"fn".body.toInt(),
+                        @"fn".id,
+                        @"fn".locals_count,
                         @"fn".fn_type.toInt(),
                     },
                 );
@@ -1738,22 +1743,21 @@ pub const Sema = struct {
                 break :blk .{
                     .tag = .@"fn",
                     .a = @"fn".stack_index,
-                    .b = @intCast(self.air.extra.items.len - 2),
+                    .b = @intCast(self.air.extra.items.len - 4),
                 };
             },
             .@"return" => |@"return"| .{
                 .tag = .@"return",
                 .a = @"return".toInt(),
             },
-            .call_simple => |call_simple| .{
+            .call => |call| if (call.args.len < 2) .{
                 .tag = .call_simple,
-                .a = call_simple.callee.toInt(),
-                .b = if (call_simple.arg) |arg|
-                    arg.toInt()
+                .a = call.callee.toInt(),
+                .b = if (call.args.len == 1)
+                    call.args[0].toInt()
                 else
                     0,
-            },
-            .call => |call| blk: {
+            } else blk: {
                 try self.air.extra.ensureUnusedCapacity(
                     self.allocator,
                     call.args.len + 1,
@@ -1765,7 +1769,8 @@ pub const Sema = struct {
                 break :blk .{
                     .tag = .call,
                     .a = call.callee.toInt(),
-                    .b = @intCast(self.air.extra.items.len - (call.args.len + 1)),
+                    .b = @intCast(self.air.extra.items.len -
+                        (call.args.len + 1)),
                 };
             },
         };

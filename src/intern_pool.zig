@@ -39,6 +39,7 @@ pub const InternPool = struct {
             value_float_big,
             value_string_short,
             value_string_long,
+            value_fn,
 
             invalid,
         };
@@ -53,6 +54,7 @@ pub const InternPool = struct {
         value_simple: ValueSimple,
         value_int: i64,
         value_float: f64,
+        value_fn: ValueFn,
         value_string: []const u8,
 
         invalid,
@@ -68,10 +70,14 @@ pub const InternPool = struct {
         };
 
         pub const TypeFn = struct {
-            id: u32,
-            locals_count: u32,
             arg_types: []const Index,
             return_type: Index,
+        };
+
+        pub const ValueFn = struct {
+            id: u32,
+            locals_count: u32,
+            type_fn: Index,
         };
 
         pub const ValueSimple = enum(u32) {
@@ -95,9 +101,7 @@ pub const InternPool = struct {
                     .type_fn => |type_fn| blk: {
                         const new_seed = Wyhash.hash(
                             seed,
-                            mem.asBytes(&type_fn.id) ++
-                                mem.asBytes(&type_fn.locals_count) ++
-                                mem.asBytes(&type_fn.return_type),
+                            mem.asBytes(&type_fn.return_type),
                         );
                         const final = Wyhash.hash(
                             new_seed,
@@ -114,6 +118,12 @@ pub const InternPool = struct {
                     .value_float => |float| Wyhash.hash(
                         seed,
                         mem.asBytes(&float),
+                    ),
+                    .value_fn => |value_fn| Wyhash.hash(
+                        seed,
+                        mem.asBytes(&value_fn.id) ++
+                            mem.asBytes(&value_fn.locals_count) ++
+                            mem.asBytes(&value_fn.type_fn),
                     ),
                     .value_string => |string| Wyhash.hash(seed, string),
                     .invalid => Wyhash.hash(seed, mem.asBytes(&key)),
@@ -144,9 +154,7 @@ pub const InternPool = struct {
                         type_simple,
                         b.type_simple,
                     ),
-                    .type_fn => |type_fn| type_fn.id == b.type_fn.id and
-                        type_fn.locals_count == b.type_fn.locals_count and
-                        std.mem.eql(Index, type_fn.arg_types, b.type_fn.arg_types) and
+                    .type_fn => |type_fn| std.mem.eql(Index, type_fn.arg_types, b.type_fn.arg_types) and
                         type_fn.return_type == b.type_fn.return_type,
                     .value_simple => |value_simple| meta.eql(
                         value_simple,
@@ -154,6 +162,9 @@ pub const InternPool = struct {
                     ),
                     .value_int => |int| int == b.value_int,
                     .value_float => |float| float == b.value_float,
+                    .value_fn => |value_fn| value_fn.id == b.value_fn.id and
+                        value_fn.locals_count == b.value_fn.locals_count and
+                        value_fn.type_fn == b.value_fn.type_fn,
                     .value_string => |string| std.mem.eql(
                         u8,
                         string,
@@ -199,20 +210,18 @@ pub const InternPool = struct {
             return switch (item.tag) {
                 .none => .none,
                 .type_simple => .{ .type_simple = @enumFromInt(data) },
-                .type_fn => .{ .type_fn = blk: {
-                    const id = intern_pool.extra.items[data];
-                    const locals_count = intern_pool.extra.items[data + 1];
-                    const arg_count = intern_pool.extra.items[data + 2];
-                    const arg_types = intern_pool.extra.items[data + 3 ..][0..arg_count];
-                    const return_type = intern_pool.extra.items[data + 3 + arg_count];
+                .type_fn => .{
+                    .type_fn = blk: {
+                        const arg_count = intern_pool.extra.items[data];
+                        const arg_types = intern_pool.extra.items[data + 1 ..][0..arg_count];
+                        const return_type = intern_pool.extra.items[data + 1 + arg_count];
 
-                    break :blk .{
-                        .id = id,
-                        .locals_count = locals_count,
-                        .arg_types = @ptrCast(arg_types),
-                        .return_type = .from(return_type),
-                    };
-                } },
+                        break :blk .{
+                            .arg_types = @ptrCast(arg_types),
+                            .return_type = .from(return_type),
+                        };
+                    },
+                },
                 .value_simple => .{ .value_simple = @enumFromInt(data) },
                 .value_int_small => .{ .value_int = mem.bytesToValue(
                     i64,
@@ -230,6 +239,13 @@ pub const InternPool = struct {
                     f64,
                     intern_pool.extra.items[data..][0..2],
                 ) },
+                .value_fn => .{
+                    .value_fn = .{
+                        .id = intern_pool.extra.items[data],
+                        .locals_count = intern_pool.extra.items[data + 1],
+                        .type_fn = .from(intern_pool.extra.items[data + 2]),
+                    },
+                },
                 .value_string_short => .{
                     .value_string = blk: {
                         const data_ptr = &intern_pool.items
@@ -289,6 +305,15 @@ pub const InternPool = struct {
                         .value_float_big,
                         => .type_float,
 
+                        .value_fn,
+                        => value_blk: {
+                            const data =
+                                intern_pool.items.items(.data)[self.toInt()];
+                            break :value_blk .from(
+                                intern_pool.extra.items[data + 2],
+                            );
+                        },
+
                         .value_string_short,
                         .value_string_long,
                         => .type_string,
@@ -338,6 +363,7 @@ pub const InternPool = struct {
                         .value_int_big,
                         .value_float_small,
                         .value_float_big,
+                        .value_fn,
                         .value_string_short,
                         .value_string_long,
                         => .value,
@@ -426,16 +452,14 @@ pub const InternPool = struct {
             .type_fn => |type_fn| {
                 try self.extra.ensureUnusedCapacity(
                     allocator,
-                    type_fn.arg_types.len + 4,
+                    type_fn.arg_types.len + 2,
                 );
 
                 const top = self.extra.items.len;
 
-                self.extra.appendSliceAssumeCapacity(&[_]u32{
-                    type_fn.id,
-                    type_fn.locals_count,
+                self.extra.appendAssumeCapacity(
                     @intCast(type_fn.arg_types.len),
-                });
+                );
                 self.extra.appendSliceAssumeCapacity(
                     @ptrCast(type_fn.arg_types),
                 );
@@ -484,6 +508,22 @@ pub const InternPool = struct {
                     });
                 }
             },
+            .value_fn => |value_fn| {
+                try self.extra.ensureUnusedCapacity(allocator, 3);
+
+                const top = self.extra.items.len;
+
+                self.extra.appendSliceAssumeCapacity(&[_]u32{
+                    value_fn.id,
+                    value_fn.locals_count,
+                    value_fn.type_fn.toInt(),
+                });
+
+                self.items.appendAssumeCapacity(.{
+                    .tag = .value_fn,
+                    .data = @intCast(top),
+                });
+            },
             .value_string => |string| {
                 if (string.len <= 4) {
                     var bytes: [4]u8 = mem.bytesToValue([4]u8, string);
@@ -517,20 +557,6 @@ pub const InternPool = struct {
         }
 
         return Index.from(self.items.len - 1);
-    }
-
-    pub fn patchFnLocalsCount(
-        self: *InternPool,
-        index: Index,
-        locals_count: u32,
-    ) void {
-        const tag = self.items.items(.tag)[index.toInt()];
-
-        assert(tag == .type_fn);
-
-        const data = self.items.items(.data)[index.toInt()];
-
-        self.extra.items[data + 1] = locals_count;
     }
 };
 
@@ -740,32 +766,59 @@ test "should intern type_fn" {
     var intern_pool: InternPool = try .init(testing.allocator);
     defer intern_pool.deinit(std.testing.allocator);
 
-    const fn_key: InternPool.Key = .{ .type_fn = .{
-        .id = 39,
-        .locals_count = 10,
-        .arg_types = &[_]InternPool.Index{ .type_int, .type_int },
+    const fn_type_key: InternPool.Key = .{ .type_fn = .{
+        .arg_types = &[_]InternPool.Index{ .type_int, .type_float },
         .return_type = .type_int,
     } };
 
-    const index1 = try intern_pool.get(testing.allocator, fn_key);
+    const index1 = try intern_pool.get(testing.allocator, fn_type_key);
     const key1 = index1.toKey(&intern_pool);
 
-    try testing.expectEqual(39, key1.type_fn.id);
     try testing.expectEqual(2, key1.type_fn.arg_types.len);
     try testing.expectEqual(.type_int, key1.type_fn.arg_types[0]);
-    try testing.expectEqual(.type_int, key1.type_fn.arg_types[1]);
+    try testing.expectEqual(.type_float, key1.type_fn.arg_types[1]);
     try testing.expectEqual(.type_int, key1.type_fn.return_type);
-    try testing.expectEqual(10, key1.type_fn.locals_count);
 
-    const index2 = try intern_pool.get(testing.allocator, fn_key);
+    const index2 = try intern_pool.get(testing.allocator, fn_type_key);
     const key2 = index1.toKey(&intern_pool);
 
-    try testing.expectEqual(39, key2.type_fn.id);
     try testing.expectEqual(2, key2.type_fn.arg_types.len);
     try testing.expectEqual(.type_int, key2.type_fn.arg_types[0]);
-    try testing.expectEqual(.type_int, key2.type_fn.arg_types[1]);
+    try testing.expectEqual(.type_float, key2.type_fn.arg_types[1]);
     try testing.expectEqual(.type_int, key2.type_fn.return_type);
-    try testing.expectEqual(10, key2.type_fn.locals_count);
+
+    try testing.expectEqual(index1, index2);
+}
+
+test "should intern value_fn" {
+    var intern_pool: InternPool = try .init(testing.allocator);
+    defer intern_pool.deinit(std.testing.allocator);
+
+    const fn_type_key: InternPool.Key = .{ .type_fn = .{
+        .arg_types = &[_]InternPool.Index{ .type_int, .type_float },
+        .return_type = .type_int,
+    } };
+
+    const fn_type_index = try intern_pool.get(testing.allocator, fn_type_key);
+    const fn_value_key: InternPool.Key = .{ .value_fn = .{
+        .id = 100,
+        .locals_count = 10,
+        .type_fn = fn_type_index,
+    } };
+
+    const index1 = try intern_pool.get(testing.allocator, fn_value_key);
+    const key1 = index1.toKey(&intern_pool);
+
+    try testing.expectEqual(100, key1.value_fn.id);
+    try testing.expectEqual(10, key1.value_fn.locals_count);
+    try testing.expectEqual(fn_type_index, key1.value_fn.type_fn);
+
+    const index2 = try intern_pool.get(testing.allocator, fn_value_key);
+    const key2 = index1.toKey(&intern_pool);
+
+    try testing.expectEqual(100, key2.value_fn.id);
+    try testing.expectEqual(10, key2.value_fn.locals_count);
+    try testing.expectEqual(fn_type_index, key2.value_fn.type_fn);
 
     try testing.expectEqual(index1, index2);
 }

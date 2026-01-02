@@ -101,6 +101,7 @@ pub fn printInstruction(
         .concat,
         .compare_int,
         .compare_float,
+        .compare_fn,
         .compare_object,
         .assert,
         .print_unit,

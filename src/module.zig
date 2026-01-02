@@ -54,6 +54,7 @@ pub const OpCode = enum(u8) {
 
     compare_int,
     compare_float,
+    compare_fn,
     compare_object,
     if_equal,
     if_not_equal,
@@ -124,6 +125,8 @@ pub const Module = struct {
         locals_count: u32,
         body: []const u8,
     ) Allocator.Error!u64 {
+        // todo: limits errors
+
         const locals_count_bytes: [4]u8 = @bitCast(locals_count);
         const len: u32 = @intCast(body.len);
         const size_bytes: [4]u8 = @bitCast(len);

@@ -165,7 +165,12 @@ pub const Compiler = struct {
             .type_int => try self.writeU8(.print_int),
             .type_float => try self.writeU8(.print_float),
             .type_string => try self.writeU8(.print_object),
-            else => unreachable, // invalid expr type
+            else => {
+                switch (expr_type.toKey(self.intern_pool)) {
+                    .type_fn => try self.writeU8(.print_fn),
+                    else => unreachable, // invalid expr type
+                }
+            },
         }
     }
 
@@ -204,8 +209,6 @@ pub const Compiler = struct {
         self: *Compiler,
         air_fn: Air.Key.Fn,
     ) Error!u64 {
-        const fn_type_key = air_fn.fn_type.toKey(self.intern_pool).type_fn;
-
         const code_scratch_snap = self.scratch.code_snapshot();
         self.scratch.code_bottom = code_scratch_snap.top;
         defer self.scratch.code_restore(code_scratch_snap);
@@ -215,7 +218,7 @@ pub const Compiler = struct {
 
         return try self.module.writeFn(
             self.allocator,
-            fn_type_key.locals_count,
+            air_fn.locals_count,
             self.scratch.code.items[code_scratch_snap.top..],
         );
     }
@@ -276,6 +279,12 @@ pub const Compiler = struct {
 
             .@"continue",
             => try self.compileContinueExpr(),
+
+            .@"return",
+            => |@"return"| try self.compileReturnExpr(@"return"),
+
+            .call,
+            => |call| try self.compileCallExpr(call, value_usage),
 
             else => {
                 std.debug.print("not implemented: {any}\n", .{key});
@@ -351,6 +360,7 @@ pub const Compiler = struct {
             .greater_equal,
             .less_than,
             .less_equal,
+            .concat,
             => |binary| binary,
 
             else => unreachable, // non-binary expr
@@ -408,7 +418,6 @@ pub const Compiler = struct {
         try self.compileExpr(binary.rhs, .use);
 
         if (rhs_type == .type_never) {
-            // the instruction will never get executed, so no need to compile further
             return error.EncounteredNever;
         } else {
             self.scratch.break_never_pops -= 1;
@@ -427,7 +436,7 @@ pub const Compiler = struct {
         try self.compileExpr(rhs, .use);
 
         if (rhs_type == .type_never) {
-            // the instruction will never get executed, so no need to compile further
+            // the expr will never get reached, so no need to compile further
             return;
         }
 
@@ -486,7 +495,10 @@ pub const Compiler = struct {
             .type_string,
             => try self.writeU8(.compare_object),
 
-            else => unreachable, // unexpected comparison type
+            else => switch (types.lhs.toKey(self.intern_pool)) {
+                .type_fn => try self.writeU8(.compare_fn),
+                else => unreachable, // unexpected comparison type
+            },
         }
 
         return try self.writeJump(
@@ -767,6 +779,47 @@ pub const Compiler = struct {
         try self.writeNegativeJump(self.scratch.loop_top);
     }
 
+    fn compileReturnExpr(
+        self: *Compiler,
+        @"return": Air.Index,
+    ) Error!void {
+        try self.compileExpr(@"return", .use);
+        try self.writeU8(.@"return");
+    }
+
+    fn compileCallExpr(
+        self: *Compiler,
+        call: Air.Key.Call,
+        value_usage: ValueUsage,
+    ) Error!void {
+        // todo: add a test for this (break pops)
+        try self.compileExpr(call.callee, .use);
+
+        if (call.callee.toType(self.air, self.intern_pool) == .type_never) {
+            return;
+        }
+
+        self.scratch.break_never_pops += 1;
+
+        for (call.args) |arg| {
+            try self.compileExpr(arg, .use);
+
+            if (arg.toType(self.air, self.intern_pool) == .type_never) {
+                return;
+            }
+
+            self.scratch.break_never_pops += 1;
+        }
+
+        self.scratch.break_never_pops -= call.args.len + 1;
+
+        try self.writeU8(.call);
+
+        if (value_usage == .discard) {
+            try self.writeU8(.pop);
+        }
+    }
+
     fn writeU8(self: *Compiler, data: anytype) Allocator.Error!void {
         const DataType = @TypeOf(data);
         const data_type_info = @typeInfo(DataType);
@@ -934,7 +987,6 @@ pub const Compiler = struct {
             .@"break",
             .@"continue",
             .@"return",
-            .call_simple,
             .call,
             .assert,
             .print,

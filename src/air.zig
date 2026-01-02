@@ -70,7 +70,6 @@ pub const Air = struct {
         @"break",
         @"continue",
         @"return": Index,
-        call_simple: CallSimple,
         call: Call,
 
         assert: Index,
@@ -112,12 +111,9 @@ pub const Air = struct {
         pub const Fn = struct {
             stack_index: u32,
             body: Index,
+            id: u32,
+            locals_count: u32,
             fn_type: InternPool.Index,
-        };
-
-        pub const CallSimple = struct {
-            callee: Index,
-            arg: ?Index,
         };
 
         pub const Call = struct {
@@ -330,7 +326,6 @@ pub const Air = struct {
                 .@"break",
                 .@"continue",
                 .@"return",
-                .call_simple,
                 .call,
                 => .expr,
 
@@ -402,12 +397,17 @@ pub const Air = struct {
             .@"fn" => .{ .@"fn" = .{
                 .stack_index = a,
                 .body = .from(self.extra.items[b]),
-                .fn_type = .from(self.extra.items[b + 1]),
+                .id = self.extra.items[b + 1],
+                .locals_count = self.extra.items[b + 2],
+                .fn_type = .from(self.extra.items[b + 3]),
             } },
             .@"return" => .{ .@"return" = .from(a) },
-            .call_simple => .{ .call_simple = .{
+            .call_simple => .{ .call = .{
                 .callee = .from(a),
-                .arg = if (b == 0) null else .from(b),
+                .args = if (b == 0)
+                    &[_]Index{}
+                else
+                    @ptrCast((&self.nodes.items(.b)[index.toInt()])[0..1]),
             } },
             .call => .{ .call = .{
                 .callee = .from(a),
