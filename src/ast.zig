@@ -1,11 +1,12 @@
 const std = @import("std");
-const shared = @import("shared");
-const Loc = @import("tokenizer.zig").Loc;
-
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
+
+const shared = @import("shared");
+
+const Loc = @import("tokenizer.zig").Loc;
 
 pub const Ast = struct {
     source: []const u8,

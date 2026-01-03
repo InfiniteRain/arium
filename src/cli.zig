@@ -1,13 +1,10 @@
 const std = @import("std");
-const shared = @import("shared");
-const clap = @import("clap");
-const arium = @import("arium");
-
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
-const Writer = shared.Writer;
+
+const arium = @import("arium");
 const Tokenizer = arium.Tokenizer;
 const Ast = arium.Ast;
 const Parser = arium.Parser;
@@ -19,6 +16,9 @@ const Obj = arium.Obj;
 const error_reporter = arium.error_reporter;
 const debug_ast_reporter = arium.debug_ast_reporter;
 const debug_reporter = arium.debug_reporter;
+const clap = @import("clap");
+const shared = @import("shared");
+const Writer = shared.Writer;
 
 pub fn runCli() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

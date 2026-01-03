@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = std.debug.assert;
+const StaticStringMap = std.StaticStringMap;
 
 pub const Loc = struct {
     index: u32,
@@ -112,7 +114,7 @@ pub const Tokenizer = struct {
         comment,
     };
 
-    const keyword_map = std.StaticStringMap(Token.Tag).initComptime(.{
+    const keyword_map = StaticStringMap(Token.Tag).initComptime(.{
         .{ "and", .@"and" },
         .{ "or", .@"or" },
         .{ "false", .false },
@@ -390,7 +392,7 @@ pub const Tokenizer = struct {
     }
 
     fn advance(self: *Tokenizer) u8 {
-        std.debug.assert(self.index < self.source.len);
+        assert(self.index < self.source.len);
         self.index += 1;
         return self.source[self.index];
     }

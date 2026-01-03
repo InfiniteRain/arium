@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub fn FixedArray(T: type, comptime capacity: usize) type {
     return struct {
         buffer: [capacity]T,
