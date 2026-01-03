@@ -72,9 +72,11 @@ pub fn build(b: *std.Build) void {
 
     const lang_tests = b.addExecutable(.{
         .name = "lang-test",
-        .root_source_file = b.path("test/lang_tests.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/lang_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const lang_tests_cmd = b.addRunArtifact(lang_tests);
@@ -115,9 +117,11 @@ pub fn build(b: *std.Build) void {
     inline for (checks, 0..) |check, index| {
         const check_mod = b.addExecutable(.{
             .name = "check_" ++ check[0],
-            .root_source_file = b.path(check[1]),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(check[1]),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
 
         check_step.dependOn(&check_mod.step);

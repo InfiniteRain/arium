@@ -69,8 +69,11 @@ pub fn main() !void {
 
     const source = @embedFile("test.aum");
 
-    const stdout = std.io.getStdOut().writer().any();
-    const stdout_writer = Writer.init(&stdout);
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    const writer = Writer.init(stdout);
 
     var tokenizer = arium.Tokenizer.init(source);
 
@@ -166,18 +169,18 @@ pub fn main() !void {
         &air,
         &compiler_diags,
         &compiler_scratch,
-        .debug,
+        .release,
     );
     defer module.deinit(allocator);
 
-    arium.module_reporter.printModule(&module, &stdout_writer);
+    // arium.module_reporter.printModule(&module, &stdout_writer);
 
     // var vm_tracer = VmTracer.init(allocator, &stdout_writer);
 
     try arium.VmNew.interpret(
         &memory,
         &module,
-        &stdout_writer,
+        &writer,
         // vm_tracer.debugTracer(),
         null,
     );

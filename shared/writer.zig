@@ -1,13 +1,13 @@
 const std = @import("std");
 
-const AnyWriter = std.io.AnyWriter;
+const AnyWriter = std.io.Writer;
 
 pub const Writer = struct {
     const Self = @This();
 
-    backing_writer: *const AnyWriter,
+    backing_writer: *AnyWriter,
 
-    pub fn init(writer: *const AnyWriter) Self {
+    pub fn init(writer: *AnyWriter) Self {
         return .{ .backing_writer = writer };
     }
 
@@ -22,6 +22,9 @@ pub const Writer = struct {
     ) void {
         self.backing_writer.print(format, args) catch {
             @panic("unable to print to writer");
+        };
+        self.backing_writer.flush() catch {
+            @panic("unable to flush the writer");
         };
     }
 };
