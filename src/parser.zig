@@ -57,7 +57,6 @@ pub const Parser = struct {
     // todo: use decl literal initialization (.default/.init)
     // todo: use expandCapacity for lists before appending stuff to it
     // todo: change unreachable to panic with good enough descriptions
-    // todo: look into line 243
     // todo: use FixedArray for EndTokens
     pub fn init(
         allocator: Allocator,
@@ -153,10 +152,10 @@ pub const Parser = struct {
             try self.parseType()
         else
             null;
-        const expr_opt = if (self.match(.equal, .newline_terminated) != null)
-            try self.parseExpr(.newline_terminated)
-        else
-            null;
+        const expr_opt = if (self.match(.equal, .newline_terminated) != null) blk: {
+            self.skipNewLines();
+            break :blk try self.parseExpr(.newline_terminated);
+        } else null;
         const let: Ast.Key.Let = .{
             .identifier = name_identifier,
             .type = type_opt,
@@ -240,7 +239,8 @@ pub const Parser = struct {
         const expr = try self.parseOrExpr(termination);
 
         while (self.match(.equal, termination)) |token| {
-            // todo: shouldn't we need skipNewLines() here?
+            self.skipNewLines();
+
             const rhs = try self.parseAssignmentExpr(termination);
 
             if (expr.toTag(&self.ast) == .identifier) {
