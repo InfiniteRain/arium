@@ -9,9 +9,6 @@ const MultiArrayListUnmanaged = std.MultiArrayList;
 const meta = std.meta;
 const builtin = @import("builtin");
 
-const shared = @import("shared");
-const nullableArrayFrom = shared.meta.nullableArrayFrom;
-
 const air_mod = @import("air.zig");
 const Air = air_mod.Air;
 const ast_mod = @import("ast.zig");
@@ -20,9 +17,9 @@ const fixed_array_mod = @import("fixed_array.zig");
 const FixedArray = fixed_array_mod.FixedArray;
 const intern_pool_mod = @import("intern_pool.zig");
 const InternPool = intern_pool_mod.InternPool;
+const limits = @import("limits.zig");
 const tokenizer_mod = @import("tokenizer.zig");
 const Loc = tokenizer_mod.Loc;
-const limits = @import("limits.zig");
 
 pub const Sema = struct {
     allocator: Allocator,

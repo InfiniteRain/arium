@@ -61,11 +61,6 @@ pub const Compiler = struct {
         break_never_pops: usize,
         loop_top: usize,
 
-        pub const CodeSnapshot = struct {
-            top: usize,
-            bottom: usize,
-        };
-
         pub const empty: Scratch = .{
             .code = .empty,
             .then_jumps = .empty,

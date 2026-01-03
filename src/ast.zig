@@ -9,9 +9,9 @@ const assert = std.debug.assert;
 
 pub const Ast = struct {
     source: []const u8,
-    nodes: MultiArrayList(Node) = .{},
-    locs: ArrayListUnmanaged(Loc) = .{},
-    extra: ArrayListUnmanaged(u32) = .{},
+    nodes: MultiArrayList(Node),
+    locs: ArrayListUnmanaged(Loc),
+    extra: ArrayListUnmanaged(u32),
 
     pub const Node = struct {
         tag: Tag,
@@ -191,6 +191,15 @@ pub const Ast = struct {
             return ast.nodes.items(.tag)[self.toInt()];
         }
     };
+
+    pub fn init(source: []const u8) Ast {
+        return .{
+            .source = source,
+            .nodes = .empty,
+            .locs = .empty,
+            .extra = .empty,
+        };
+    }
 
     pub fn deinit(self: *Ast, allocator: Allocator) void {
         self.nodes.deinit(allocator);

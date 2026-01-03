@@ -80,12 +80,17 @@ pub fn main() !void {
     var parser_diags: std.ArrayListUnmanaged(arium.Parser.Diag) = .empty;
     defer parser_diags.deinit(allocator);
 
-    var parser = arium.Parser.init(allocator);
-    defer parser.deinit();
+    var parser_scratch: arium.Parser.Scratch = .empty;
+    defer parser_scratch.deinit(allocator);
 
-    var ast = parser.parse(
+    // var parser = arium.Parser.init(allocator);
+    // defer parser.deinit();
+
+    var ast = arium.Parser.parse(
+        allocator,
         &tokenizer,
         &parser_diags,
+        &parser_scratch,
     ) catch |err| {
         for (parser_diags.items) |item| {
             std.debug.print(
@@ -95,7 +100,6 @@ pub fn main() !void {
         }
         return err;
     };
-    defer ast.deinit(allocator);
 
     // arium.debug_ast_reporter.printAstIndex(
     //     arium.Ast.Index,

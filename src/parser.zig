@@ -1,26 +1,29 @@
 const std = @import("std");
-const shared = @import("shared");
-const tokenizer_mod = @import("tokenizer.zig");
-const ast_mod = @import("ast.zig");
-
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const Tokenizer = tokenizer_mod.Tokenizer;
-const Token = tokenizer_mod.Token;
-const Loc = tokenizer_mod.Loc;
 const meta = std.meta;
 const fmt = std.fmt;
 const assert = std.debug.assert;
+
+const shared = @import("shared");
+
+const ast_mod = @import("ast.zig");
 const Ast = ast_mod.Ast;
+const fixed_array_mod = @import("fixed_array.zig");
+const FixedArray = fixed_array_mod.FixedArray;
+const tokenizer_mod = @import("tokenizer.zig");
+const Tokenizer = tokenizer_mod.Tokenizer;
+const Token = tokenizer_mod.Token;
+const Loc = tokenizer_mod.Loc;
 
 pub const Parser = struct {
     allocator: Allocator,
-    tokenizer: *Tokenizer = undefined,
-    ast: Ast = undefined,
-    prev_token: Token = undefined,
-    current_token: Token = undefined,
-    diags: *ArrayListUnmanaged(Diag) = undefined,
-    scratch: ArrayListUnmanaged(Ast.Index) = undefined,
+    tokenizer: *Tokenizer,
+    ast: Ast,
+    prev_token: Token,
+    current_token: Token,
+    diags: *ArrayListUnmanaged(Diag),
+    scratch: *Scratch,
 
     pub const Error = error{ParseFailure} || Allocator.Error;
 
@@ -42,8 +45,20 @@ pub const Parser = struct {
             invalid_assignment_target,
             invalid_token,
 
-            pub const EndTokens = [3]?Token.Tag;
+            pub const EndTokens = FixedArray(Token.Tag, 3);
         };
+    };
+
+    pub const Scratch = struct {
+        nodes: ArrayListUnmanaged(Ast.Index),
+
+        pub const empty: Scratch = .{
+            .nodes = .empty,
+        };
+
+        pub fn deinit(self: *Scratch, allocator: Allocator) void {
+            self.nodes.deinit(allocator);
+        }
     };
 
     pub const TerminationMode = enum {
@@ -51,51 +66,35 @@ pub const Parser = struct {
         newline_terminated,
     };
 
-    // todo: get rid of init and deinit
-    // todo: pass scratch as pointer to parse
-    // todo: get rid of defaults ^
-    // todo: use decl literal initialization (.default/.init)
-    // todo: use expandCapacity for lists before appending stuff to it
-    // todo: change unreachable to panic with good enough descriptions
-    // todo: use FixedArray for EndTokens
-    pub fn init(
-        allocator: Allocator,
-    ) Parser {
-        return .{
-            .allocator = allocator,
-            .scratch = .{},
-        };
-    }
-
-    pub fn deinit(self: *Parser) void {
-        self.scratch.deinit(self.allocator);
-    }
-
     pub fn parse(
-        self: *Parser,
+        allocator: Allocator,
         tokenizer: *Tokenizer,
         diags: *ArrayListUnmanaged(Diag),
+        scratch: *Scratch,
     ) Error!Ast {
-        self.tokenizer = tokenizer;
-        self.diags = diags;
-
-        self.current_token = self.nextNonCommentToken();
-        self.ast = .{
-            .source = tokenizer.source,
+        var parser = Parser{
+            .allocator = allocator,
+            .tokenizer = tokenizer,
+            .ast = .init(tokenizer.source),
+            .prev_token = undefined,
+            .current_token = undefined,
+            .diags = diags,
+            .scratch = scratch,
         };
-        errdefer self.ast.deinit(self.allocator);
 
-        try self.ast.nodes.append(self.allocator, undefined);
-        try self.ast.locs.append(self.allocator, undefined);
+        parser.current_token = parser.nextNonCommentToken();
 
-        const block, const loc = try self.parseBlockExprKey(
+        try parser.ast.nodes.append(allocator, undefined);
+        try parser.ast.locs.append(allocator, undefined);
+
+        const block, const loc = try parser.parseBlockExprKey(
             .eof,
             .{ .index = 1, .len = 0 },
         );
 
-        try self.setNode(0, block, loc);
+        try parser.setNode(0, block, loc);
 
-        return self.ast;
+        return parser.ast;
     }
 
     fn parseType(self: *Parser) Error!Ast.Index {
@@ -173,8 +172,8 @@ pub const Parser = struct {
     }
 
     fn parseFnStmt(self: *Parser) Error!Ast.Index {
-        const scratch_top = self.scratch.items.len;
-        defer self.scratch.shrinkRetainingCapacity(scratch_top);
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
         const fn_token = self.advance();
         const identifier = try self.parseIdentifier();
@@ -186,7 +185,7 @@ pub const Parser = struct {
             _ = try self.consume(.colon, .expected_colon_after_param);
             const arg_type = try self.parseType();
 
-            try self.scratch.appendSlice(self.allocator, &[_]Ast.Index{
+            try self.scratch.nodes.appendSlice(self.allocator, &[_]Ast.Index{
                 param_identifier,
                 arg_type,
             });
@@ -210,7 +209,7 @@ pub const Parser = struct {
         return try self.addNode(
             .{ .@"fn" = .{
                 .identifier = identifier,
-                .params = @ptrCast(self.scratch.items[scratch_top..]),
+                .params = @ptrCast(self.scratch.nodes.items[scratch_top..]),
                 .return_type = return_type,
                 .body = body,
             } },
@@ -466,11 +465,11 @@ pub const Parser = struct {
         var expr = try self.parsePrimaryExpr(termination);
 
         while (self.match(.left_paren, termination) != null) {
-            const scratch_top = self.scratch.items.len;
-            defer self.scratch.shrinkRetainingCapacity(scratch_top);
+            const scratch_top = self.scratch.nodes.items.len;
+            defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
             while (self.match(.right_paren, .greedy) == null) {
-                try self.scratch.append(
+                try self.scratch.nodes.append(
                     self.allocator,
                     try self.parseExpr(.greedy),
                 );
@@ -486,7 +485,7 @@ pub const Parser = struct {
                 }
             }
 
-            const args = self.scratch.items[scratch_top..];
+            const args = self.scratch.nodes.items[scratch_top..];
             const call: Ast.Key = if (args.len == 0)
                 .{ .call_simple = .{ .callee = expr, .arg = null } }
             else if (args.len == 1)
@@ -562,8 +561,8 @@ pub const Parser = struct {
         end_tokens: anytype,
         loc: Loc,
     ) Error!struct { Ast.Key, Loc } {
-        const scratch_top = self.scratch.items.len;
-        defer self.scratch.shrinkRetainingCapacity(scratch_top);
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
         if (self.match(end_tokens, .greedy)) |end_token| {
             return .{
@@ -584,7 +583,7 @@ pub const Parser = struct {
                 else => return err,
             };
 
-            try self.scratch.append(self.allocator, stmt);
+            try self.scratch.nodes.append(self.allocator, stmt);
 
             const terminator = self.matchStmtTerminator();
             ends_with_semicolon = terminator == .semicolon;
@@ -596,17 +595,14 @@ pub const Parser = struct {
 
         const end_token = try self.consume(
             end_tokens,
-            .{ .expected_end_token = shared.meta.nullableArrayFrom(
-                Diag.Tag.EndTokens,
-                end_tokens,
-            ) },
+            .{ .expected_end_token = .from(end_tokens) },
         );
 
         if (self.diags.items.len > old_errors_num) {
             return error.ParseFailure;
         }
 
-        const indexes = self.scratch.items[scratch_top..];
+        const indexes = self.scratch.nodes.items[scratch_top..];
 
         return .{
             if (ends_with_semicolon)
@@ -618,8 +614,8 @@ pub const Parser = struct {
     }
 
     fn parseIfExpr(self: *Parser) Error!Ast.Index {
-        const scratch_top = self.scratch.items.len;
-        defer self.scratch.shrinkRetainingCapacity(scratch_top);
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
         const loc = self.prev().loc;
 
@@ -663,7 +659,7 @@ pub const Parser = struct {
                         );
                     },
                     .elseif => {
-                        try self.scratch.appendSlice(
+                        try self.scratch.nodes.appendSlice(
                             self.allocator,
                             &[_]Ast.Index{ condition, body },
                         );
@@ -683,19 +679,22 @@ pub const Parser = struct {
                     then_token.loc,
                 );
 
-                try self.scratch.appendSlice(self.allocator, &[_]Ast.Index{
-                    condition, body,
-                });
+                try self.scratch.nodes.appendSlice(
+                    self.allocator,
+                    &[_]Ast.Index{ condition, body },
+                );
 
                 switch (self.prev().tag) {
                     .end => {
                         return try self.addNode(
                             .{ .if_elseif = .{
                                 .conditionals = @ptrCast(
-                                    self.scratch.items[scratch_top..],
+                                    self.scratch.nodes.items[scratch_top..],
                                 ),
                             } },
-                            loc.extend(self.scratch.getLast().toLoc(&self.ast)),
+                            loc.extend(
+                                self.scratch.nodes.getLast().toLoc(&self.ast),
+                            ),
                         );
                     },
                     .elseif => {
@@ -710,7 +709,7 @@ pub const Parser = struct {
                         return try self.addNode(
                             .{ .if_elseif_else = .{
                                 .conditionals = @ptrCast(
-                                    self.scratch.items[scratch_top..],
+                                    self.scratch.nodes.items[scratch_top..],
                                 ),
                                 .else_block = else_block,
                             } },
@@ -973,12 +972,12 @@ pub const Parser = struct {
             .if_elseif_else => |if_elseif_else| blk: {
                 const data: []const u32 = @ptrCast(if_elseif_else.conditionals);
 
-                try self.ast.extra.appendSlice(
+                try self.ast.extra.ensureUnusedCapacity(
                     self.allocator,
-                    data,
+                    data.len + 1,
                 );
-                try self.ast.extra.append(
-                    self.allocator,
+                self.ast.extra.appendSliceAssumeCapacity(data);
+                self.ast.extra.appendAssumeCapacity(
                     if_elseif_else.else_block.toInt(),
                 );
 
@@ -1005,14 +1004,12 @@ pub const Parser = struct {
                 .a = index.toInt(),
             },
             .call => |call| blk: {
-                try self.ast.extra.append(
+                try self.ast.extra.ensureUnusedCapacity(
                     self.allocator,
-                    @intCast(call.args.len),
+                    call.args.len + 1,
                 );
-                try self.ast.extra.appendSlice(
-                    self.allocator,
-                    @ptrCast(call.args),
-                );
+                self.ast.extra.appendAssumeCapacity(@intCast(call.args.len));
+                self.ast.extra.appendSliceAssumeCapacity(@ptrCast(call.args));
 
                 break :blk .{
                     .tag = .call,
@@ -1032,18 +1029,20 @@ pub const Parser = struct {
             .let => |let| try self.prepareLet(.let, let),
             .let_mut => |let| try self.prepareLet(.let_mut, let),
             .@"fn" => |@"fn"| blk: {
-                try self.ast.extra.append(
+                try self.ast.extra.ensureUnusedCapacity(
                     self.allocator,
-                    @intCast(@"fn".params.len),
+                    @"fn".params.len + 3,
                 );
-                try self.ast.extra.appendSlice(
-                    self.allocator,
+                self.ast.extra.appendAssumeCapacity(@intCast(@"fn".params.len));
+                self.ast.extra.appendSliceAssumeCapacity(
                     @ptrCast(@"fn".params),
                 );
-                try self.ast.extra.appendSlice(self.allocator, &[_]u32{
-                    @"fn".return_type.toInt(),
-                    @"fn".body.toInt(),
-                });
+                self.ast.extra.appendSliceAssumeCapacity(
+                    &[_]u32{
+                        @"fn".return_type.toInt(),
+                        @"fn".body.toInt(),
+                    },
+                );
 
                 break :blk .{
                     .tag = .@"fn",

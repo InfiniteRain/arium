@@ -7,13 +7,6 @@ pub fn FixedArray(T: type, comptime capacity: usize) type {
 
         const Self = @This();
 
-        pub fn init() Self {
-            return .{
-                .buffer = undefined,
-                .len = 0,
-            };
-        }
-
         pub fn from(value: anytype) Self {
             const Type = @TypeOf(value);
             const type_info = @typeInfo(Type);
@@ -29,7 +22,10 @@ pub fn FixedArray(T: type, comptime capacity: usize) type {
                 @compileError("not enough capacity to initialize fixed array");
             }
 
-            var array = Self.init();
+            var array: Self = .{
+                .buffer = undefined,
+                .len = 0,
+            };
             array.len = new_capacity;
 
             if (is_tuple) {
