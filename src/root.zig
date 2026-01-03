@@ -40,6 +40,7 @@ pub const Memory = memory_mod.Memory;
 pub const Object = memory_mod.Object;
 pub const CompilerNew = new_compiler_mod.Compiler;
 pub const VmNew = new_vm_mod.Vm;
+pub const VmTracer = @import("debug/vm_tracer.zig").VmTracer;
 
 test {
     _ = @import("std").testing.refAllDeclsRecursive(@This());

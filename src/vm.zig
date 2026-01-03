@@ -6,7 +6,7 @@ const debug = std.debug;
 const assert = debug.assert;
 
 const shared = @import("shared");
-const Writer = shared.Writer;
+const Output = shared.Output;
 
 const debug_mod = @import("debug.zig");
 const Mode = debug_mod.Mode;
@@ -66,7 +66,7 @@ pub const Vm = struct {
     pub fn interpret(
         memory: *Memory,
         module: *Module,
-        writer: *const Writer,
+        output: *const Output,
         diags: *Diags,
         debug_tracer_opt: ?DebugTracer,
     ) Error!void {
@@ -83,15 +83,15 @@ pub const Vm = struct {
         };
 
         if (debug_tracer_opt != null) {
-            try vm.run(writer, .debug);
+            try vm.run(output, .debug);
         } else {
-            try vm.run(writer, .release);
+            try vm.run(output, .release);
         }
     }
 
     fn run(
         self: *Vm,
-        writer: *const Writer,
+        output: *const Output,
         comptime mode: Mode,
     ) Error!void {
         const allocator = self.memory.allocator();
@@ -439,12 +439,12 @@ pub const Vm = struct {
 
                 .print_unit => {
                     _ = self.pop(mode);
-                    writer.print("unit");
+                    output.print("unit");
                 },
 
                 .print_bool => {
                     const value = self.pop(mode);
-                    writer.printf(
+                    output.printf(
                         "{s}\n",
                         .{if (value.int == 0) "false" else "true"},
                     );
@@ -452,17 +452,17 @@ pub const Vm = struct {
 
                 .print_int => {
                     const value = self.pop(mode);
-                    writer.printf("{}\n", .{value.int});
+                    output.printf("{}\n", .{value.int});
                 },
 
                 .print_float => {
                     const value = self.pop(mode);
-                    writer.printf("{d}\n", .{value.float});
+                    output.printf("{d}\n", .{value.float});
                 },
 
                 .print_fn => {
                     const value = self.pop(mode);
-                    writer.printf("<fn {}>", .{value.@"fn"});
+                    output.printf("<fn {}>", .{value.@"fn"});
                 },
 
                 .print_object => {
@@ -470,7 +470,7 @@ pub const Vm = struct {
 
                     switch (value.object.tag) {
                         .string => {
-                            writer.printf(
+                            output.printf(
                                 "{s}\n",
                                 .{value.object.as(Object.String).chars},
                             );

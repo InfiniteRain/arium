@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 
 const shared = @import("shared");
-const Writer = shared.Writer;
+const Output = shared.Output;
 
 const module_mod = @import("../module.zig");
 const OpCode = module_mod.OpCode;
@@ -14,7 +14,7 @@ const Object = memory_mod.Object;
 
 pub fn printModule(
     module: *const Module,
-    writer: *const Writer,
+    output: *const Output,
 ) void {
     var index: usize = 0;
 
@@ -29,7 +29,7 @@ pub fn printModule(
         );
         defer index += size + 8;
 
-        writer.printf(
+        output.printf(
             "=== fn: {}, locals: {}, size: {} ===\n",
             .{ index, locals_count, size },
         );
@@ -40,23 +40,23 @@ pub fn printModule(
         while (ip < offset_start + size) {
             ip += printInstruction(
                 module,
-                writer,
+                output,
                 offset_start,
                 ip,
             );
         }
 
-        writer.print("\n");
+        output.print("\n");
     }
 }
 
 pub fn printInstruction(
     module: *const Module,
-    writer: *const Writer,
+    output: *const Output,
     offset_start: usize,
     offset: usize,
 ) usize {
-    writer.printf("{:0>4} ", .{offset - offset_start});
+    output.printf("{:0>4} ", .{offset - offset_start});
 
     const op_code: OpCode = @enumFromInt(module.code.items[offset]);
 
@@ -64,13 +64,13 @@ pub fn printInstruction(
         .constant_u8 => printConstantInstructionName(
             u8,
             module,
-            writer,
+            output,
             offset,
         ),
         .constant_u16 => printConstantInstructionName(
             u16,
             module,
-            writer,
+            output,
             offset,
         ),
 
@@ -119,7 +119,7 @@ pub fn printInstruction(
         .print_object,
         .@"return",
         .pop,
-        => printInstructionName(module, writer, offset),
+        => printInstructionName(module, output, offset),
 
         .if_equal,
         .if_not_equal,
@@ -132,7 +132,7 @@ pub fn printInstruction(
         .jump,
         => printJumpInstructionName(
             module,
-            writer,
+            output,
             offset_start,
             offset,
             .positive,
@@ -141,7 +141,7 @@ pub fn printInstruction(
         .negative_jump,
         => printJumpInstructionName(
             module,
-            writer,
+            output,
             offset_start,
             offset,
             .negative,
@@ -150,7 +150,7 @@ pub fn printInstruction(
         .store_local_u8,
         .load_local_u8,
         .call,
-        => printInstructionWithArgName(u8, module, writer, offset),
+        => printInstructionWithArgName(u8, module, output, offset),
 
         _ => @panic("unknown instruction"),
     };
@@ -159,56 +159,56 @@ pub fn printInstruction(
 fn printConstantInstructionName(
     T: type,
     module: *const Module,
-    writer: *const Writer,
+    output: *const Output,
     offset: usize,
 ) usize {
     const op_code: OpCode = @enumFromInt(module.code.items[offset]);
     const index_bytes = module.code.items[offset + 1 ..][0..@sizeOf(T)];
     const index = mem.bytesToValue(T, index_bytes);
 
-    printOpCode(op_code, writer);
-    writer.printf(" {: <4} '", .{index});
+    printOpCode(op_code, output);
+    output.printf(" {: <4} '", .{index});
 
     const value = module.constants.items[index];
 
     if (module.constant_tags.items.len > 0) {
         switch (module.constant_tags.items[index]) {
-            .int => writer.printf("{}", .{value.int}),
-            .float => writer.printf("{d}", .{value.float}),
-            .bool => writer.printf("{}", .{value.bool}),
-            .@"fn" => writer.printf("<fn {}>", .{value.@"fn"}),
+            .int => output.printf("{}", .{value.int}),
+            .float => output.printf("{d}", .{value.float}),
+            .bool => output.printf("{}", .{value.bool}),
+            .@"fn" => output.printf("<fn {}>", .{value.@"fn"}),
             .object => switch (value.object.tag) {
-                .string => writer.printf(
+                .string => output.printf(
                     "{s}",
                     .{value.object.as(Object.String).chars},
                 ),
             },
         }
     } else {
-        writer.printf("{X}", .{value.int});
+        output.printf("{X}", .{value.int});
     }
 
-    writer.print("'\n");
+    output.print("'\n");
 
     return 1 + @sizeOf(T);
 }
 
 fn printInstructionName(
     module: *const Module,
-    writer: *const Writer,
+    output: *const Output,
     offset: usize,
 ) usize {
     const op_code: OpCode = @enumFromInt(module.code.items[offset]);
 
-    printOpCode(op_code, writer);
-    writer.print("\n");
+    printOpCode(op_code, output);
+    output.print("\n");
 
     return 1;
 }
 
 fn printJumpInstructionName(
     module: *const Module,
-    writer: *const Writer,
+    output: *const Output,
     offset_start: usize,
     offset: usize,
     direction: enum { positive, negative },
@@ -219,12 +219,12 @@ fn printJumpInstructionName(
         module.code.items[offset + 1 ..][0..2],
     );
 
-    printOpCode(op_code, writer);
+    printOpCode(op_code, output);
 
     if (direction == .positive) {
-        writer.printf(" to {}\n", .{(offset - offset_start) + jump_offset + 3});
+        output.printf(" to {}\n", .{(offset - offset_start) + jump_offset + 3});
     } else {
-        writer.printf(" to {}\n", .{(offset - offset_start) + 3 - jump_offset});
+        output.printf(" to {}\n", .{(offset - offset_start) + 3 - jump_offset});
     }
 
     return 3;
@@ -233,24 +233,24 @@ fn printJumpInstructionName(
 fn printInstructionWithArgName(
     T: type,
     module: *const Module,
-    writer: *const Writer,
+    output: *const Output,
     offset: usize,
 ) usize {
     const op_code: OpCode = @enumFromInt(module.code.items[offset]);
     const arg_bytes = module.code.items[offset + 1 ..][0..@sizeOf(T)];
     const arg = mem.bytesToValue(T, arg_bytes);
 
-    printOpCode(op_code, writer);
-    writer.printf(" {: <4}\n", .{arg});
+    printOpCode(op_code, output);
+    output.printf(" {: <4}\n", .{arg});
 
     return 1 + @sizeOf(T);
 }
 
-fn printOpCode(op_code: OpCode, writer: *const Writer) void {
+fn printOpCode(op_code: OpCode, output: *const Output) void {
     var fill: u8 = 24;
 
     for (@tagName(op_code)) |char| {
-        writer.printf("{c}", .{std.ascii.toUpper(char)});
+        output.printf("{c}", .{std.ascii.toUpper(char)});
 
         if (fill > 0) {
             fill -= 1;
@@ -258,6 +258,6 @@ fn printOpCode(op_code: OpCode, writer: *const Writer) void {
     }
 
     for (0..fill) |_| {
-        writer.print(" ");
+        output.print(" ");
     }
 }

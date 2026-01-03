@@ -7,7 +7,7 @@ const intern_pool_mod = @import("../intern_pool.zig");
 const ArrayList = std.ArrayList;
 const comptimePrint = std.fmt.comptimePrint;
 const meta = std.meta;
-const Writer = shared.Writer;
+const Output = shared.Output;
 const SemaExpr = sema_ast_mod.SemaExpr;
 const SemaStmt = sema_ast_mod.SemaStmt;
 const SemaType = sema_ast_mod.SemaType;
@@ -61,21 +61,21 @@ pub fn printAstIndex(
     ast: anytype,
     index: Index,
     indent_opt: ?Indent,
-    writer: *const Writer,
+    output: *const Output,
 ) void {
     const key = index.toKey(ast);
 
-    writer.printf("{s}.{s}{s}", .{ style_underline, @tagName(key), style_end });
+    output.printf("{s}.{s}{s}", .{ style_underline, @tagName(key), style_end });
 
     inline for (meta.fields(Key)) |field| {
         if (std.mem.eql(u8, field.name, @tagName(key))) {
             if (field.type != void) {
-                writer.print(" = ");
+                output.print(" = ");
             } else {
                 const str = index.toStr(ast);
 
                 if (str.len > 0) {
-                    writer.printf(" '{s}'", .{index.toStr(ast)});
+                    output.printf(" '{s}'", .{index.toStr(ast)});
                 }
             }
 
@@ -86,13 +86,13 @@ pub fn printAstIndex(
                 ast,
                 @field(key, field.name),
                 indent_opt,
-                writer,
+                output,
             );
         }
     }
 
     if (indent_opt == null) {
-        writer.print("\n");
+        output.print("\n");
     }
 }
 
@@ -103,18 +103,18 @@ pub fn printInternPoolIndex(
     ast: anytype,
     index: InternPool.Index,
     indent_opt: ?Indent,
-    writer: *const Writer,
+    output: *const Output,
 ) void {
     const key = index.toKey(intern_pool);
 
-    writer.printf(
+    output.printf(
         ".{s}",
         .{@tagName(key)},
     );
 
     inline for (meta.fields(InternPool.Key)) |field| {
         if (std.mem.eql(u8, field.name, @tagName(key))) {
-            writer.print(" = ");
+            output.print(" = ");
             printAstField(
                 Index,
                 Key,
@@ -122,7 +122,7 @@ pub fn printInternPoolIndex(
                 ast,
                 @field(key, field.name),
                 indent_opt,
-                writer,
+                output,
             );
         }
     }
@@ -135,7 +135,7 @@ fn printAstField(
     ast: anytype,
     field: anytype,
     indent_opt: ?Indent,
-    writer: *const Writer,
+    output: *const Output,
 ) void {
     const indent_ptr: ?*const Indent = if (indent_opt) |indent| &indent else null;
     const Type = @TypeOf(field);
@@ -146,12 +146,12 @@ fn printAstField(
     }
 
     if (Type == []u8 or Type == []const u8) {
-        writer.printf("\"{s}\"", .{field});
+        output.printf("\"{s}\"", .{field});
         return;
     }
 
     if (Type == Index) {
-        printAstIndex(Index, Key, intern_pool, ast, field, indent_opt, writer);
+        printAstIndex(Index, Key, intern_pool, ast, field, indent_opt, output);
         return;
     }
 
@@ -164,7 +164,7 @@ fn printAstField(
                 ast,
                 field,
                 indent_opt,
-                writer,
+                output,
             );
         } else {
             @panic("attempt to print intern pool index while being set to null");
@@ -179,16 +179,16 @@ fn printAstField(
             }
 
             if (field.len == 0) {
-                writer.print("[]");
+                output.print("[]");
                 return;
             }
 
-            writer.print("[\n");
+            output.print("[\n");
 
             for (field, 0..) |element, index| {
                 const is_last = index == field.len - 1;
 
-                printIndent(Indent.wrap(indent_ptr, is_last), writer);
+                printIndent(Indent.wrap(indent_ptr, is_last), output);
                 printAstField(
                     Index,
                     Key,
@@ -196,29 +196,29 @@ fn printAstField(
                     ast,
                     element,
                     Indent.wrapNewLevel(indent_ptr, is_last),
-                    writer,
+                    output,
                 );
-                writer.print("\n");
+                output.print("\n");
             }
 
-            printIndentNoConnect(indent_opt, writer);
-            writer.print("]");
+            printIndentNoConnect(indent_opt, output);
+            output.print("]");
         },
 
         .@"struct" => {
             const fields = meta.fields(Type);
 
             if (fields.len == 0) {
-                writer.print("{{}}");
+                output.print("{{}}");
             }
 
-            writer.print("{\n");
+            output.print("{\n");
 
             inline for (fields, 0..) |child_field, index| {
                 const is_last = index == fields.len - 1;
 
-                printIndent(Indent.wrap(indent_ptr, is_last), writer);
-                writer.printf(".{s} = ", .{child_field.name});
+                printIndent(Indent.wrap(indent_ptr, is_last), output);
+                output.printf(".{s} = ", .{child_field.name});
                 printAstField(
                     Index,
                     Key,
@@ -227,22 +227,22 @@ fn printAstField(
 
                     @field(field, child_field.name),
                     Indent.wrapNewLevel(indent_ptr, is_last),
-                    writer,
+                    output,
                 );
-                writer.print("\n");
+                output.print("\n");
             }
 
-            printIndentNoConnect(indent_opt, writer);
-            writer.print("}");
+            printIndentNoConnect(indent_opt, output);
+            output.print("}");
         },
 
         .@"enum" => {
-            writer.printf(".{s}", .{@tagName(field)});
+            output.printf(".{s}", .{@tagName(field)});
         },
 
         .optional => {
             if (field == null) {
-                writer.print("null");
+                output.print("null");
             } else {
                 printAstField(
                     Index,
@@ -251,17 +251,17 @@ fn printAstField(
                     ast,
                     field.?,
                     indent_opt,
-                    writer,
+                    output,
                 );
             }
         },
 
         .int => {
-            writer.printf("{d}", .{field});
+            output.printf("{d}", .{field});
         },
 
         .float => {
-            writer.printf("{d}", .{field});
+            output.printf("{d}", .{field});
         },
 
         else => @compileError(comptimePrint(
@@ -271,7 +271,7 @@ fn printAstField(
     }
 }
 
-pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) void {
+pub fn printAstNode(node: anytype, indent_opt: ?Indent, output: *const Output) void {
     const indent_ptr: ?*const Indent = if (indent_opt) |indent| &indent else null;
     const Type = @TypeOf(node);
     const type_info = @typeInfo(Type);
@@ -295,41 +295,41 @@ pub fn printAstNode(node: anytype, indent_opt: ?Indent, writer: *const Writer) v
     const indent_level = if (indent_opt) |indent| indent.level else 0;
     const style = styles[indent_level % styles.len];
 
-    writer.printf(
+    output.printf(
         "{s}{s}{s} {{\n",
         .{ style, shared.meta.typeName(Type), style_end },
     );
 
     inline for (child_variant.fields) |field| {
         if (!std.mem.eql(u8, field.name, "kind")) {
-            printIndent(Indent.wrap(indent_ptr, false), writer);
-            writer.printf("{s} = ", .{field.name});
-            printField(@field(node, field.name), Indent.wrap(indent_ptr, false), false, writer);
-            writer.print(",\n");
+            printIndent(Indent.wrap(indent_ptr, false), output);
+            output.printf("{s} = ", .{field.name});
+            printField(@field(node, field.name), Indent.wrap(indent_ptr, false), false, output);
+            output.print(",\n");
         }
     }
 
     const last_indent = Indent.wrap(indent_ptr, true);
 
-    printIndent(last_indent, writer);
-    writer.print("kind = ");
-    printUnion(node.kind, Indent.wrapNewLevel(indent_ptr, true), true, style, writer);
+    printIndent(last_indent, output);
+    output.print("kind = ");
+    printUnion(node.kind, Indent.wrapNewLevel(indent_ptr, true), true, style, output);
 
-    writer.print("\n");
-    printIndentNoConnect(indent_opt, writer);
-    writer.print("}");
+    output.print("\n");
+    printIndentNoConnect(indent_opt, output);
+    output.print("}");
 
     if (indent_opt == null) {
-        writer.print("\n");
+        output.print("\n");
     }
 }
 
-pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *const Writer) void {
+pub fn printField(field: anytype, indent: Indent, multiline: bool, output: *const Output) void {
     const Type = @TypeOf(field);
     const type_info = @typeInfo(Type);
 
     if (comptime shared.meta.isArrayList(Type)) {
-        printArrayList(field, indent, writer);
+        printArrayList(field, indent, output);
         return;
     }
 
@@ -339,43 +339,43 @@ pub fn printField(field: anytype, indent: Indent, multiline: bool, writer: *cons
             *const SemaExpr,
             *SemaStmt,
             *const SemaStmt,
-            => printAstNode(field, indent, writer),
+            => printAstNode(field, indent, output),
 
             else => {
-                writer.print("*");
-                printField(field.*, indent, multiline, writer);
+                output.print("*");
+                printField(field.*, indent, multiline, output);
             },
         }
         return;
     }
 
     if (Type == []u8 or Type == []const u8) {
-        writer.print(field);
+        output.print(field);
         return;
     }
 
     switch (type_info) {
         .bool,
         .int,
-        => writer.printf("{}", .{field}),
+        => output.printf("{}", .{field}),
 
         .float,
-        => writer.printf("{d}", .{field}),
+        => output.printf("{d}", .{field}),
 
         .@"union",
-        => printUnion(field, indent, false, null, writer),
+        => printUnion(field, indent, false, null, output),
 
         .@"struct",
-        => printStruct(field, indent, multiline, writer),
+        => printStruct(field, indent, multiline, output),
 
         .@"enum",
-        => printEnum(field, writer),
+        => printEnum(field, output),
 
         .optional,
         => if (field) |unwrapped| {
-            printField(unwrapped, indent, multiline, writer);
+            printField(unwrapped, indent, multiline, output);
         } else {
-            writer.print("null");
+            output.print("null");
         },
 
         else => @compileError(comptimePrint(
@@ -390,7 +390,7 @@ pub fn printUnion(
     indent: Indent,
     multiline: bool,
     style_opt: ?[]const u8,
-    writer: *const Writer,
+    output: *const Output,
 ) void {
     const Type = @TypeOf(@"union");
     const type_info = @typeInfo(Type);
@@ -403,40 +403,40 @@ pub fn printUnion(
         var last_indent = indent;
 
         if (field.type != void) {
-            writer.print("{");
+            output.print("{");
 
             if (multiline) {
                 last_indent = indent.wrap(true);
 
-                writer.print("\n");
-                printIndent(last_indent, writer);
+                output.print("\n");
+                printIndent(last_indent, output);
             } else {
-                writer.print(" ");
+                output.print(" ");
             }
         }
 
         if (style_opt) |style| {
-            writer.print(style);
+            output.print(style);
         }
 
-        writer.print(field.name);
+        output.print(field.name);
 
         if (style_opt != null) {
-            writer.print(style_end);
+            output.print(style_end);
         }
 
         if (field.type != void) {
-            writer.print(" = ");
-            printField(@field(@"union", field.name), last_indent, multiline, writer);
+            output.print(" = ");
+            printField(@field(@"union", field.name), last_indent, multiline, output);
 
             if (multiline) {
-                writer.print("\n");
-                printIndentNoConnect(indent, writer);
+                output.print("\n");
+                printIndentNoConnect(indent, output);
             } else {
-                writer.print(" ");
+                output.print(" ");
             }
 
-            writer.print("}");
+            output.print("}");
         }
     }
 }
@@ -445,105 +445,105 @@ pub fn printStruct(
     @"struct": anytype,
     indent: Indent,
     multiline: bool,
-    writer: *const Writer,
+    output: *const Output,
 ) void {
     const Type = @TypeOf(@"struct");
     const type_info = @typeInfo(Type);
 
-    writer.print("{");
+    output.print("{");
 
     inline for (type_info.@"struct".fields, 0..) |field, index| {
         const is_last = index == type_info.@"struct".fields.len - 1;
 
         if (multiline) {
-            writer.print("\n");
-            printIndent(indent.wrap(is_last), writer);
+            output.print("\n");
+            printIndent(indent.wrap(is_last), output);
         } else {
-            writer.print(" ");
+            output.print(" ");
         }
 
-        writer.printf("{s} = ", .{field.name});
+        output.printf("{s} = ", .{field.name});
         printField(
             @field(@"struct", field.name),
             indent.wrap(is_last),
             multiline,
-            writer,
+            output,
         );
 
         if (!is_last) {
-            writer.print(",");
+            output.print(",");
         }
     }
 
     if (multiline) {
-        writer.print("\n");
-        printIndentNoConnect(indent, writer);
+        output.print("\n");
+        printIndentNoConnect(indent, output);
     } else {
-        writer.print(" ");
+        output.print(" ");
     }
 
-    writer.print("}");
+    output.print("}");
 }
 
 pub fn printEnum(
     @"enum": anytype,
-    writer: *const Writer,
+    output: *const Output,
 ) void {
     const Type = @TypeOf(@"enum");
     const type_info = @typeInfo(Type);
 
     inline for (type_info.@"enum".fields) |field| {
         if (std.mem.eql(u8, @tagName(@"enum"), field.name)) {
-            writer.print(field.name);
+            output.print(field.name);
         }
     }
 }
 
-fn printArrayList(field: anytype, indent: Indent, writer: *const Writer) void {
+fn printArrayList(field: anytype, indent: Indent, output: *const Output) void {
     if (field.items.len == 0) {
-        writer.print("[]");
+        output.print("[]");
         return;
     }
 
-    writer.print("[\n");
+    output.print("[\n");
 
     for (field.items, 0..) |item, index| {
         const is_last = index == field.items.len - 1;
 
-        printIndent(indent.wrap(is_last), writer);
-        printField(item, indent.wrap(is_last), true, writer);
+        printIndent(indent.wrap(is_last), output);
+        printField(item, indent.wrap(is_last), true, output);
 
         if (!is_last) {
-            writer.print(",\n");
+            output.print(",\n");
         }
     }
 
-    writer.print("\n");
-    printIndentNoConnect(indent, writer);
-    writer.print("]");
+    output.print("\n");
+    printIndentNoConnect(indent, output);
+    output.print("]");
 }
 
-pub fn printIndentNoConnect(indent_opt: ?Indent, writer: *const Writer) void {
-    printIndentAux(indent_opt, writer, true, true);
+pub fn printIndentNoConnect(indent_opt: ?Indent, output: *const Output) void {
+    printIndentAux(indent_opt, output, true, true);
 }
 
-pub fn printIndent(indent_opt: ?Indent, writer: *const Writer) void {
-    printIndentAux(indent_opt, writer, true, false);
+pub fn printIndent(indent_opt: ?Indent, output: *const Output) void {
+    printIndentAux(indent_opt, output, true, false);
 }
 
 pub fn printIndentAux(
     indent_opt: ?Indent,
-    writer: *const Writer,
+    output: *const Output,
     is_last: bool,
     no_connect: bool,
 ) void {
     const indent = indent_opt orelse return;
 
     if (indent.prev) |prev| {
-        printIndentAux(prev.*, writer, false, false);
+        printIndentAux(prev.*, output, false, false);
     }
 
-    writer.print(
+    output.print(
         if (indent.is_last)
             if (is_last and !no_connect)
                 "└─"
