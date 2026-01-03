@@ -27,14 +27,32 @@ fn ModeValue(comptime mode: Mode) type {
 pub const Vm = struct {
     memory: *Memory,
     module: *Module,
-    debug_tracer: DebugTracer,
     ip: usize,
     lv: usize,
     lv_len: usize,
     st: ArrayListUnmanaged(Value),
     st_tags: ArrayListUnmanaged(Value.DebugTag),
+    diags: *Diags,
+    debug_tracer: DebugTracer,
 
     pub const Error = error{Panic} || Allocator.Error;
+
+    pub const Diags = struct {
+        entry: ?Entry,
+
+        pub const Entry = union(enum) {
+            stack_overflow,
+        };
+
+        pub const empty: Diags = .{
+            .entry = null,
+        };
+
+        pub fn deinit(self: *Diags, allocator: Allocator) void {
+            _ = self;
+            _ = allocator;
+        }
+    };
 
     pub const DebugTracer = struct {
         ptr: *anyopaque,
@@ -49,17 +67,19 @@ pub const Vm = struct {
         memory: *Memory,
         module: *Module,
         writer: *const Writer,
+        diags: *Diags,
         debug_tracer_opt: ?DebugTracer,
     ) Error!void {
         var vm = Vm{
             .memory = memory,
             .module = module,
-            .debug_tracer = debug_tracer_opt orelse undefined,
             .ip = undefined,
             .lv = undefined,
             .lv_len = undefined,
             .st = .empty,
             .st_tags = .empty,
+            .diags = diags,
+            .debug_tracer = debug_tracer_opt orelse undefined,
         };
 
         if (debug_tracer_opt != null) {
@@ -537,7 +557,7 @@ pub const Vm = struct {
         value: ModeValue(mode),
     ) Error!void {
         if (self.st.items.len == self.st.capacity) {
-            return error.Panic; // todo: proper error handling
+            return self.panic(.stack_overflow);
         }
 
         self.pushAssumeCapacity(mode, value);
@@ -564,7 +584,7 @@ pub const Vm = struct {
         n: usize,
     ) Error!void {
         if (self.st.items.len + n > self.st.capacity) {
-            return error.Panic; // todo: proper error handling
+            return self.panic(.stack_overflow);
         }
 
         self.pushNTimesAssumeCapacity(mode, value, n);
@@ -603,7 +623,7 @@ pub const Vm = struct {
 
     fn ensureUnusedCapacity(self: *Vm, additional_count: usize) Error!void {
         if (self.st.items.len + additional_count > self.st.capacity) {
-            return error.Panic; // todo: proper error handling
+            return self.panic(.stack_overflow);
         }
     }
 
@@ -663,5 +683,10 @@ pub const Vm = struct {
         };
         self.ip += 2;
         return @bitCast(bytes);
+    }
+
+    fn panic(self: *Vm, diag: Diags.Entry) error{Panic} {
+        self.diags.entry = diag;
+        return error.Panic;
     }
 };

@@ -26,8 +26,8 @@ pub const Sema = struct {
     intern_pool: *InternPool,
     ast: *const Ast,
     air: *Air,
-    diags: *ArrayListUnmanaged(Diag),
-    scratch: *ArrayListUnmanaged(u32),
+    diags: *Diags,
+    scratch: *Scratch,
 
     scope: Scope,
     loop_mode: LoopMode,
@@ -36,41 +36,65 @@ pub const Sema = struct {
 
     pub const Error = error{AnalyzeFailure} || Allocator.Error;
 
-    pub const Diag = struct {
-        tag: Tag,
-        loc: Loc,
+    pub const Diags = struct {
+        entries: ArrayListUnmanaged(Entry),
 
-        const Tag = union(enum) {
-            unexpected_expr_type: ExprTypeMismatch,
-            integer_overflow,
-            undeclared_identifier,
-            too_many_locals,
-            unassigned_variable,
-            immutable_mutation: Loc,
-            unreachable_stmt,
-            break_outside_loop,
-            continue_outside_loop,
-            not_all_branches_return,
-            non_callable_call,
-            arity_mismatch: ArityMismatch,
-            unexpected_arg_type: ArgTypeMismatch,
+        pub const Entry = struct {
+            tag: Tag,
+            loc: Loc,
 
-            pub const ExprTypeMismatch = struct {
-                expected: TypeArray,
-                actual: InternPool.Index,
-            };
+            const Tag = union(enum) {
+                unexpected_expr_type: ExprTypeMismatch,
+                integer_overflow,
+                undeclared_identifier,
+                too_many_locals,
+                unassigned_variable,
+                immutable_mutation: Loc,
+                unreachable_stmt,
+                break_outside_loop,
+                continue_outside_loop,
+                not_all_branches_return,
+                non_callable_call,
+                arity_mismatch: ArityMismatch,
+                unexpected_arg_type: ArgTypeMismatch,
 
-            pub const ArityMismatch = struct {
-                expected: usize,
-                actual: usize,
-            };
+                pub const ExprTypeMismatch = struct {
+                    expected: TypeArray,
+                    actual: InternPool.Index,
+                };
 
-            pub const ArgTypeMismatch = struct {
-                index: usize,
-                expected: InternPool.Index,
-                actual: InternPool.Index,
+                pub const ArityMismatch = struct {
+                    expected: usize,
+                    actual: usize,
+                };
+
+                pub const ArgTypeMismatch = struct {
+                    index: usize,
+                    expected: InternPool.Index,
+                    actual: InternPool.Index,
+                };
             };
         };
+
+        pub const empty: Diags = .{
+            .entries = .empty,
+        };
+
+        pub fn deinit(self: *Diags, allocator: Allocator) void {
+            self.entries.deinit(allocator);
+        }
+    };
+
+    pub const Scratch = struct {
+        nodes: ArrayListUnmanaged(u32),
+
+        pub const empty: Scratch = .{
+            .nodes = .empty,
+        };
+
+        pub fn deinit(self: *Scratch, allocator: Allocator) void {
+            self.nodes.deinit(allocator);
+        }
     };
 
     const TypeArray = FixedArray(InternPool.Index, 2);
@@ -229,10 +253,10 @@ pub const Sema = struct {
         allocator: Allocator,
         intern_pool: *InternPool,
         ast: *const Ast,
-        diags: *ArrayListUnmanaged(Diag),
-        scratch: *ArrayListUnmanaged(u32),
+        diags: *Diags,
+        scratch: *Scratch,
     ) Error!Air {
-        const diags_top = diags.items.len;
+        const diags_top = diags.entries.items.len;
         var air: Air = .empty;
 
         var scope = Scope.init();
@@ -285,7 +309,7 @@ pub const Sema = struct {
             .from(0),
         );
 
-        if (diags.items.len > diags_top) {
+        if (diags.entries.items.len > diags_top) {
             return error.AnalyzeFailure;
         }
 
@@ -465,20 +489,20 @@ pub const Sema = struct {
         return_type: TypeReference,
         body: Ast.Index,
     ) Error!Air.Key {
-        const scratch_top = self.scratch.items.len;
-        defer self.scratch.shrinkRetainingCapacity(scratch_top);
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
         const id = self.next_fn_id;
 
         self.next_fn_id += 1;
-        try self.scratch.ensureUnusedCapacity(self.allocator, args.len);
+        try self.scratch.nodes.ensureUnusedCapacity(self.allocator, args.len);
 
         for (args) |arg| {
             const arg_type_local =
                 self.resolveComptimeIdentifier(arg.type) catch
                     return .{ .constant = .invalid };
 
-            try self.scratch.append(
+            try self.scratch.nodes.append(
                 self.allocator,
                 arg_type_local.toItem(&self.scope, .type).toInt(),
             );
@@ -498,7 +522,9 @@ pub const Sema = struct {
             self.allocator,
             .{
                 .type_fn = .{
-                    .arg_types = @ptrCast(self.scratch.items[scratch_top..]),
+                    .arg_types = @ptrCast(
+                        self.scratch.nodes.items[scratch_top..],
+                    ),
                     .return_type = return_type_index,
                 },
             },
@@ -549,7 +575,7 @@ pub const Sema = struct {
                 },
             });
 
-            for (args, self.scratch.items[scratch_top..]) |arg, type_idx| {
+            for (args, self.scratch.nodes.items[scratch_top..]) |arg, type_idx| {
                 try self.scope.append(self.allocator, .{
                     .name = .from(arg.identifier),
                     .type = .from(type_idx),
@@ -924,8 +950,8 @@ pub const Sema = struct {
         value_usage: ValueUsage,
         force_append_unit_mode: ForceAppendUnitMode,
     ) Error!Air.Index {
-        const scratch_top = self.scratch.items.len;
-        defer self.scratch.shrinkRetainingCapacity(scratch_top);
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
         const scope_snapshot = self.scope.snapshot();
         defer self.scope.restore(scope_snapshot, .no_reset_max);
@@ -950,7 +976,7 @@ pub const Sema = struct {
                     error.AnalyzeFailure => continue,
                     else => return err,
                 };
-            try self.scratch.append(self.allocator, sema_stmt.toInt());
+            try self.scratch.nodes.append(self.allocator, sema_stmt.toInt());
 
             if (sema_stmt.toType(self.air, self.intern_pool) == .type_never) {
                 is_last_stmt_never = true;
@@ -965,10 +991,10 @@ pub const Sema = struct {
             }
         }
 
-        const is_block_empty = scratch_top == self.scratch.items.len;
+        const is_block_empty = scratch_top == self.scratch.nodes.items.len;
         const last_stmt_opt =
             if (!is_block_empty)
-                Air.Index.from(self.scratch.getLast())
+                Air.Index.from(self.scratch.nodes.getLast())
             else
                 null;
         const is_last_stmt_not_expr =
@@ -997,11 +1023,11 @@ pub const Sema = struct {
                     .{ .value_simple = .unit },
                 ),
             });
-            try self.scratch.append(self.allocator, unit_node.toInt());
+            try self.scratch.nodes.append(self.allocator, unit_node.toInt());
         }
 
         return try self.addNode(.{
-            .block = @ptrCast(self.scratch.items[scratch_top..]),
+            .block = @ptrCast(self.scratch.nodes.items[scratch_top..]),
         });
     }
 
@@ -1384,10 +1410,13 @@ pub const Sema = struct {
             return self.addInvalidNode();
         }
 
-        const scratch_top = self.scratch.items.len;
-        defer self.scratch.shrinkRetainingCapacity(scratch_top);
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
-        try self.scratch.ensureUnusedCapacity(self.allocator, arg_types.len);
+        try self.scratch.nodes.ensureUnusedCapacity(
+            self.allocator,
+            arg_types.len,
+        );
 
         for (arg_types, args, 0..) |arg_type, arg, index| {
             const expr = try self.analyzeExpr(arg, .use);
@@ -1402,14 +1431,14 @@ pub const Sema = struct {
                 return self.addInvalidNode();
             }
 
-            self.scratch.appendAssumeCapacity(expr.toInt());
+            self.scratch.nodes.appendAssumeCapacity(expr.toInt());
         }
 
         return try self.addNode(
             switch (arg_types.len) {
                 else => .{ .call = .{
                     .callee = callee,
-                    .args = @ptrCast(self.scratch.items[scratch_top..]),
+                    .args = @ptrCast(self.scratch.nodes.items[scratch_top..]),
                 } },
             },
         );
@@ -1795,7 +1824,14 @@ pub const Sema = struct {
         };
     }
 
-    fn addDiag(self: *const Sema, diag: Diag.Tag, loc: Loc) Allocator.Error!void {
-        try self.diags.append(self.allocator, .{ .tag = diag, .loc = loc });
+    fn addDiag(
+        self: *const Sema,
+        diag: Diags.Entry.Tag,
+        loc: Loc,
+    ) Allocator.Error!void {
+        try self.diags.entries.append(
+            self.allocator,
+            .{ .tag = diag, .loc = loc },
+        );
     }
 };

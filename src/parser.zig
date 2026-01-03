@@ -22,31 +22,43 @@ pub const Parser = struct {
     ast: Ast,
     prev_token: Token,
     current_token: Token,
-    diags: *ArrayListUnmanaged(Diag),
+    diags: *Diags,
     scratch: *Scratch,
 
     pub const Error = error{ParseFailure} || Allocator.Error;
 
-    pub const Diag = struct {
-        tag: Tag,
-        loc: Loc,
+    pub const Diags = struct {
+        entries: ArrayListUnmanaged(Entry),
 
-        pub const Tag = union(enum) {
-            expected_end_token: EndTokens,
-            expected_expression,
-            expected_token_after_condition: Token.Tag,
-            expected_identifier,
-            expected_right_paren_after_args,
-            expected_left_paren_before_params,
-            expected_right_paren_after_params,
-            expected_colon_after_params,
-            expected_colon_after_param,
-            expected_right_paren_after_expr,
-            invalid_assignment_target,
-            invalid_token,
+        pub const Entry = struct {
+            tag: Tag,
+            loc: Loc,
 
-            pub const EndTokens = FixedArray(Token.Tag, 3);
+            pub const Tag = union(enum) {
+                expected_end_token: EndTokens,
+                expected_expression,
+                expected_token_after_condition: Token.Tag,
+                expected_identifier,
+                expected_right_paren_after_args,
+                expected_left_paren_before_params,
+                expected_right_paren_after_params,
+                expected_colon_after_params,
+                expected_colon_after_param,
+                expected_right_paren_after_expr,
+                invalid_assignment_target,
+                invalid_token,
+
+                pub const EndTokens = FixedArray(Token.Tag, 3);
+            };
         };
+
+        pub const empty: Diags = .{
+            .entries = .empty,
+        };
+
+        pub fn deinit(self: *Diags, allocator: Allocator) void {
+            self.entries.deinit(allocator);
+        }
     };
 
     pub const Scratch = struct {
@@ -69,7 +81,7 @@ pub const Parser = struct {
     pub fn parse(
         allocator: Allocator,
         tokenizer: *Tokenizer,
-        diags: *ArrayListUnmanaged(Diag),
+        diags: *Diags,
         scratch: *Scratch,
     ) Error!Ast {
         var parser = Parser{
@@ -571,7 +583,7 @@ pub const Parser = struct {
             };
         }
 
-        const old_errors_num = self.diags.items.len;
+        const old_errors_num = self.diags.entries.items.len;
         var ends_with_semicolon = false;
 
         while (self.peek().tag != .eof) {
@@ -598,7 +610,7 @@ pub const Parser = struct {
             .{ .expected_end_token = .from(end_tokens) },
         );
 
-        if (self.diags.items.len > old_errors_num) {
+        if (self.diags.entries.items.len > old_errors_num) {
             return error.ParseFailure;
         }
 
@@ -801,7 +813,11 @@ pub const Parser = struct {
         return null;
     }
 
-    fn consume(self: *Parser, tokens: anytype, diag: Diag.Tag) Error!Token {
+    fn consume(
+        self: *Parser,
+        tokens: anytype,
+        diag: Diags.Entry.Tag,
+    ) Error!Token {
         if (self.check(tokens)) {
             return self.advance();
         }
@@ -1097,7 +1113,14 @@ pub const Parser = struct {
         };
     }
 
-    fn addDiag(self: *Parser, diag: Diag.Tag, loc: Loc) Allocator.Error!void {
-        try self.diags.append(self.allocator, .{ .tag = diag, .loc = loc });
+    fn addDiag(
+        self: *Parser,
+        diag: Diags.Entry.Tag,
+        loc: Loc,
+    ) Allocator.Error!void {
+        try self.diags.entries.append(
+            self.allocator,
+            .{ .tag = diag, .loc = loc },
+        );
     }
 };

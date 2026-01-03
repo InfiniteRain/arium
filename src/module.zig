@@ -2,15 +2,16 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const math = std.math;
 
+const debug_mod = @import("debug.zig");
+const Mode = debug_mod.Mode;
 const limits = @import("limits.zig");
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const TaggedValue = memory_mod.TaggedValue;
 const Object = memory_mod.Object;
 const Memory = memory_mod.Memory;
-const debug_mod = @import("debug.zig");
-const Mode = debug_mod.Mode;
 
 pub const OpCode = enum(u8) {
     constant_u8,
@@ -125,9 +126,10 @@ pub const Module = struct {
         allocator: Allocator,
         locals_count: u32,
         body: []const u8,
-    ) Allocator.Error!u64 {
-        // todo: limits errors
-        // todo: should local_count be 4 bytes?
+    ) (Allocator.Error || error{BodyTooBig})!u64 {
+        if (body.len > math.maxInt(u32)) {
+            return error.BodyTooBig;
+        }
 
         const locals_count_bytes: [4]u8 = @bitCast(locals_count);
         const len: u32 = @intCast(body.len);

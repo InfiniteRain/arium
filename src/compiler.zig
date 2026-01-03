@@ -29,26 +29,27 @@ pub const Compiler = struct {
     module: *Module,
     intern_pool: *const InternPool,
     air: *const Air,
-    diags: *ArrayListUnmanaged(Diag),
+    diags: *Diags,
     scratch: *Scratch,
     mode: Mode,
 
     pub const Error = error{CompileFailure} || Allocator.Error;
 
-    pub const Diag = union(enum) {
-        too_many_constants,
-        jump_too_big,
-    };
+    pub const Diags = struct {
+        entries: ArrayListUnmanaged(Entry),
 
-    pub const DebugInfo = struct {
-        constants: ArrayListUnmanaged(Value.DebugTag),
-
-        pub const empty = DebugInfo{
-            .constants = .empty,
+        pub const Entry = union(enum) {
+            too_many_constants,
+            jump_too_big,
+            fn_body_too_big,
         };
 
-        pub fn deinit(self: *DebugInfo, allocator: Allocator) void {
-            self.constants.deinit(allocator);
+        pub const empty: Diags = .{
+            .entries = .empty,
+        };
+
+        pub fn deinit(self: *Diags, allocator: Allocator) void {
+            self.entries.deinit(allocator);
         }
     };
 
@@ -79,6 +80,18 @@ pub const Compiler = struct {
         }
     };
 
+    pub const DebugInfo = struct {
+        constants: ArrayListUnmanaged(Value.DebugTag),
+
+        pub const empty = DebugInfo{
+            .constants = .empty,
+        };
+
+        pub fn deinit(self: *DebugInfo, allocator: Allocator) void {
+            self.constants.deinit(allocator);
+        }
+    };
+
     const ValueUsage = enum {
         use,
         discard,
@@ -90,7 +103,7 @@ pub const Compiler = struct {
         air_fn: Air.Index,
         intern_pool: *const InternPool,
         air: *const Air,
-        diags: *ArrayListUnmanaged(Diag),
+        diags: *Diags,
         scratch: *Scratch,
         mode: Mode,
     ) Error!Module {
@@ -196,11 +209,14 @@ pub const Compiler = struct {
         try self.compileExpr(air_fn.body, .discard);
         try self.writeU8(.{ .constant_int_0, .@"return" });
 
-        return try self.module.writeFn(
+        return self.module.writeFn(
             self.allocator,
             air_fn.locals_count,
             self.scratch.code.items[code_scratch_top..],
-        );
+        ) catch |err| switch (err) {
+            error.BodyTooBig => self.compilerError(.fn_body_too_big),
+            else => |compiler_error| compiler_error,
+        };
     }
 
     fn compileExpr(
@@ -934,8 +950,8 @@ pub const Compiler = struct {
         }
     }
 
-    fn compilerError(self: *Compiler, diag: Diag) Error {
-        try self.diags.append(self.allocator, diag);
+    fn compilerError(self: *Compiler, diag: Diags.Entry) Error {
+        try self.diags.entries.append(self.allocator, diag);
         return error.CompileFailure;
     }
 

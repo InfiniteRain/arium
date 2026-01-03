@@ -77,14 +77,11 @@ pub fn main() !void {
 
     var tokenizer = arium.Tokenizer.init(source);
 
-    var parser_diags: std.ArrayListUnmanaged(arium.Parser.Diag) = .empty;
+    var parser_diags: arium.Parser.Diags = .empty;
     defer parser_diags.deinit(allocator);
 
     var parser_scratch: arium.Parser.Scratch = .empty;
     defer parser_scratch.deinit(allocator);
-
-    // var parser = arium.Parser.init(allocator);
-    // defer parser.deinit();
 
     var ast = arium.Parser.parse(
         allocator,
@@ -92,7 +89,7 @@ pub fn main() !void {
         &parser_diags,
         &parser_scratch,
     ) catch |err| {
-        for (parser_diags.items) |item| {
+        for (parser_diags.entries.items) |item| {
             std.debug.print(
                 "{any} in '{s}'\n",
                 .{ item.tag, source[item.loc.index..][0..item.loc.len] },
@@ -113,20 +110,20 @@ pub fn main() !void {
 
     var intern_pool = try arium.InternPool.init(allocator);
 
-    var sema_diags: std.ArrayListUnmanaged(arium.SemaNew.Diag) = .empty;
+    var sema_diags: arium.SemaNew.Diags = .empty;
     defer sema_diags.deinit(allocator);
 
-    var scratch: std.ArrayListUnmanaged(u32) = .empty;
-    defer scratch.deinit(allocator);
+    var sema_scratch: arium.SemaNew.Scratch = .empty;
+    defer sema_scratch.deinit(allocator);
 
     var air = arium.SemaNew.analyze(
         allocator,
         &intern_pool,
         &ast,
         &sema_diags,
-        &scratch,
+        &sema_scratch,
     ) catch |err| {
-        for (sema_diags.items) |item| {
+        for (sema_diags.entries.items) |item| {
             std.debug.print(
                 "{any} in '{s}'\n",
                 .{ item.tag, source[item.loc.index..][0..item.loc.len] },
@@ -159,7 +156,7 @@ pub fn main() !void {
     var memory = arium.Memory.init(allocator);
     defer memory.deinit();
 
-    var compiler_diags: std.ArrayListUnmanaged(arium.CompilerNew.Diag) = .empty;
+    var compiler_diags: arium.CompilerNew.Diags = .empty;
     defer compiler_diags.deinit(allocator);
 
     var compiler_scratch: arium.CompilerNew.Scratch = .empty;
@@ -181,11 +178,14 @@ pub fn main() !void {
 
     // var vm_tracer = VmTracer.init(allocator, &stdout_writer);
 
+    var vm_diags: arium.VmNew.Diags = .empty;
+    defer vm_diags.deinit(allocator);
+
     try arium.VmNew.interpret(
         &memory,
         &module,
         &writer,
-        // vm_tracer.debugTracer(),
+        &vm_diags,
         null,
     );
 }
