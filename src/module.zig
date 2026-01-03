@@ -13,7 +13,8 @@ const debug_mod = @import("debug.zig");
 const Mode = debug_mod.Mode;
 
 pub const OpCode = enum(u8) {
-    constant,
+    constant_u8,
+    constant_u16,
     constant_int_n1,
     constant_int_0,
     constant_int_1,
@@ -25,13 +26,13 @@ pub const OpCode = enum(u8) {
     constant_float_1,
     constant_float_2,
 
-    store_local,
+    store_local_u8,
     store_local_0,
     store_local_1,
     store_local_2,
     store_local_3,
     store_local_4,
-    load_local,
+    load_local_u8,
     load_local_0,
     load_local_1,
     load_local_2,
@@ -103,7 +104,7 @@ pub const Module = struct {
         comptime mode: Mode,
         allocator: Allocator,
         constant: if (mode == .debug) TaggedValue else Value,
-    ) (error{TooManyConstants} || Allocator.Error)!u8 {
+    ) (error{TooManyConstants} || Allocator.Error)!usize {
         if (self.constants.items.len == limits.max_constants) {
             return error.TooManyConstants;
         }
@@ -116,7 +117,7 @@ pub const Module = struct {
             try self.constants.append(allocator, constant);
         }
 
-        return @intCast(self.constants.items.len - 1);
+        return self.constants.items.len - 1;
     }
 
     pub fn writeFn(
@@ -126,6 +127,7 @@ pub const Module = struct {
         body: []const u8,
     ) Allocator.Error!u64 {
         // todo: limits errors
+        // todo: should local_count be 4 bytes?
 
         const locals_count_bytes: [4]u8 = @bitCast(locals_count);
         const len: u32 = @intCast(body.len);

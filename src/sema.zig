@@ -541,6 +541,17 @@ pub const Sema = struct {
 
             self.fn_return_type = return_type_index;
 
+            try self.scope.append(self.allocator, .{
+                .name = fn_name,
+                .type = fn_type,
+                .flags = .{
+                    .mutability = .immutable,
+                    .assignment = .assigned,
+                    .eval_time = .runtime,
+                    .type_hood = .not_type,
+                },
+            });
+
             for (args, self.scratch.items[scratch_top..]) |arg, type_idx| {
                 try self.scope.append(self.allocator, .{
                     .name = .from(arg.identifier),

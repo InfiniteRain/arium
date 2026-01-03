@@ -54,7 +54,6 @@ pub const Compiler = struct {
 
     pub const Scratch = struct {
         code: ArrayListUnmanaged(u8),
-        code_bottom: usize,
         then_jumps: ArrayListUnmanaged(usize),
         else_jumps: ArrayListUnmanaged(usize),
         last_jump: usize,
@@ -69,7 +68,6 @@ pub const Compiler = struct {
 
         pub const empty: Scratch = .{
             .code = .empty,
-            .code_bottom = 0,
             .then_jumps = .empty,
             .else_jumps = .empty,
             .last_jump = undefined,
@@ -83,18 +81,6 @@ pub const Compiler = struct {
             self.then_jumps.deinit(allocator);
             self.else_jumps.deinit(allocator);
             self.break_jumps.deinit(allocator);
-        }
-
-        pub fn code_snapshot(self: *const Scratch) CodeSnapshot {
-            return .{
-                .top = self.code.items.len,
-                .bottom = self.code_bottom,
-            };
-        }
-
-        pub fn code_restore(self: *Scratch, snap: CodeSnapshot) void {
-            self.code.shrinkRetainingCapacity(snap.top);
-            self.code_bottom = snap.bottom;
         }
     };
 
@@ -192,7 +178,7 @@ pub const Compiler = struct {
             3 => try self.writeU8(.store_local_3),
             4 => try self.writeU8(.store_local_4),
             else => {
-                try self.writeU8(.store_local);
+                try self.writeU8(.store_local_u8);
                 try self.writeU8(index_u8);
             },
         }
@@ -209,9 +195,8 @@ pub const Compiler = struct {
         self: *Compiler,
         air_fn: Air.Key.Fn,
     ) Error!u64 {
-        const code_scratch_snap = self.scratch.code_snapshot();
-        self.scratch.code_bottom = code_scratch_snap.top;
-        defer self.scratch.code_restore(code_scratch_snap);
+        const code_scratch_top = self.scratch.code.items.len;
+        defer self.scratch.code.shrinkRetainingCapacity(code_scratch_top);
 
         try self.compileExpr(air_fn.body, .discard);
         try self.writeU8(.{ .constant_int_0, .@"return" });
@@ -219,7 +204,7 @@ pub const Compiler = struct {
         return try self.module.writeFn(
             self.allocator,
             air_fn.locals_count,
-            self.scratch.code.items[code_scratch_snap.top..],
+            self.scratch.code.items[code_scratch_top..],
         );
     }
 
@@ -536,7 +521,7 @@ pub const Compiler = struct {
             3 => try self.writeU8(.load_local_3),
             4 => try self.writeU8(.load_local_4),
             else => {
-                try self.writeU8(.load_local);
+                try self.writeU8(.load_local_u8);
                 try self.writeU8(index);
             },
         }
@@ -814,6 +799,7 @@ pub const Compiler = struct {
         self.scratch.break_never_pops -= call.args.len + 1;
 
         try self.writeU8(.call);
+        try self.writeU8(@as(u8, @intCast(call.args.len)));
 
         if (value_usage == .discard) {
             try self.writeU8(.pop);
@@ -893,7 +879,13 @@ pub const Compiler = struct {
             else => |alloc_err| return alloc_err,
         };
 
-        try self.writeU8(.{ .constant, index });
+        if (index <= math.maxInt(u8)) {
+            try self.writeU8(.constant_u8);
+            try self.writeU8(@as(u8, @intCast(index)));
+        } else {
+            try self.writeU8(.constant_u16);
+            try self.writeU16(@intCast(index));
+        }
     }
 
     fn writeJump(
@@ -912,8 +904,7 @@ pub const Compiler = struct {
         self: *Compiler,
         offset: usize,
     ) Error!void {
-        const jump = (self.scratch.code.items.len - self.scratch.code_bottom) -
-            offset + 3;
+        const jump = self.scratch.code.items.len - offset + 3;
 
         if (jump > math.maxInt(u16)) {
             return self.compilerError(.jump_too_big);
@@ -927,8 +918,7 @@ pub const Compiler = struct {
         self: *Compiler,
         offset: usize,
     ) Error!void {
-        const jump = (self.scratch.code.items.len - self.scratch.code_bottom) -
-            offset - 2;
+        const jump = self.scratch.code.items.len - offset - 2;
 
         if (jump > math.maxInt(u16)) {
             return self.compilerError(.jump_too_big);

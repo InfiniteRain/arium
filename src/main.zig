@@ -94,15 +94,15 @@ pub fn main() !void {
     };
     defer ast.deinit(allocator);
 
-    arium.debug_ast_reporter.printAstIndex(
-        arium.Ast.Index,
-        arium.Ast.Key,
-        null,
-        &ast,
-        arium.Ast.Index.from(0),
-        null,
-        &stdout_writer,
-    );
+    // arium.debug_ast_reporter.printAstIndex(
+    //     arium.Ast.Index,
+    //     arium.Ast.Key,
+    //     null,
+    //     &ast,
+    //     arium.Ast.Index.from(0),
+    //     null,
+    //     &stdout_writer,
+    // );
 
     var intern_pool = try arium.InternPool.init(allocator);
 
@@ -139,15 +139,15 @@ pub fn main() !void {
 
     const root = arium.Air.Index.from(0);
 
-    arium.debug_ast_reporter.printAstIndex(
-        arium.Air.Index,
-        arium.Air.Key,
-        &intern_pool,
-        &air,
-        root,
-        null,
-        &stdout_writer,
-    );
+    // arium.debug_ast_reporter.printAstIndex(
+    //     arium.Air.Index,
+    //     arium.Air.Key,
+    //     &intern_pool,
+    //     &air,
+    //     root,
+    //     null,
+    //     &stdout_writer,
+    // );
 
     var memory = arium.Memory.init(allocator);
     defer memory.deinit();
@@ -177,6 +177,7 @@ pub fn main() !void {
     try arium.VmNew.interpret(
         &memory,
         &module,
+        &stdout_writer,
         // vm_tracer.debugTracer(),
         null,
     );

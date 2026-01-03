@@ -61,7 +61,14 @@ pub fn printInstruction(
     const op_code: OpCode = @enumFromInt(module.code.items[offset]);
 
     return switch (op_code) {
-        .constant => printConstantInstructionName(
+        .constant_u8 => printConstantInstructionName(
+            u8,
+            module,
+            writer,
+            offset,
+        ),
+        .constant_u16 => printConstantInstructionName(
+            u16,
             module,
             writer,
             offset,
@@ -140,22 +147,24 @@ pub fn printInstruction(
             .negative,
         ),
 
-        .store_local,
-        .load_local,
+        .store_local_u8,
+        .load_local_u8,
         .call,
-        => printByteInstructionName(module, writer, offset),
+        => printInstructionWithArgName(u8, module, writer, offset),
 
         _ => @panic("unknown instruction"),
     };
 }
 
 fn printConstantInstructionName(
+    T: type,
     module: *const Module,
     writer: *const Writer,
     offset: usize,
 ) usize {
     const op_code: OpCode = @enumFromInt(module.code.items[offset]);
-    const index = module.code.items[offset + 1];
+    const index_bytes = module.code.items[offset + 1 ..][0..@sizeOf(T)];
+    const index = mem.bytesToValue(T, index_bytes);
 
     printOpCode(op_code, writer);
     writer.printf(" {: <4} '", .{index});
@@ -181,7 +190,7 @@ fn printConstantInstructionName(
 
     writer.print("'\n");
 
-    return 2;
+    return 1 + @sizeOf(T);
 }
 
 fn printInstructionName(
@@ -221,18 +230,20 @@ fn printJumpInstructionName(
     return 3;
 }
 
-fn printByteInstructionName(
+fn printInstructionWithArgName(
+    T: type,
     module: *const Module,
     writer: *const Writer,
     offset: usize,
 ) usize {
     const op_code: OpCode = @enumFromInt(module.code.items[offset]);
-    const arg = module.code.items[offset + 1];
+    const arg_bytes = module.code.items[offset + 1 ..][0..@sizeOf(T)];
+    const arg = mem.bytesToValue(T, arg_bytes);
 
     printOpCode(op_code, writer);
     writer.printf(" {: <4}\n", .{arg});
 
-    return 2;
+    return 1 + @sizeOf(T);
 }
 
 fn printOpCode(op_code: OpCode, writer: *const Writer) void {

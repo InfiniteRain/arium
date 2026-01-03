@@ -8,6 +8,9 @@ const assert = debug.assert;
 const shared = @import("shared");
 const Writer = shared.Writer;
 
+const debug_mod = @import("debug.zig");
+const Mode = debug_mod.Mode;
+const limits = @import("limits.zig");
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const TaggedValue = memory_mod.TaggedValue;
@@ -16,8 +19,6 @@ const Memory = memory_mod.Memory;
 const module_mod = @import("module.zig");
 const Module = module_mod.Module;
 const OpCode = module_mod.OpCode;
-const debug_mod = @import("debug.zig");
-const Mode = debug_mod.Mode;
 
 fn ModeValue(comptime mode: Mode) type {
     return if (mode == .debug) TaggedValue else Value;
@@ -29,6 +30,7 @@ pub const Vm = struct {
     debug_tracer: DebugTracer,
     ip: usize,
     lv: usize,
+    lv_len: usize,
     st: ArrayListUnmanaged(Value),
     st_tags: ArrayListUnmanaged(Value.DebugTag),
 
@@ -46,6 +48,7 @@ pub const Vm = struct {
     pub fn interpret(
         memory: *Memory,
         module: *Module,
+        writer: *const Writer,
         debug_tracer_opt: ?DebugTracer,
     ) Error!void {
         var vm = Vm{
@@ -54,50 +57,57 @@ pub const Vm = struct {
             .debug_tracer = debug_tracer_opt orelse undefined,
             .ip = undefined,
             .lv = undefined,
+            .lv_len = undefined,
             .st = .empty,
             .st_tags = .empty,
         };
 
         if (debug_tracer_opt != null) {
-            try vm.run(.debug);
+            try vm.run(writer, .debug);
         } else {
-            try vm.run(.release);
+            try vm.run(writer, .release);
         }
     }
 
     fn run(
         self: *Vm,
+        writer: *const Writer,
         comptime mode: Mode,
     ) Error!void {
         const allocator = self.memory.allocator();
-
         const main = self.module.main.?;
-        const locals_count_bytes = mem.bytesToValue(
-            [4]u8,
-            self.module.code.items[main..][0..4],
-        );
-        const locals_count: u32 = @bitCast(locals_count_bytes);
 
         self.ip = main + 8;
         self.lv = 0;
-        self.st = try .initCapacity(allocator, 1_000_000); // todo: extract
+        self.lv_len = mem.bytesToValue(
+            u32,
+            self.module.code.items[main..][0..4],
+        );
+        self.st = try .initCapacity(allocator, limits.max_constants);
 
         if (mode == .debug) {
             self.st_tags = try .initCapacity(allocator, self.st.capacity);
         }
 
-        try self.pushNTimes(mode, .{ .int = 0 }, locals_count);
+        try self.push(mode, .{ .@"fn" = main });
+        try self.pushNTimes(mode, .{ .int = 0 }, self.lv_len - 1);
 
         while (true) {
             if (mode == .debug) {
+                assert(self.st.items.len == self.st_tags.items.len);
                 self.debug_tracer.vtable.step(self.debug_tracer.ptr, self);
             }
 
             const op_code = self.readOpCode();
 
             switch (op_code) {
-                .constant => {
+                .constant_u8 => {
                     const index = self.readU8();
+                    try self.push(mode, self.constant(mode, index));
+                },
+
+                .constant_u16 => {
+                    const index = self.readU16();
                     try self.push(mode, self.constant(mode, index));
                 },
 
@@ -141,7 +151,7 @@ pub const Vm = struct {
                     try self.push(mode, .{ .float = 2 });
                 },
 
-                .store_local => {
+                .store_local_u8 => {
                     const index = self.readU8();
                     const a = self.pop(mode);
 
@@ -168,7 +178,7 @@ pub const Vm = struct {
                     self.storeLocal(mode, 4, self.pop(mode));
                 },
 
-                .load_local => {
+                .load_local_u8 => {
                     const index = self.readU8();
                     const value = self.loadLocal(mode, index);
 
@@ -303,11 +313,18 @@ pub const Vm = struct {
                     }
                 },
 
-                .compare_object => {
-                    const b: i64 = @intCast(@intFromPtr(self.pop(mode).object));
-                    const a: i64 = @intCast(@intFromPtr(self.pop(mode).object));
+                .compare_fn => {
+                    const b = self.pop(mode).@"fn";
+                    const a = self.pop(mode).@"fn";
 
-                    try self.push(mode, .{ .int = a - b });
+                    try self.push(mode, .{ .int = if (a == b) 0 else 1 });
+                },
+
+                .compare_object => {
+                    const b = @intFromPtr(self.pop(mode).object);
+                    const a = @intFromPtr(self.pop(mode).object);
+
+                    try self.push(mode, .{ .int = if (a == b) 0 else 1 });
                 },
 
                 .if_equal => {
@@ -402,12 +419,12 @@ pub const Vm = struct {
 
                 .print_unit => {
                     _ = self.pop(mode);
-                    std.debug.print("unit\n", .{});
+                    writer.print("unit");
                 },
 
                 .print_bool => {
                     const value = self.pop(mode);
-                    std.debug.print(
+                    writer.printf(
                         "{s}\n",
                         .{if (value.int == 0) "false" else "true"},
                     );
@@ -415,12 +432,17 @@ pub const Vm = struct {
 
                 .print_int => {
                     const value = self.pop(mode);
-                    std.debug.print("{}\n", .{value.int});
+                    writer.printf("{}\n", .{value.int});
                 },
 
                 .print_float => {
                     const value = self.pop(mode);
-                    std.debug.print("{d}\n", .{value.float});
+                    writer.printf("{d}\n", .{value.float});
+                },
+
+                .print_fn => {
+                    const value = self.pop(mode);
+                    writer.printf("<fn {}>", .{value.@"fn"});
                 },
 
                 .print_object => {
@@ -428,7 +450,7 @@ pub const Vm = struct {
 
                     switch (value.object.tag) {
                         .string => {
-                            std.debug.print(
+                            writer.printf(
                                 "{s}\n",
                                 .{value.object.as(Object.String).chars},
                             );
@@ -437,16 +459,70 @@ pub const Vm = struct {
                 },
 
                 .@"return" => {
-                    _ = self.pop(mode);
-                    assert(self.st.items.len == locals_count);
-                    break;
+                    const value = self.pop(mode);
+
+                    if (self.lv == 0) {
+                        assert(self.st.items.len == self.lv_len);
+                        return;
+                    }
+
+                    const link = self.lv + self.lv_len;
+                    const to_pop = self.lv_len + 3;
+
+                    self.ip = @intCast(self.st.items[link].int);
+                    self.lv = @intCast(self.st.items[link + 1].int);
+                    self.lv_len = @intCast(self.st.items[link + 2].int);
+
+                    self.shrink(mode, self.st.items.len - to_pop);
+
+                    try self.push(mode, value);
+                },
+
+                .call => {
+                    const args_count = self.readU8();
+                    const value = self.st.items[self.st.items.len - 1 - args_count];
+                    const locals_count = mem.bytesToValue(
+                        u32,
+                        self.module.code.items[value.@"fn"..][0..4],
+                    );
+
+                    const prev_ip = self.ip;
+                    const prev_lv = self.lv;
+                    const prev_lv_len = self.lv_len;
+
+                    self.ip = value.@"fn" + 8;
+                    self.lv = self.st.items.len - 1 - args_count;
+                    self.lv_len = locals_count;
+
+                    try self.ensureUnusedCapacity(
+                        (locals_count - args_count - 1) + 3,
+                    );
+
+                    self.pushNTimesAssumeCapacity(
+                        mode,
+                        .{ .int = 0 },
+                        locals_count - args_count - 1,
+                    );
+
+                    self.pushAssumeCapacity(
+                        mode,
+                        .{ .int = @intCast(prev_ip) },
+                    );
+                    self.pushAssumeCapacity(
+                        mode,
+                        .{ .int = @intCast(prev_lv) },
+                    );
+                    self.pushAssumeCapacity(
+                        mode,
+                        .{ .int = @intCast(prev_lv_len) },
+                    );
                 },
 
                 .pop => {
                     _ = self.pop(mode);
                 },
 
-                else => unreachable,
+                _ => unreachable,
             }
         }
     }
@@ -464,6 +540,14 @@ pub const Vm = struct {
             return error.Panic; // todo: proper error handling
         }
 
+        self.pushAssumeCapacity(mode, value);
+    }
+
+    fn pushAssumeCapacity(
+        self: *Vm,
+        comptime mode: Mode,
+        value: ModeValue(mode),
+    ) void {
         if (mode == .debug) {
             const sep_value, const tag = value.separate();
             self.st.appendAssumeCapacity(sep_value);
@@ -483,6 +567,15 @@ pub const Vm = struct {
             return error.Panic; // todo: proper error handling
         }
 
+        self.pushNTimesAssumeCapacity(mode, value, n);
+    }
+
+    fn pushNTimesAssumeCapacity(
+        self: *Vm,
+        comptime mode: Mode,
+        value: ModeValue(mode),
+        n: usize,
+    ) void {
         if (mode == .debug) {
             const sep_value, const tag = value.separate();
             self.st.appendNTimesAssumeCapacity(sep_value, n);
@@ -497,6 +590,20 @@ pub const Vm = struct {
             return .from(self.st.pop().?, self.st_tags.pop().?);
         } else {
             return self.st.pop().?;
+        }
+    }
+
+    fn shrink(self: *Vm, comptime mode: Mode, new_len: usize) void {
+        self.st.shrinkRetainingCapacity(new_len);
+
+        if (mode == .debug) {
+            self.st_tags.shrinkRetainingCapacity(new_len);
+        }
+    }
+
+    fn ensureUnusedCapacity(self: *Vm, additional_count: usize) Error!void {
+        if (self.st.items.len + additional_count > self.st.capacity) {
+            return error.Panic; // todo: proper error handling
         }
     }
 
