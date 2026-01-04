@@ -6,10 +6,12 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const intern_pool_mod = @import("intern_pool.zig");
 const InternPool = intern_pool_mod.InternPool;
+const Loc = @import("tokenizer.zig").Loc;
 
 pub const Air = struct {
     nodes: MultiArrayList(Node),
     extra: ArrayListUnmanaged(u32),
+    locs: ArrayListUnmanaged(Loc),
 
     pub const Node = struct {
         tag: Tag,
@@ -135,6 +137,10 @@ pub const Air = struct {
 
         pub fn toKey(self: Index, air: *const Air) Key {
             return air.get(self);
+        }
+
+        pub fn toLoc(self: Index, air: *const Air) Loc {
+            return air.locs.items[@intFromEnum(self)];
         }
 
         pub fn toStr(self: Index, air: *const Air) []const u8 {
@@ -341,6 +347,7 @@ pub const Air = struct {
     pub const empty: Air = .{
         .nodes = .empty,
         .extra = .empty,
+        .locs = .empty,
     };
 
     pub fn deinit(self: *Air, allocator: Allocator) void {

@@ -1,14 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const shared = @import("shared");
-const Output = shared.Output;
-
 const vm_mod = @import("../vm.zig");
 const Vm = vm_mod.Vm;
 const memory_mod = @import("../memory.zig");
 const Object = memory_mod.Object;
 const module_reporter = @import("../reporter/module_reporter.zig");
+const Output = @import("../output.zig").Output;
 
 pub const VmTracer = struct {
     allocator: Allocator,

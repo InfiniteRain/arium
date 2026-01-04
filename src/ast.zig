@@ -9,10 +9,9 @@ const shared = @import("shared");
 const Loc = @import("tokenizer.zig").Loc;
 
 pub const Ast = struct {
-    source: []const u8,
     nodes: MultiArrayList(Node),
-    locs: ArrayListUnmanaged(Loc),
     extra: ArrayListUnmanaged(u32),
+    locs: ArrayListUnmanaged(Loc),
 
     pub const Node = struct {
         tag: Tag,
@@ -183,24 +182,16 @@ pub const Ast = struct {
             return ast.locs.items[@intFromEnum(self)];
         }
 
-        pub fn toStr(self: Index, ast: *const Ast) []const u8 {
-            const loc = self.toLoc(ast);
-            return ast.source[loc.index..][0..loc.len];
-        }
-
         pub fn toTag(self: Index, ast: *const Ast) Node.Tag {
             return ast.nodes.items(.tag)[self.toInt()];
         }
     };
 
-    pub fn init(source: []const u8) Ast {
-        return .{
-            .source = source,
-            .nodes = .empty,
-            .locs = .empty,
-            .extra = .empty,
-        };
-    }
+    pub const empty: Ast = .{
+        .nodes = .empty,
+        .extra = .empty,
+        .locs = .empty,
+    };
 
     pub fn deinit(self: *Ast, allocator: Allocator) void {
         self.nodes.deinit(allocator);

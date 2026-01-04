@@ -1,16 +1,14 @@
 const std = @import("std");
 const mem = std.mem;
 
-const shared = @import("shared");
-const Output = shared.Output;
-
-const module_mod = @import("../module.zig");
-const OpCode = module_mod.OpCode;
-const Module = module_mod.Module;
 const compiler_mod = @import("../compiler.zig");
 const Compiler = compiler_mod.Compiler;
 const memory_mod = @import("../memory.zig");
 const Object = memory_mod.Object;
+const module_mod = @import("../module.zig");
+const OpCode = module_mod.OpCode;
+const Module = module_mod.Module;
+const Output = @import("../output.zig").Output;
 
 pub fn printModule(
     module: *const Module,

@@ -26,6 +26,10 @@ pub const Loc = struct {
         return .{ line, column };
     }
 
+    pub fn toStr(self: Loc, source: []const u8) []const u8 {
+        return source[self.index..][0..self.len];
+    }
+
     pub fn extend(a: Loc, b: Loc) Loc {
         return .{
             .index = a.index,

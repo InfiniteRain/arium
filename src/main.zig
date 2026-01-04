@@ -3,10 +3,14 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const arium = @import("arium");
-const Output = @import("shared").Output;
+const Output = arium.Output;
 const VmTracer = arium.VmTracer;
 
-const cli_mod = @import("cli.zig");
+const cli_mod = @import("cli_new.zig");
+
+pub fn main2() !void {
+    try cli_mod.runCli();
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -43,15 +47,16 @@ pub fn main() !void {
         return err;
     };
 
-    // arium.debug_ast_reporter.printAstIndex(
-    //     arium.Ast.Index,
-    //     arium.Ast.Key,
-    //     null,
-    //     &ast,
-    //     arium.Ast.Index.from(0),
-    //     null,
-    //     &stdout_writer,
-    // );
+    arium.debug_ast_reporter.printAstIndex(
+        arium.Ast.Index,
+        arium.Ast.Key,
+        source,
+        null,
+        &ast,
+        arium.Ast.Index.from(0),
+        null,
+        &output,
+    );
 
     var intern_pool = try arium.InternPool.init(allocator);
 
@@ -63,6 +68,7 @@ pub fn main() !void {
 
     var air = arium.SemaNew.analyze(
         allocator,
+        source,
         &intern_pool,
         &ast,
         &sema_diags,
@@ -91,6 +97,7 @@ pub fn main() !void {
     arium.debug_ast_reporter.printAstIndex(
         arium.Air.Index,
         arium.Air.Key,
+        source,
         &intern_pool,
         &air,
         root,

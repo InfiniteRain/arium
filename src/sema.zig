@@ -23,6 +23,7 @@ const Loc = tokenizer_mod.Loc;
 
 pub const Sema = struct {
     allocator: Allocator,
+    source: []const u8,
     intern_pool: *InternPool,
     ast: *const Ast,
     air: *Air,
@@ -251,6 +252,7 @@ pub const Sema = struct {
 
     pub fn analyze(
         allocator: Allocator,
+        source: []const u8,
         intern_pool: *InternPool,
         ast: *const Ast,
         diags: *Diags,
@@ -286,6 +288,7 @@ pub const Sema = struct {
 
         var sema: Sema = .{
             .allocator = allocator,
+            .source = source,
             .intern_pool = intern_pool,
             .ast = ast,
             .air = &air,
@@ -327,10 +330,10 @@ pub const Sema = struct {
 
         return switch (ast_key) {
             .assert,
-            => |child_expr| try self.analyzeAssertStmt(child_expr),
+            => |child_expr| try self.analyzeAssertStmt(ast_stmt, child_expr),
 
             .print,
-            => |child_expr| try self.analyzePrintStmt(child_expr),
+            => |child_expr| try self.analyzePrintStmt(ast_stmt, child_expr),
 
             .expr_stmt,
             => |expr| try self.analyzeExpr(expr, value_usage),
@@ -341,6 +344,7 @@ pub const Sema = struct {
 
             .@"fn",
             => |@"fn"| try self.analyzeFnStmt(
+                ast_stmt,
                 @"fn".identifier,
                 @"fn".params,
                 .{ .identifier = @"fn".return_type },
@@ -353,6 +357,7 @@ pub const Sema = struct {
 
     fn analyzeAssertStmt(
         self: *Sema,
+        ast_stmt: Ast.Index,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
         const sema_child_expr = try self.analyzeExpr(
@@ -372,11 +377,15 @@ pub const Sema = struct {
             return error.AnalyzeFailure;
         }
 
-        return try self.addNode(.{ .assert = sema_child_expr });
+        return try self.addNode(
+            .{ .assert = sema_child_expr },
+            ast_stmt.toLoc(self.ast),
+        );
     }
 
     fn analyzePrintStmt(
         self: *Sema,
+        ast_stmt: Ast.Index,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
         const sema_child_expr = try self.analyzeExpr(
@@ -384,7 +393,10 @@ pub const Sema = struct {
             .use,
         );
 
-        return try self.addNode(.{ .print = sema_child_expr });
+        return try self.addNode(
+            .{ .print = sema_child_expr },
+            ast_stmt.toLoc(self.ast),
+        );
     }
 
     fn analyzeLetStmt(
@@ -415,10 +427,13 @@ pub const Sema = struct {
                 },
             });
 
-            return try self.addNode(.{ .let = .{
-                .stack_index = @intCast(self.scope.runtime_scope_top - 1),
-                .rhs = null,
-            } });
+            return try self.addNode(
+                .{ .let = .{
+                    .stack_index = @intCast(self.scope.runtime_scope_top - 1),
+                    .rhs = null,
+                } },
+                ast_stmt.toLoc(self.ast),
+            );
         };
 
         const air_expr = try self.analyzeExpr(ast_expr, .use);
@@ -459,14 +474,18 @@ pub const Sema = struct {
             },
         });
 
-        return try self.addNode(.{ .let = .{
-            .stack_index = @intCast(self.scope.runtime_scope_top - 1),
-            .rhs = air_expr,
-        } });
+        return try self.addNode(
+            .{ .let = .{
+                .stack_index = @intCast(self.scope.runtime_scope_top - 1),
+                .rhs = air_expr,
+            } },
+            ast_stmt.toLoc(self.ast),
+        );
     }
 
     fn analyzeFnStmt(
         self: *Sema,
+        ast_stmt: Ast.Index,
         identifier_opt: ?Ast.Index,
         args: []const Ast.Key.FnArg,
         return_type: TypeReference,
@@ -479,6 +498,7 @@ pub const Sema = struct {
                 return_type,
                 body,
             ),
+            ast_stmt.toLoc(self.ast),
         );
     }
 
@@ -641,11 +661,16 @@ pub const Sema = struct {
             .less_equal,
             .@"and",
             .@"or",
-            => |ast_binary| try self.analyzeBinaryExpr(ast_key, ast_binary),
+            => |ast_binary| try self.analyzeBinaryExpr(
+                ast_expr,
+                ast_key,
+                ast_binary,
+            ),
 
             .neg_bool,
             .neg_num,
             => |child_ast_expr| try self.analyzeUnaryExpr(
+                ast_expr,
                 ast_key,
                 child_ast_expr,
             ),
@@ -653,6 +678,7 @@ pub const Sema = struct {
             .block,
             .block_semicolon,
             => try self.analyzeBlockExpr(
+                ast_expr,
                 ast_key,
                 value_usage,
                 .no_force_append_unit,
@@ -668,11 +694,11 @@ pub const Sema = struct {
             .if_else,
             .if_elseif,
             .if_elseif_else,
-            => try self.analyzeIfExpr(ast_key, value_usage),
+            => try self.analyzeIfExpr(ast_expr, ast_key, value_usage),
 
             .@"for",
             .for_conditional,
-            => try self.analyzeForExpr(ast_key),
+            => try self.analyzeForExpr(ast_expr, ast_key),
 
             .@"break",
             => try self.analyzeBreakExpr(ast_expr),
@@ -682,11 +708,11 @@ pub const Sema = struct {
 
             .@"return",
             .return_value,
-            => try self.analyzeReturnExpr(ast_key, ast_expr),
+            => try self.analyzeReturnExpr(ast_expr, ast_key),
 
             .call_simple,
             .call,
-            => try self.analyzeCallExpr(ast_key, ast_expr),
+            => try self.analyzeCallExpr(ast_expr, ast_key),
 
             else => unreachable, // non-expr node
         };
@@ -703,7 +729,7 @@ pub const Sema = struct {
             .literal_int => blk: {
                 const parsed_int: i64 = std.fmt.parseInt(
                     i64,
-                    ast_expr.toStr(self.ast),
+                    ast_expr.toLoc(self.ast).toStr(self.source),
                     10,
                 ) catch |err| switch (err) {
                     error.Overflow => {
@@ -721,18 +747,19 @@ pub const Sema = struct {
 
             .literal_float => .{ .value_float = std.fmt.parseFloat(
                 f64,
-                ast_expr.toStr(self.ast),
+                ast_expr.toLoc(self.ast).toStr(self.source),
             ) catch unreachable },
 
             .literal_bool => .{
-                .value_simple = if (ast_expr.toStr(self.ast).len == 4)
+                .value_simple = if (ast_expr.toLoc(self.ast)
+                    .toStr(self.source).len == 4)
                     .bool_true
                 else
                     .bool_false,
             },
 
             .literal_string => blk: {
-                const lexeme = ast_expr.toStr(self.ast);
+                const lexeme = ast_expr.toLoc(self.ast).toStr(self.source);
                 break :blk .{ .value_string = lexeme[1 .. lexeme.len - 1] };
             },
 
@@ -744,11 +771,15 @@ pub const Sema = struct {
             intern_pool_key,
         );
 
-        return try self.addNode(.{ .constant = intern_pool_index });
+        return try self.addNode(
+            .{ .constant = intern_pool_index },
+            ast_expr.toLoc(self.ast),
+        );
     }
 
     fn analyzeBinaryExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         ast_binary: Ast.Key.Binary,
     ) Error!Air.Index {
@@ -773,6 +804,7 @@ pub const Sema = struct {
             .less_than,
             .less_equal,
             => try self.analyzeNumericBinaryExpr(
+                ast_expr,
                 ast_expr_key,
                 ast_binary,
                 air_binary,
@@ -780,6 +812,7 @@ pub const Sema = struct {
 
             .concat,
             => try self.analyzeConcatBinaryExpr(
+                ast_expr,
                 ast_expr_key,
                 ast_binary,
                 air_binary,
@@ -788,6 +821,7 @@ pub const Sema = struct {
             .equal,
             .not_equal,
             => try self.analyzeEqualBinaryExpr(
+                ast_expr,
                 ast_expr_key,
                 ast_binary,
                 air_binary,
@@ -796,6 +830,7 @@ pub const Sema = struct {
             .@"and",
             .@"or",
             => try self.analyzeCondBinaryExpr(
+                ast_expr,
                 ast_expr_key,
                 ast_binary,
                 air_binary,
@@ -807,6 +842,7 @@ pub const Sema = struct {
 
     fn analyzeNumericBinaryExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         ast_binary: Ast.Key.Binary,
         air_binary: Air.Key.Binary,
@@ -829,11 +865,12 @@ pub const Sema = struct {
             .less_than => .{ .less_than = air_binary },
             .less_equal => .{ .less_equal = air_binary },
             else => unreachable, // non-numeric binary node
-        });
+        }, ast_expr.toLoc(self.ast));
     }
 
     fn analyzeConcatBinaryExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         ast_binary: Ast.Key.Binary,
         air_binary: Air.Key.Binary,
@@ -849,11 +886,12 @@ pub const Sema = struct {
         return try self.addNode(switch (ast_expr_key) {
             .concat => .{ .concat = air_binary },
             else => unreachable, // non-concat binary node
-        });
+        }, ast_expr.toLoc(self.ast));
     }
 
     fn analyzeCondBinaryExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         ast_binary: Ast.Key.Binary,
         air_binary: Air.Key.Binary,
@@ -866,27 +904,30 @@ pub const Sema = struct {
             return try self.addInvalidNode();
         }
 
+        const loc = ast_expr.toLoc(self.ast);
+
         return try self.addNode(switch (ast_expr_key) {
             .@"and" => .{ .cond = .{
                 .cond = air_binary.lhs,
                 .then_branch = air_binary.rhs,
                 .else_branch = try self.addNode(.{
                     .constant = .value_bool_false,
-                }),
+                }, loc),
             } },
             .@"or" => .{ .cond = .{
                 .cond = air_binary.lhs,
                 .then_branch = try self.addNode(.{
                     .constant = .value_bool_true,
-                }),
+                }, loc),
                 .else_branch = air_binary.rhs,
             } },
             else => unreachable, // non-cond binary node
-        });
+        }, loc);
     }
 
     fn analyzeEqualBinaryExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         ast_binary: Ast.Key.Binary,
         air_binary: Air.Key.Binary,
@@ -909,11 +950,12 @@ pub const Sema = struct {
             .equal => .{ .equal = air_binary },
             .not_equal => .{ .not_equal = air_binary },
             else => unreachable, // non-equality binary node
-        });
+        }, ast_expr.toLoc(self.ast));
     }
 
     fn analyzeUnaryExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_key: Ast.Key,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
@@ -941,11 +983,15 @@ pub const Sema = struct {
             return try self.addInvalidNode();
         }
 
-        return try self.addNode(.{ .neg = child_air_expr });
+        return try self.addNode(
+            .{ .neg = child_air_expr },
+            ast_expr.toLoc(self.ast),
+        );
     }
 
     fn analyzeBlockExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         value_usage: ValueUsage,
         force_append_unit_mode: ForceAppendUnitMode,
@@ -1017,18 +1063,22 @@ pub const Sema = struct {
                     force_append_unit_mode == .force_append_unit));
 
         if (should_append_unit) {
-            const unit_node = try self.addNode(.{
-                .constant = try self.intern_pool.get(
-                    self.allocator,
-                    .{ .value_simple = .unit },
-                ),
-            });
+            const unit_node = try self.addNode(
+                .{
+                    .constant = try self.intern_pool.get(
+                        self.allocator,
+                        .{ .value_simple = .unit },
+                    ),
+                },
+                ast_expr.toLoc(self.ast),
+            );
             try self.scratch.nodes.append(self.allocator, unit_node.toInt());
         }
 
-        return try self.addNode(.{
-            .block = @ptrCast(self.scratch.nodes.items[scratch_top..]),
-        });
+        return try self.addNode(
+            .{ .block = @ptrCast(self.scratch.nodes.items[scratch_top..]) },
+            ast_expr.toLoc(self.ast),
+        );
     }
 
     fn analyzeVariableExpr(
@@ -1061,10 +1111,13 @@ pub const Sema = struct {
             return try self.addInvalidNode();
         }
 
-        return try self.addNode(.{ .variable = .{
-            .stack_index = @intCast(local.stack_index),
-            .type = local.index.toItem(&self.scope, .type),
-        } });
+        return try self.addNode(
+            .{ .variable = .{
+                .stack_index = @intCast(local.stack_index),
+                .type = local.index.toItem(&self.scope, .type),
+            } },
+            ast_expr.toLoc(self.ast),
+        );
     }
 
     fn analyzeAssignmentExpr(
@@ -1119,14 +1172,18 @@ pub const Sema = struct {
             lhs_type.* = rhs_type;
         }
 
-        return try self.addNode(.{ .assignment = .{
-            .stack_index = @intCast(local.stack_index),
-            .rhs = rhs,
-        } });
+        return try self.addNode(
+            .{ .assignment = .{
+                .stack_index = @intCast(local.stack_index),
+                .rhs = rhs,
+            } },
+            ast_expr.toLoc(self.ast),
+        );
     }
 
     fn analyzeIfExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_key: Ast.Key,
         value_usage: ValueUsage,
     ) Error!Air.Index {
@@ -1155,6 +1212,7 @@ pub const Sema = struct {
         }
 
         return try self.analyzeIfExprAux(
+            ast_expr.toLoc(self.ast),
             condition,
             elseif_blocks,
             else_block,
@@ -1165,6 +1223,7 @@ pub const Sema = struct {
 
     fn analyzeIfExprAux(
         self: *Sema,
+        loc: Loc,
         cond: Ast.Key.Conditional,
         elseif_blocks: []const Ast.Key.Conditional,
         else_block_opt: ?Ast.Index,
@@ -1202,6 +1261,7 @@ pub const Sema = struct {
                 .no_force_append_unit; // doesn't eval or else block is present
 
         const then_block = try self.analyzeBlockExpr(
+            cond.body,
             then_key,
             value_usage,
             force_append_unit_mode,
@@ -1227,6 +1287,10 @@ pub const Sema = struct {
         const else_block, const else_block_loc = if (elseif_blocks.len > 0)
             .{
                 try self.analyzeIfExprAux(
+                    elseif_blocks[0]
+                        .condition
+                        .toLoc(self.ast)
+                        .extend(elseif_blocks[0].body.toLoc(self.ast)),
                     elseif_blocks[0],
                     elseif_blocks[1..],
                     else_block_opt,
@@ -1241,9 +1305,9 @@ pub const Sema = struct {
                 else_block.toLoc(self.ast),
             }
         else blk: {
-            const unit = try self.addNode(.{ .constant = .value_unit });
+            const unit = try self.addNode(.{ .constant = .value_unit }, loc);
             break :blk .{
-                try self.addNode(.{ .block = &[_]Air.Index{unit} }),
+                try self.addNode(.{ .block = &[_]Air.Index{unit} }, loc),
                 cond.body.toLoc(self.ast),
             };
         };
@@ -1260,20 +1324,25 @@ pub const Sema = struct {
             return try self.addInvalidNode();
         }
 
-        return try self.addNode(.{ .cond = .{
-            .cond = air_cond,
-            .then_branch = then_block,
-            .else_branch = else_block,
-        } });
+        return try self.addNode(
+            .{ .cond = .{
+                .cond = air_cond,
+                .then_branch = then_block,
+                .else_branch = else_block,
+            } },
+            loc,
+        );
     }
 
     fn analyzeForExpr(
         self: *Sema,
+        ast_expr: Ast.Index,
         ast_key: Ast.Key,
     ) Error!Air.Index {
+        const loc = ast_expr.toLoc(self.ast);
         const air_cond, const body = switch (ast_key) {
             .@"for" => |body| .{
-                try self.addNode(.{ .constant = .value_bool_true }),
+                try self.addNode(.{ .constant = .value_bool_true }, loc),
                 body,
             },
             .for_conditional => |cond| .{
@@ -1305,7 +1374,7 @@ pub const Sema = struct {
         return try self.addNode(.{ .@"for" = .{
             .cond = air_cond,
             .body = air_body,
-        } });
+        } }, loc);
     }
 
     fn analyzeBreakExpr(
@@ -1320,7 +1389,7 @@ pub const Sema = struct {
             return self.addInvalidNode();
         }
 
-        return try self.addNode(.@"break");
+        return try self.addNode(.@"break", ast_expr.toLoc(self.ast));
     }
 
     fn analyzeContinueExpr(
@@ -1335,18 +1404,19 @@ pub const Sema = struct {
             return self.addInvalidNode();
         }
 
-        return try self.addNode(.@"continue");
+        return try self.addNode(.@"continue", ast_expr.toLoc(self.ast));
     }
 
     fn analyzeReturnExpr(
         self: *Sema,
-        ast_key: Ast.Key,
         ast_expr: Ast.Index,
+        ast_key: Ast.Key,
     ) Error!Air.Index {
+        const loc = ast_expr.toLoc(self.ast);
         const rhs = if (ast_key == .return_value)
             try self.analyzeExpr(ast_key.return_value, .use)
         else
-            try self.addNode(.{ .constant = .value_unit });
+            try self.addNode(.{ .constant = .value_unit }, loc);
         const rhs_type = rhs.toType(self.air, self.intern_pool);
 
         if (self.typeCheck(rhs_type, .from(self.fn_return_type)) == .mismatch) {
@@ -1360,13 +1430,13 @@ pub const Sema = struct {
             });
         }
 
-        return try self.addNode(.{ .@"return" = rhs });
+        return try self.addNode(.{ .@"return" = rhs }, loc);
     }
 
     fn analyzeCallExpr(
         self: *Sema,
-        ast_key: Ast.Key,
         ast_expr: Ast.Index,
+        ast_key: Ast.Key,
     ) Error!Air.Index {
         const ast_callee = switch (ast_key) {
             .call_simple => |call_simple| call_simple.callee,
@@ -1441,6 +1511,7 @@ pub const Sema = struct {
                     .args = @ptrCast(self.scratch.nodes.items[scratch_top..]),
                 } },
             },
+            ast_expr.toLoc(self.ast),
         );
     }
 
@@ -1500,7 +1571,7 @@ pub const Sema = struct {
         runtime: struct { index: Scope.Index, stack_index: usize },
         @"comptime": struct { index: Scope.Index },
     } {
-        const identifier = ast_expr.toStr(self.ast);
+        const identifier = ast_expr.toLoc(self.ast).toStr(self.source);
         var runtime_locals_count: usize = 0;
         var idx = self.scope.locals.len;
 
@@ -1515,7 +1586,9 @@ pub const Sema = struct {
 
             const local_name = self.scope.locals.items(.name)[idx];
             const local_name_str = if (local_name.tag == .ast)
-                Ast.Index.from(local_name.index).toStr(self.ast)
+                Ast.Index.from(local_name.index)
+                    .toLoc(self.ast)
+                    .toStr(self.source)
             else
                 InternPool.Index
                     .from(local_name.index)
@@ -1674,14 +1747,18 @@ pub const Sema = struct {
         return .ok;
     }
 
-    fn addNode(self: *Sema, key: Air.Key) Allocator.Error!Air.Index {
+    fn addNode(self: *Sema, key: Air.Key, loc: Loc) Allocator.Error!Air.Index {
         try self.air.nodes.append(self.allocator, try self.prepareNode(key));
+        try self.air.locs.append(self.allocator, loc);
 
         return .from(self.air.nodes.len - 1);
     }
 
     fn addInvalidNode(self: *Sema) Allocator.Error!Air.Index {
-        return self.addNode(.{ .constant = .invalid });
+        return self.addNode(
+            .{ .constant = .invalid },
+            .{ .index = 0, .len = 0 },
+        );
     }
 
     fn prepareNode(self: *Sema, key: Air.Key) Allocator.Error!Air.Node {

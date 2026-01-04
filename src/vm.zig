@@ -5,9 +5,6 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const debug = std.debug;
 const assert = debug.assert;
 
-const shared = @import("shared");
-const Output = shared.Output;
-
 const debug_mod = @import("debug.zig");
 const Mode = debug_mod.Mode;
 const limits = @import("limits.zig");
@@ -19,6 +16,7 @@ const Memory = memory_mod.Memory;
 const module_mod = @import("module.zig");
 const Module = module_mod.Module;
 const OpCode = module_mod.OpCode;
+const Output = @import("output.zig").Output;
 
 fn ModeValue(comptime mode: Mode) type {
     return if (mode == .debug) TaggedValue else Value;

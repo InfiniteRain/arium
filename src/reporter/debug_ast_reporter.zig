@@ -1,18 +1,19 @@
 const std = @import("std");
-const shared = @import("shared");
-const sema_ast_mod = @import("../sema/sema_ast.zig");
-const ast_mod = @import("../ast.zig");
-const intern_pool_mod = @import("../intern_pool.zig");
-
 const ArrayList = std.ArrayList;
 const comptimePrint = std.fmt.comptimePrint;
 const meta = std.meta;
-const Output = shared.Output;
+
+const shared = @import("shared");
+
+const ast_mod = @import("../ast.zig");
+const Ast = ast_mod.Ast;
+const intern_pool_mod = @import("../intern_pool.zig");
+const InternPool = intern_pool_mod.InternPool;
+const Output = @import("../output.zig").Output;
+const sema_ast_mod = @import("../sema/sema_ast.zig");
 const SemaExpr = sema_ast_mod.SemaExpr;
 const SemaStmt = sema_ast_mod.SemaStmt;
 const SemaType = sema_ast_mod.SemaType;
-const Ast = ast_mod.Ast;
-const InternPool = intern_pool_mod.InternPool;
 
 const style_end = "\x1b[0m";
 const styles = [_][]const u8{
@@ -57,6 +58,7 @@ pub const Indent = struct {
 pub fn printAstIndex(
     Index: type,
     Key: type,
+    source: []const u8,
     intern_pool: ?*InternPool,
     ast: anytype,
     index: Index,
@@ -72,16 +74,17 @@ pub fn printAstIndex(
             if (field.type != void) {
                 output.print(" = ");
             } else {
-                const str = index.toStr(ast);
+                const str = index.toLoc(ast).toStr(source);
 
                 if (str.len > 0) {
-                    output.printf(" '{s}'", .{index.toStr(ast)});
+                    output.printf(" '{s}'", .{str});
                 }
             }
 
             printAstField(
                 Index,
                 Key,
+                source,
                 intern_pool,
                 ast,
                 @field(key, field.name),
@@ -99,6 +102,7 @@ pub fn printAstIndex(
 pub fn printInternPoolIndex(
     Index: type,
     Key: type,
+    source: []const u8,
     intern_pool: *InternPool,
     ast: anytype,
     index: InternPool.Index,
@@ -118,6 +122,7 @@ pub fn printInternPoolIndex(
             printAstField(
                 Index,
                 Key,
+                source,
                 intern_pool,
                 ast,
                 @field(key, field.name),
@@ -131,6 +136,7 @@ pub fn printInternPoolIndex(
 fn printAstField(
     Index: type,
     Key: type,
+    source: []const u8,
     intern_pool: ?*InternPool,
     ast: anytype,
     field: anytype,
@@ -151,7 +157,16 @@ fn printAstField(
     }
 
     if (Type == Index) {
-        printAstIndex(Index, Key, intern_pool, ast, field, indent_opt, output);
+        printAstIndex(
+            Index,
+            Key,
+            source,
+            intern_pool,
+            ast,
+            field,
+            indent_opt,
+            output,
+        );
         return;
     }
 
@@ -160,6 +175,7 @@ fn printAstField(
             printInternPoolIndex(
                 Index,
                 Key,
+                source,
                 ip,
                 ast,
                 field,
@@ -192,6 +208,7 @@ fn printAstField(
                 printAstField(
                     Index,
                     Key,
+                    source,
                     intern_pool,
                     ast,
                     element,
@@ -222,6 +239,7 @@ fn printAstField(
                 printAstField(
                     Index,
                     Key,
+                    source,
                     intern_pool,
                     ast,
 
@@ -247,6 +265,7 @@ fn printAstField(
                 printAstField(
                     Index,
                     Key,
+                    source,
                     intern_pool,
                     ast,
                     field.?,
