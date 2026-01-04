@@ -6,6 +6,11 @@ pub const Loc = struct {
     index: u32,
     len: u32,
 
+    pub const zero: Loc = .{
+        .index = 0,
+        .len = 0,
+    };
+
     pub fn toLineCol(self: Loc, source: []const u8) struct { u32, u32 } {
         var line: u32 = 1;
         var column: u32 = 1;

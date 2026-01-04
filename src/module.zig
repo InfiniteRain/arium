@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -7,6 +8,7 @@ const math = std.math;
 const debug_mod = @import("debug.zig");
 const Mode = debug_mod.Mode;
 const limits = @import("limits.zig");
+const Loc = @import("tokenizer.zig").Loc;
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const TaggedValue = memory_mod.TaggedValue;
@@ -86,18 +88,21 @@ pub const Module = struct {
     constants: ArrayListUnmanaged(Value),
     constant_tags: ArrayListUnmanaged(Value.DebugTag),
     code: ArrayListUnmanaged(u8),
+    locs: ArrayListUnmanaged(Loc),
     main: ?u64,
 
     pub const empty: Module = .{
         .constants = .empty,
         .constant_tags = .empty,
         .code = .empty,
+        .locs = .empty,
         .main = 0,
     };
 
     pub fn deinit(self: *Module, allocator: Allocator) void {
         self.constants.deinit(allocator);
         self.code.deinit(allocator);
+        self.locs.deinit(allocator);
     }
 
     pub fn writeConstant(
@@ -126,7 +131,10 @@ pub const Module = struct {
         allocator: Allocator,
         locals_count: u32,
         body: []const u8,
+        locs: []const Loc,
     ) (Allocator.Error || error{BodyTooBig})!u64 {
+        assert(body.len == locs.len);
+
         if (body.len > math.maxInt(u32)) {
             return error.BodyTooBig;
         }
@@ -135,17 +143,21 @@ pub const Module = struct {
         const len: u32 = @intCast(body.len);
         const size_bytes: [4]u8 = @bitCast(len);
         const top = self.code.items.len;
-
-        try self.code.ensureUnusedCapacity(
-            allocator,
+        const additional_capacity =
             @sizeOf(@TypeOf(locals_count_bytes)) +
-                @sizeOf(@TypeOf(size_bytes)) +
-                body.len,
-        );
+            @sizeOf(@TypeOf(size_bytes)) +
+            body.len;
+
+        try self.code.ensureUnusedCapacity(allocator, additional_capacity);
+        try self.locs.ensureUnusedCapacity(allocator, additional_capacity);
+
         self.code.appendSliceAssumeCapacity(
             &(locals_count_bytes ++ size_bytes),
         );
         self.code.appendSliceAssumeCapacity(body);
+
+        self.locs.appendSliceAssumeCapacity(&([_]Loc{.zero} ** 8));
+        self.locs.appendSliceAssumeCapacity(locs);
 
         return @intCast(top);
     }

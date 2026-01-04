@@ -8,6 +8,7 @@ const assert = debug.assert;
 const debug_mod = @import("debug.zig");
 const Mode = debug_mod.Mode;
 const limits = @import("limits.zig");
+const Loc = @import("tokenizer.zig").Loc;
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const TaggedValue = memory_mod.TaggedValue;
@@ -38,8 +39,13 @@ pub const Vm = struct {
     pub const Diags = struct {
         entry: ?Entry,
 
-        pub const Entry = union(enum) {
-            stack_overflow,
+        pub const Entry = struct {
+            tag: Tag,
+            loc: Loc,
+
+            pub const Tag = union(enum) {
+                stack_overflow,
+            };
         };
 
         pub const empty: Diags = .{
@@ -683,8 +689,11 @@ pub const Vm = struct {
         return @bitCast(bytes);
     }
 
-    fn panic(self: *Vm, diag: Diags.Entry) error{Panic} {
-        self.diags.entry = diag;
+    fn panic(self: *Vm, diag: Diags.Entry.Tag) error{Panic} {
+        self.diags.entry = .{
+            .tag = diag,
+            .loc = self.module.locs.items[self.ip],
+        };
         return error.Panic;
     }
 };

@@ -304,6 +304,7 @@ pub const Sema = struct {
         errdefer sema.air.deinit(allocator);
 
         try sema.air.nodes.append(allocator, undefined);
+        try sema.air.locs.append(allocator, .zero);
 
         const @"fn" = try sema.analyzeFnStmtKey(
             null,
@@ -317,6 +318,8 @@ pub const Sema = struct {
         }
 
         sema.air.nodes.set(0, try sema.prepareNode(@"fn"));
+
+        assert(sema.air.nodes.len == sema.air.locs.items.len);
 
         return air;
     }
@@ -1504,6 +1507,7 @@ pub const Sema = struct {
             self.scratch.nodes.appendAssumeCapacity(expr.toInt());
         }
 
+        std.debug.print("here: {any}\n", .{ast_expr.toLoc(self.ast)});
         return try self.addNode(
             switch (arg_types.len) {
                 else => .{ .call = .{
@@ -1757,7 +1761,7 @@ pub const Sema = struct {
     fn addInvalidNode(self: *Sema) Allocator.Error!Air.Index {
         return self.addNode(
             .{ .constant = .invalid },
-            .{ .index = 0, .len = 0 },
+            .zero,
         );
     }
 

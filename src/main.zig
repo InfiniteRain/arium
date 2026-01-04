@@ -122,24 +122,33 @@ pub fn main() !void {
         &air,
         &compiler_diags,
         &compiler_scratch,
-        .debug,
+        .release,
     );
     defer module.deinit(allocator);
 
     arium.module_reporter.printModule(&module, &output);
 
-    var vm_tracer = VmTracer.init(allocator, &output);
+    // var vm_tracer = VmTracer.init(allocator, &output);
 
     var vm_diags: arium.VmNew.Diags = .empty;
     defer vm_diags.deinit(allocator);
 
-    try arium.VmNew.interpret(
+    arium.VmNew.interpret(
         &memory,
         &module,
         &output,
         &vm_diags,
-        vm_tracer.debugTracer(),
-    );
+        null,
+        // vm_tracer.debugTracer(),
+    ) catch |err| {
+        if (vm_diags.entry) |entry| {
+            std.debug.print(
+                "{any} in '{s}'\n",
+                .{ entry.tag, source[entry.loc.index..][0..entry.loc.len] },
+            );
+        }
+        return err;
+    };
 }
 
 test {
