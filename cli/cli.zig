@@ -100,8 +100,6 @@ pub fn main() !void {
             std.posix.exit(1);
         },
     };
-
-    std.debug.print("{any}\n", .{gpa.deinit()});
 }
 
 fn runFile(
