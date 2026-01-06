@@ -75,6 +75,8 @@ pub const Vm = struct {
         diags: *Diags,
         debug_tracer_opt: ?DebugTracer,
     ) Error!void {
+        const allocator = memory.allocator();
+
         var vm = Vm{
             .memory = memory,
             .module = module,
@@ -86,6 +88,10 @@ pub const Vm = struct {
             .diags = diags,
             .debug_tracer = debug_tracer_opt orelse undefined,
         };
+        defer {
+            vm.st.deinit(allocator);
+            vm.st_tags.deinit(allocator);
+        }
 
         if (debug_tracer_opt != null) {
             try vm.run(output, .debug);

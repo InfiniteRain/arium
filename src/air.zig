@@ -353,6 +353,7 @@ pub const Air = struct {
     pub fn deinit(self: *Air, allocator: Allocator) void {
         self.nodes.deinit(allocator);
         self.extra.deinit(allocator);
+        self.locs.deinit(allocator);
     }
 
     fn get(self: *const Air, index: Index) Key {

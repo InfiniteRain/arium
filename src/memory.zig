@@ -180,6 +180,8 @@ pub const Memory = struct {
             object.destroy(self);
             current = next;
         }
+
+        self.string_pool.deinit(self.backing_allocator);
     }
 
     pub fn allocator(self: *Memory) Allocator {
