@@ -1,18 +1,24 @@
-/// run
-
 let variable = "hello"
-print(variable) /// out hello
+print(variable)
 
 do 
   let variable = "bye"
-  print(variable) /// out bye
+  print(variable)
 
   do
     let variable = "world"
-    print(variable) /// out world
+    print(variable)
   end
 
-  print(variable) /// out bye
+  print(variable)
 end
 
-print(variable) /// out hello
+print(variable)
+
+/// test(.run)
+/// out("hello")
+/// out("bye")
+/// out("world")
+/// out("bye")
+/// out("hello")
+

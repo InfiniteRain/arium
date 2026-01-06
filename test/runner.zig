@@ -1,557 +1,646 @@
 const std = @import("std");
-const arium = @import("arium");
-const shared = @import("shared");
-const test_writer_mod = @import("test_writer.zig");
-const config_mod = @import("config.zig");
-const test_reporter = @import("test_reporter.zig");
-
-const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
+const fs = std.fs;
+const mem = std.mem;
+const meta = std.meta;
+const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const assert = std.debug.assert;
-const comptimePrint = std.fmt.comptimePrint;
+const MultiArrayList = std.MultiArrayList;
+
+const arium = @import("arium");
+const FixedArray = arium.FixedArray;
+const Output = arium.Output;
+const Span = arium.Span;
+const AriumParser = arium.Parser;
 const Tokenizer = arium.Tokenizer;
-const Loc = arium.Loc;
-const Token = arium.Token;
-const IoHandler = arium.IoHandler;
 const Parser = arium.Parser;
+const InternPool = arium.InternPool;
 const Sema = arium.Sema;
-const SemaExpr = arium.SemaExpr;
-const SemaType = arium.SemaType;
-const ManagedMemory = arium.ManagedMemory;
+const Memory = arium.Memory;
 const Compiler = arium.Compiler;
 const Vm = arium.Vm;
-const SharedDiags = shared.Diags;
-const Writer = shared.Writer;
-const meta = shared.meta;
-const error_reporter = arium.error_reporter;
-const TestWriter = test_writer_mod.TestWriter;
-const Config = config_mod.Config;
+
+const checkForFixedArray = @import("util.zig").checkForFixedArray;
+const constants = @import("constants.zig");
+const test_parser_mod = @import("test_parser.zig");
+const TestParser = test_parser_mod.TestParser;
+const TestSetup = test_parser_mod.TestSetup;
+const TestWriter = @import("test_writer.zig").TestWriter;
 
 pub const Runner = struct {
-    const Self = @This();
+    allocator: Allocator,
+    diags: *Diags,
+    scratch: *Scratch,
+    test_scratch: *TestParser.Scratch,
 
-    const Error = error{
-        OutOfMemory,
-        TestFailure,
-    };
+    pub const Error = error{RunTestFailure} || Allocator.Error;
 
-    pub const DiagEntry = struct {
-        pub fn Mismatch(T: type) type {
-            return struct {
-                expected: T,
-                actual: T,
-                source: []const u8,
+    pub const Diags = struct {
+        entries: ArrayList(Entry),
+        strings: ArrayList(u8),
+        expects: ArrayList(TestSetup.Expect),
+        actuals: ArrayList(Actual),
+        test_parser_diag_entries: ArrayList(TestParser.Diags.Entry),
+        ip_items: MultiArrayList(InternPool.Item),
+        ip_extra: ArrayList(u32),
+
+        pub const Entry = struct {
+            file_path: Span(u8),
+            tag: Tag,
+
+            pub const Tag = union(enum) {
+                file_read_failure,
+                test_parse_failure: TestParseFailure,
+                validation_failure: ValidationFailure,
+
+                pub const ValidationFailure = struct {
+                    expects: Span(TestSetup.Expect),
+                    actuals: Span(Actual),
+                    source: Span(u8),
+                    ip_items: Span(void),
+                    ip_extra: Span(u32),
+                    ip_strings: Span(u8),
+                };
+
+                pub const TestParseFailure = struct {
+                    entries: Span(TestParser.Diags.Entry),
+                    source: Span(u8),
+                };
             };
+        };
+
+        pub const empty: Diags = .{
+            .entries = .empty,
+            .strings = .empty,
+            .expects = .empty,
+            .actuals = .empty,
+            .test_parser_diag_entries = .empty,
+            .ip_items = .empty,
+            .ip_extra = .empty,
+        };
+
+        pub fn deinit(self: *Diags, allocator: Allocator) void {
+            self.entries.deinit(allocator);
+            self.strings.deinit(allocator);
+            self.expects.deinit(allocator);
+            self.actuals.deinit(allocator);
+            self.test_parser_diag_entries.deinit(allocator);
+            self.ip_items.deinit(allocator);
+            self.ip_extra.deinit(allocator);
         }
 
-        pub const OutMismatch = struct {
-            expected: []const u8,
-            actual: []const u8,
-        };
+        fn appendFileReadFailure(
+            self: *Diags,
+            allocator: Allocator,
+            file_path: []const u8,
+        ) Allocator.Error!void {
+            try self.entries.append(allocator, .{
+                .file_path = try self.appendString(allocator, file_path),
+                .tag = .file_read_failure,
+            });
+        }
 
-        pub const Failure = union(enum) {
-            parser: struct {
-                diags: ArrayListUnmanaged(Parser.Diag),
-                source: []const u8,
-            },
-            sema: struct {
-                diags: Sema.Diags,
-                source: []const u8,
-            },
-            compiler: struct {
-                diags: Compiler.Diags,
-                source: []const u8,
-            },
-            vm: struct {
-                diags: Vm.Diags,
-                source: []const u8,
-            },
-            out_mismatch: OutMismatch,
-            err_parser_mismatch: Mismatch(ArrayListUnmanaged(Parser.Diag)),
-            err_sema_mismatch: Mismatch(Sema.Diags),
-            err_compiler_mismatch: Mismatch(Compiler.Diags),
-            err_vm_mismatch: Mismatch(Vm.Diags),
-            memory_leak,
-        };
+        fn appendTestParseFailure(
+            self: *Diags,
+            allocator: Allocator,
+            file_path: []const u8,
+            test_parser_diag_entries: []const TestParser.Diags.Entry,
+            source: [:0]const u8,
+        ) Allocator.Error!void {
+            const test_parser_diag_entries_top =
+                self.test_parser_diag_entries.items.len;
 
-        path: []const u8,
-        failures: ArrayList(Failure),
+            try self.test_parser_diag_entries.appendSlice(
+                allocator,
+                test_parser_diag_entries,
+            );
 
-        pub fn deinit(self: *DiagEntry, allocator: Allocator) void {
-            for (self.failures.items) |*info| {
-                switch (info.*) {
-                    .parser => |*parse_failure| {
-                        parse_failure.diags.deinit(allocator);
-                        allocator.free(parse_failure.source);
-                    },
-                    .sema => |*sema_failure| {
-                        sema_failure.diags.deinit();
-                        allocator.free(sema_failure.source);
-                    },
-                    .compiler => |*compiler_failure| {
-                        compiler_failure.diags.deinit();
-                        allocator.free(compiler_failure.source);
-                    },
-                    .vm => |*vm_failure| {
-                        vm_failure.diags.deinit();
-                        allocator.free(vm_failure.source);
-                    },
-                    .out_mismatch => |mismatch| {
-                        allocator.free(mismatch.expected);
-                        allocator.free(mismatch.actual);
-                    },
-                    .err_parser_mismatch => |*mismatch| {
-                        mismatch.expected.deinit(allocator);
-                        mismatch.actual.deinit(allocator);
-                        allocator.free(mismatch.source);
-                    },
-                    .err_sema_mismatch => |*mismatch| {
-                        mismatch.expected.deinit();
-                        mismatch.actual.deinit();
-                        allocator.free(mismatch.source);
-                    },
-                    .err_compiler_mismatch => |*mismatch| {
-                        mismatch.expected.deinit();
-                        mismatch.actual.deinit();
-                        allocator.free(mismatch.source);
-                    },
-                    .err_vm_mismatch => |*mismatch| {
-                        mismatch.expected.deinit();
-                        mismatch.actual.deinit();
-                        allocator.free(mismatch.source);
-                    },
-                    .memory_leak => {},
+            try self.entries.append(allocator, .{
+                .file_path = try self.appendString(allocator, file_path),
+                .tag = .{ .test_parse_failure = .{
+                    .entries = .init(
+                        test_parser_diag_entries_top,
+                        self.test_parser_diag_entries.items.len,
+                    ),
+                    .source = try self.appendString(allocator, source),
+                } },
+            });
+        }
+
+        fn appendExpectationMismatch(
+            self: *Diags,
+            allocator: Allocator,
+            file_path: []const u8,
+            source: [:0]const u8,
+            intern_pool: *const InternPool,
+            scratch: *const Scratch,
+            expects: []const TestSetup.Expect,
+            actuals: []const Actual,
+        ) Allocator.Error!void {
+            const expects_top = self.expects.items.len;
+            const actuals_top = self.actuals.items.len;
+            const ip_items_top = self.ip_items.len;
+            const ip_extra_top = self.ip_extra.items.len;
+
+            try self.expects.ensureUnusedCapacity(allocator, expects.len);
+
+            for (expects) |expect| {
+                switch (expect) {
+                    .out => |out| self.expects.appendAssumeCapacity(.{
+                        .out = try self.appendString(
+                            allocator,
+                            out.toSlice(source),
+                        ),
+                    }),
+
+                    .parse_err,
+                    .sema_err,
+                    .compile_err,
+                    .vm_err,
+                    => self.expects.appendAssumeCapacity(expect),
                 }
             }
+
+            try self.actuals.ensureUnusedCapacity(allocator, actuals.len);
+
+            for (actuals) |actual| {
+                switch (actual) {
+                    .out => |out| self.actuals.appendAssumeCapacity(.{
+                        .out = try self.appendString(
+                            allocator,
+                            out.toSlice(scratch.strings.items),
+                        ),
+                    }),
+
+                    .parse_err,
+                    .sema_err,
+                    .compile_err,
+                    .vm_err,
+                    => self.actuals.appendAssumeCapacity(actual),
+                }
+            }
+
+            try self.ip_items.ensureUnusedCapacity(
+                allocator,
+                intern_pool.items.len,
+            );
+
+            for (0..intern_pool.items.len) |index| {
+                self.ip_items.appendAssumeCapacity(
+                    intern_pool.items.get(index),
+                );
+            }
+
+            try self.ip_extra.appendSlice(allocator, intern_pool.extra.items);
+
+            const ip_strings_span = try self.appendString(
+                allocator,
+                intern_pool.strings.items,
+            );
+
+            try self.entries.append(allocator, .{
+                .file_path = try self.appendString(allocator, file_path),
+                .tag = .{
+                    .validation_failure = .{
+                        .expects = .init(expects_top, self.expects.items.len),
+                        .actuals = .init(actuals_top, self.actuals.items.len),
+                        .source = try self.appendString(allocator, source),
+
+                        .ip_items = .init(ip_items_top, self.ip_items.len),
+                        .ip_extra = .init(
+                            ip_extra_top,
+                            self.ip_extra.items.len,
+                        ),
+                        .ip_strings = ip_strings_span,
+                    },
+                },
+            });
+        }
+
+        fn appendString(
+            self: *Diags,
+            allocator: Allocator,
+            string: []const u8,
+        ) Allocator.Error!Span(u8) {
+            const strings_top = self.strings.items.len;
+            try self.strings.appendSlice(allocator, string);
+            return .init(strings_top, self.strings.items.len);
         }
     };
 
-    pub const Diags = SharedDiags(DiagEntry);
+    pub const Scratch = struct {
+        actuals: ArrayList(Actual),
+        strings: ArrayList(u8),
 
-    const VerifiableTypes = .{
-        Parser.Diag,
-        Parser.Diag.Tag,
-        Loc,
-        Token.Tag,
-        Sema.DiagEntry,
-        Sema.DiagEntry.Kind,
-        Sema.DiagEntry.ArityMismatch,
-        Sema.DiagEntry.ArgTypeMismatch,
-        SemaType,
-        SemaType.Fn,
-        Sema.DiagEntry.SemaTypeTuple,
-        Compiler.DiagEntry,
-        Compiler.DiagEntry.Kind,
-        Vm.DiagEntry,
-        Vm.DiagEntry.Kind,
+        pub const empty: Scratch = .{
+            .actuals = .empty,
+            .strings = .empty,
+        };
+
+        pub fn deinit(self: *Scratch, allocator: Allocator) void {
+            self.actuals.deinit(allocator);
+            self.strings.deinit(allocator);
+        }
+
+        fn appendOut(
+            self: *Scratch,
+            allocator: Allocator,
+            string: []const u8,
+        ) Allocator.Error!void {
+            const strings_top = self.strings.items.len;
+            try self.strings.appendSlice(allocator, string);
+            try self.actuals.append(allocator, .{
+                .out = .init(strings_top, self.strings.items.len),
+            });
+        }
     };
 
-    allocator: Allocator,
-    tests: ArrayList(Config),
+    pub const Actual = union(enum) {
+        parse_err: AriumParser.Diags.Entry,
+        sema_err: Sema.Diags.Entry,
+        compile_err: Compiler.Diags.Entry,
+        vm_err: Vm.Diags.Entry,
+        out: Span(u8),
+    };
 
-    pub fn init(allocator: Allocator) Self {
+    pub fn init(
+        allocator: Allocator,
+        diags: *Diags,
+        scratch: *Scratch,
+        test_scratch: *TestParser.Scratch,
+    ) Runner {
         return .{
             .allocator = allocator,
-            .tests = ArrayList(Config).init(allocator),
+            .diags = diags,
+            .scratch = scratch,
+            .test_scratch = test_scratch,
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        for (self.tests.items) |*config| {
-            config.deinit();
-        }
+    pub fn runTest(
+        self: *const Runner,
+        file_path: []const u8,
+    ) Error!void {
+        const actuals_top = self.scratch.actuals.items.len;
+        defer self.scratch.actuals.shrinkRetainingCapacity(actuals_top);
 
-        self.tests.clearAndFree();
-    }
+        const source = self.readFileAlloc(file_path) catch |err|
+            switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.FileReadFailure => {
+                    try self.diags.appendFileReadFailure(
+                        self.allocator,
+                        file_path,
+                    );
+                    return error.RunTestFailure;
+                },
+            };
+        defer self.allocator.free(source);
 
-    /// Takes ownership of path.
-    /// Takes ownership of source.
-    pub fn addTest(
-        self: *Self,
-        path: []const u8,
-        source: [:0]const u8,
-        config_diags: *Config.Diags,
-    ) !void {
-        const config = try Config.initFromOwnedPathAndSource(
+        var intern_pool = try InternPool.init(self.allocator);
+        defer intern_pool.deinit(self.allocator);
+
+        var test_parser_diags: TestParser.Diags = .empty;
+        defer test_parser_diags.deinit(self.allocator);
+
+        var setup = TestParser.parse(
             self.allocator,
-            path,
             source,
-            config_diags,
-        );
-        try self.tests.append(config);
+            &intern_pool,
+            &test_parser_diags,
+            self.test_scratch,
+        ) catch |err| switch (err) {
+            error.TestParseFailure => {
+                try self.diags.appendTestParseFailure(
+                    self.allocator,
+                    file_path,
+                    test_parser_diags.entries.items,
+                    source,
+                );
+                return error.RunTestFailure;
+            },
+            else => |run_test_error| return run_test_error,
+        };
+        defer setup.deinit(self.allocator);
+
+        try self.run(&setup, source, &intern_pool);
+
+        if (!self.validate(&setup, source)) {
+            return self.expectationMismatch(
+                &setup,
+                file_path,
+                source,
+                &intern_pool,
+            );
+        }
     }
 
-    pub fn runTests(
-        self: *Self,
-        allocator: Allocator,
-        stdout_writer: *const Writer,
-        stderr_writer: *const Writer,
-    ) !void {
-        var diags = Diags.init(allocator);
-        defer diags.deinit();
+    fn run(
+        self: *const Runner,
+        setup: *const TestSetup,
+        source: [:0]const u8,
+        intern_pool: *InternPool,
+    ) Allocator.Error!void {
+        var tokenizer = Tokenizer.init(source);
 
-        const start_ms = std.time.milliTimestamp();
-        var passed: u32 = 0;
-        var failed: u32 = 0;
+        var parser_diags: Parser.Diags = .empty;
+        defer parser_diags.deinit(self.allocator);
 
-        stdout_writer.print("Running language tests...\n\n");
+        var parser_scratch: Parser.Scratch = .empty;
+        defer parser_scratch.deinit(self.allocator);
 
-        for (self.tests.items) |*config| {
-            stdout_writer.printf("Running '{s}'... ", .{config.path});
+        var ast = Parser.parse(
+            self.allocator,
+            &tokenizer,
+            &parser_diags,
+            &parser_scratch,
+        ) catch |err| switch (err) {
+            error.ParseFailure => {
+                try self.scratch.actuals.ensureUnusedCapacity(
+                    self.allocator,
+                    parser_diags.entries.items.len,
+                );
 
-            self.runTest(config, &diags) catch |err| switch (err) {
-                error.TestFailure => {
-                    stdout_writer.print("FAILED\n");
-                    failed += 1;
+                for (parser_diags.entries.items) |entry| {
+                    self.scratch.actuals.appendAssumeCapacity(.{
+                        .parse_err = .{
+                            .tag = entry.tag,
+                            .loc = entry.loc,
+                        },
+                    });
+                }
 
-                    continue;
+                return;
+            },
+            else => |run_test_error| return run_test_error,
+        };
+        defer ast.deinit(self.allocator);
+
+        if (setup.kind == .parse) {
+            return;
+        }
+
+        var sema_diags: Sema.Diags = .empty;
+        defer sema_diags.deinit(self.allocator);
+
+        var sema_scratch: Sema.Scratch = .empty;
+        defer sema_scratch.deinit(self.allocator);
+
+        var air = Sema.analyze(
+            self.allocator,
+            source,
+            intern_pool,
+            &ast,
+            &sema_diags,
+            &sema_scratch,
+        ) catch |err| switch (err) {
+            error.AnalyzeFailure => {
+                try self.scratch.actuals.ensureUnusedCapacity(
+                    self.allocator,
+                    sema_diags.entries.items.len,
+                );
+
+                for (sema_diags.entries.items) |entry| {
+                    self.scratch.actuals.appendAssumeCapacity(.{
+                        .sema_err = entry,
+                    });
+                }
+
+                return;
+            },
+            else => |run_test_error| return run_test_error,
+        };
+        defer air.deinit(self.allocator);
+
+        if (setup.kind == .sema) {
+            return;
+        }
+
+        var memory = Memory.init(self.allocator);
+        defer memory.deinit();
+
+        var compiler_diags: Compiler.Diags = .empty;
+        defer compiler_diags.deinit(self.allocator);
+
+        var compiler_scratch: Compiler.Scratch = .empty;
+        defer compiler_scratch.deinit(self.allocator);
+
+        var module = Compiler.compile(
+            self.allocator,
+            &memory,
+            intern_pool,
+            &air,
+            &compiler_diags,
+            &compiler_scratch,
+            .release,
+        ) catch |err| switch (err) {
+            error.CompileFailure => {
+                try self.scratch.actuals.ensureUnusedCapacity(
+                    self.allocator,
+                    compiler_diags.entries.items.len,
+                );
+
+                for (compiler_diags.entries.items) |entry| {
+                    self.scratch.actuals.appendAssumeCapacity(.{
+                        .compile_err = entry,
+                    });
+                }
+
+                return;
+            },
+            else => |run_test_error| return run_test_error,
+        };
+        defer module.deinit(self.allocator);
+
+        if (setup.kind == .compile) {
+            return;
+        }
+
+        var vm_diags: Vm.Diags = .empty;
+        defer vm_diags.deinit(self.allocator);
+
+        var output_bytes: ArrayList(u8) = .empty;
+        defer output_bytes.deinit(self.allocator);
+
+        var test_writer = TestWriter.init(self.allocator, &output_bytes);
+        const output = Output.init(&test_writer.interface);
+
+        Vm.interpret(&memory, &module, &output, &vm_diags, null) catch |err|
+            switch (err) {
+                error.Panic => {
+                    if (vm_diags.entry) |entry| {
+                        self.scratch.actuals.appendAssumeCapacity(.{
+                            .vm_err = entry,
+                        });
+                    }
+
+                    return;
                 },
-                else => return err,
+                else => |run_test_error| return run_test_error,
             };
 
-            stdout_writer.print("PASSED\n");
-            passed += 1;
+        var splitIterator = mem.splitScalar(u8, output_bytes.items, '\n');
+        var addedOut = false;
+
+        while (splitIterator.next()) |line| {
+            try self.scratch.appendOut(self.allocator, line);
+            addedOut = true;
         }
 
-        stdout_writer.printf(
-            "\nTests ran: {}\nTests passed: {}\nTests failed: {}\nTime elapsed (ms): {}\n",
-            .{
-                passed + failed,
-                passed,
-                failed,
-                std.time.milliTimestamp() - start_ms,
-            },
-        );
-
-        if (failed > 0) {
-            test_reporter.reportRunnerDiags(&diags, stderr_writer);
-            return error.TestFailure;
+        if (addedOut and self.scratch.actuals.getLast().out.len == 0) {
+            // removing last blank line from out expects
+            _ = self.scratch.actuals.pop();
         }
     }
 
-    fn runTest(self: *Self, config: *Config, diags: *Diags) Error!void {
-        var stdout_test_writer = TestWriter.init(self.allocator);
-        defer stdout_test_writer.deinit();
+    fn validate(
+        self: *const Runner,
+        setup: *const TestSetup,
+        source: [:0]const u8,
+    ) bool {
+        const expects = setup.expects.items;
+        const actuals = self.scratch.actuals.items;
 
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        const test_allocator = gpa.allocator();
+        if (expects.len != actuals.len) {
+            return false;
+        }
 
-        var diag_entry = DiagEntry{
-            .path = config.path,
-            .failures = ArrayList(DiagEntry.Failure).init(self.allocator),
+        for (expects, actuals) |expect, actual| {
+            if (!mem.eql(u8, @tagName(expect), @tagName(actual))) {
+                return false;
+            }
+
+            const is_match = switch (expect) {
+                .parse_err,
+                => |parse_err| validateValue(
+                    parse_err.tag,
+                    actual.parse_err.tag,
+                ) and validateLoc(source, parse_err.loc, actual.parse_err.loc),
+
+                .sema_err,
+                => |sema_err| validateValue(
+                    sema_err.tag,
+                    actual.sema_err.tag,
+                ) and validateLoc(source, sema_err.loc, actual.sema_err.loc),
+
+                .compile_err,
+                => |compile_err| validateValue(
+                    compile_err.tag,
+                    actual.compile_err.tag,
+                ) and
+                    validateLoc(
+                        source,
+                        compile_err.loc,
+                        actual.compile_err.loc,
+                    ),
+
+                .vm_err,
+                => |vm_err| validateValue(vm_err.tag, actual.vm_err.tag) and
+                    validateLoc(source, vm_err.loc, actual.vm_err.loc),
+
+                .out,
+                => |out| mem.eql(
+                    u8,
+                    out.toSlice(source),
+                    actual.out.toSlice(self.scratch.strings.items),
+                ),
+            };
+
+            if (!is_match) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    fn expectationMismatch(
+        self: *const Runner,
+        setup: *const TestSetup,
+        file_path: []const u8,
+        source: [:0]const u8,
+        intern_pool: *const InternPool,
+    ) Error {
+        const expects = setup.expects.items;
+        const actuals = self.scratch.actuals.items;
+
+        try self.diags.appendExpectationMismatch(
+            self.allocator,
+            file_path,
+            source,
+            intern_pool,
+            self.scratch,
+            expects,
+            actuals,
+        );
+
+        return error.RunTestFailure;
+    }
+
+    fn readFileAlloc(
+        self: *const Runner,
+        file_path: []const u8,
+    ) (error{FileReadFailure} || Allocator.Error)![:0]const u8 {
+        var tests_dir = fs.cwd().openDir(constants.tests_dir, .{}) catch
+            return error.FileReadFailure;
+        defer tests_dir.close();
+
+        const file = tests_dir.openFile(
+            file_path,
+            .{ .mode = .read_only },
+        ) catch return error.FileReadFailure;
+        defer file.close();
+
+        var file_buffer: [512]u8 = undefined;
+        var reader = file.reader(&file_buffer);
+        var file_reader = &reader.interface;
+
+        var buffer: ArrayList(u8) = .empty;
+        defer buffer.deinit(self.allocator);
+
+        file_reader.appendRemaining(
+            self.allocator,
+            &buffer,
+            .unlimited,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.FileReadFailure,
         };
 
-        var actual = Config.Expectations.init(self.allocator);
-        defer actual.deinit();
+        return buffer.toOwnedSliceSentinel(self.allocator, 0);
+    }
 
-        blk: {
-            var arena_allocator = ArenaAllocator.init(test_allocator);
-            defer arena_allocator.deinit();
+    fn validateValue(expect: anytype, actual: @TypeOf(expect)) bool {
+        const Type = @TypeOf(expect);
+        const type_info = @typeInfo(Type);
 
-            var tokenizer = Tokenizer.init(config.source);
-            var parser = Parser.init(arena_allocator.allocator());
-
-            var parser_diags: ArrayListUnmanaged(Parser.Diag) = .{};
-
-            var ast = parser.parse(&tokenizer, &parser_diags) catch |err| switch (err) {
-                error.ParseFailure => {
-                    if (config.expectations.err_parser.items.len > 0) {
-                        actual.err_parser = try parser_diags.clone(self.allocator);
-                    } else {
-                        try diag_entry.failures.append(.{
-                            .parser = .{
-                                .diags = try parser_diags.clone(self.allocator),
-                                .source = try self.allocator.dupe(u8, config.source),
-                            },
-                        });
-                    }
-                    break :blk;
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-
-            if (config.kind == .parse) {
-                break :blk;
-            }
-
-            var sema = Sema.init(&arena_allocator);
-
-            // allocate using Runner's allocator to prevent segfaults on dealloc.
-            // diags are owned by the test runner, not the tests.
-            var sema_diags = Sema.Diags.init(self.allocator);
-
-            const sema_fn = sema.analyze(&ast, &sema_diags) catch |err| switch (err) {
-                error.SemaFailure => {
-                    if (config.expectations.err_sema.getLen() > 0) {
-                        actual.err_sema = sema_diags;
-                    } else {
-                        try diag_entry.failures.append(.{
-                            .sema = .{
-                                .diags = sema_diags,
-                                .source = try self.allocator.dupe(u8, config.source),
-                            },
-                        });
-                    }
-                    break :blk;
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-
-            if (config.kind == .sema) {
-                break :blk;
-            }
-
-            var memory = ManagedMemory.init(test_allocator);
-            defer memory.deinit();
-
-            // allocate using Runner's allocator to prevent segfaults on dealloc.
-            // diags are owned by the test runner, not the tests.
-            var compiler_diags = Compiler.Diags.init(self.allocator);
-
-            Compiler.compile(
-                &memory,
-                &arena_allocator,
-                sema_fn,
-                &compiler_diags,
-            ) catch |err| switch (err) {
-                error.CompileFailure => {
-                    if (config.expectations.err_compiler.getLen() > 0) {
-                        actual.err_compiler = compiler_diags;
-                    } else {
-                        try diag_entry.failures.append(.{
-                            .compiler = .{
-                                .diags = compiler_diags,
-                                .source = try self.allocator.dupe(u8, config.source),
-                            },
-                        });
-                    }
-                    break :blk;
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-
-            if (config.kind == .compile) {
-                break :blk;
-            }
-
-            const stdout = stdout_test_writer.writer().any();
-            const stdout_writer = Writer.init(&stdout);
-
-            // allocate using TestRunner's allocator to prevent segfaults on dealloc.
-            // diags are owned by the test runner, not the tests.
-            var vm_diags = Vm.Diags.init(self.allocator);
-
-            Vm.interpret(&memory, &stdout_writer, &vm_diags, .{}) catch |err| switch (err) {
-                error.Panic => {
-                    if (config.expectations.err_vm.getLen() > 0) {
-                        actual.err_vm = vm_diags;
-                    } else {
-                        try diag_entry.failures.append(.{
-                            .vm = .{
-                                .diags = vm_diags,
-                                .source = try self.allocator.dupe(u8, config.source),
-                            },
-                        });
-                    }
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-        }
-
-        switch (gpa.deinit()) {
-            .leak => {
-                try diag_entry.failures.append(.memory_leak);
-            },
-            .ok => {},
-        }
-
-        if (diag_entry.failures.items.len == 0) {
-            try actual.out.appendSlice(stdout_test_writer.output.items);
-            try self.verifyExpectations(
-                config.source,
-                &config.expectations,
-                &actual,
-                &diag_entry,
+        if (checkForFixedArray(Type)) |fixed_array| {
+            return validateFixedArray(
+                fixed_array.T,
+                fixed_array.capacity,
+                expect,
+                actual,
             );
         }
 
-        if (diag_entry.failures.items.len > 0) {
-            try diags.add(diag_entry);
-            return error.TestFailure;
-        }
-    }
-
-    fn verifyExpectations(
-        self: *Self,
-        source: []const u8,
-        expectations: *const Config.Expectations,
-        actuals: *const Config.Expectations,
-        diag_entry: *DiagEntry,
-    ) !void {
-        if (!verifyValue(expectations.out, actuals.out, source)) {
-            try diag_entry.failures.append(.{
-                .out_mismatch = .{
-                    .expected = try self.allocator.dupe(
-                        u8,
-                        expectations.out.items,
-                    ),
-                    .actual = try self.allocator.dupe(
-                        u8,
-                        actuals.out.items,
-                    ),
-                },
-            });
-        }
-
-        if (!verifyValue(
-            expectations.err_parser.items,
-            actuals.err_parser.items,
-            source,
-        )) {
-            try diag_entry.failures.append(.{
-                .err_parser_mismatch = .{
-                    .expected = try expectations.err_parser.clone(self.allocator),
-                    .actual = try actuals.err_parser.clone(self.allocator),
-                    .source = try self.allocator.dupe(u8, source),
-                },
-            });
-        }
-
-        if (!verifyValue(
-            expectations.err_sema.entries,
-            actuals.err_sema.entries,
-            source,
-        )) {
-            try diag_entry.failures.append(.{
-                .err_sema_mismatch = .{
-                    .expected = try self.cloneDiags(&expectations.err_sema),
-                    .actual = try self.cloneDiags(&actuals.err_sema),
-                    .source = try self.allocator.dupe(u8, source),
-                },
-            });
-        }
-
-        if (!verifyValue(
-            expectations.err_compiler.entries,
-            actuals.err_compiler.entries,
-            source,
-        )) {
-            try diag_entry.failures.append(.{
-                .err_compiler_mismatch = .{
-                    .expected = try self.cloneDiags(&expectations.err_compiler),
-                    .actual = try self.cloneDiags(&actuals.err_compiler),
-                    .source = try self.allocator.dupe(u8, source),
-                },
-            });
-        }
-
-        if (!verifyValue(
-            expectations.err_vm.entries,
-            actuals.err_vm.entries,
-            source,
-        )) {
-            try diag_entry.failures.append(.{
-                .err_vm_mismatch = .{
-                    .expected = try self.cloneDiags(&expectations.err_vm),
-                    .actual = try self.cloneDiags(&actuals.err_vm),
-                    .source = try self.allocator.dupe(u8, source),
-                },
-            });
-        }
-    }
-
-    fn verifyValue(expectation: anytype, actual: anytype, source: []const u8) bool {
-        const Type = @TypeOf(expectation);
-        const type_name = @typeName(Type);
-
-        if (Type != @TypeOf(actual)) {
-            @compileError("expectation and actual should be of the same type");
-        }
-
-        const type_info = @typeInfo(Type);
-
-        if (Type == Loc) {
-            const line, _ = actual.toLineCol(source);
-            return expectation.index == line;
-        }
-
-        if (Type == []u8 or Type == []const u8) {
-            return verifyString(expectation, actual);
-        }
-
-        if (comptime meta.isArrayList(Type)) {
-            return verifyArray(expectation.items, actual.items, source);
-        }
-
-        if (type_info == .pointer and type_info.pointer.size == .one) {
-            return verifyValue(expectation.*, actual.*, source);
-        }
-
-        if ((type_info == .array) or
-            (type_info == .pointer and type_info.pointer.size == .slice))
-        {
-            return verifyArray(expectation, actual, source);
-        }
-
-        switch (type_info) {
+        return switch (type_info) {
             .void,
-            => return true,
-
             .int,
-            => return expectation == actual,
-
-            .optional,
-            => return verifyOptional(expectation, actual, source),
-
             .@"enum",
-            => if (comptime meta.valueInTuple(Type, VerifiableTypes)) {
-                return expectation == actual;
-            } else {
-                @compileError(comptimePrint(
-                    "enum {s} isn't marked as verifiable",
-                    .{type_name},
-                ));
-            },
+            => expect == actual,
 
-            .@"union",
-            => if (comptime meta.valueInTuple(Type, VerifiableTypes)) {
-                return verifyUnion(expectation, actual, source);
-            } else {
-                @compileError(comptimePrint(
-                    "union {s} isn't marked as verifiable",
-                    .{type_name},
-                ));
-            },
-
-            .@"struct",
-            => if (comptime meta.valueInTuple(Type, VerifiableTypes)) {
-                return verifyStruct(expectation, actual, source);
-            } else {
-                @compileError(comptimePrint(
-                    "struct {s} isn't marked as verifiable",
-                    .{type_name},
-                ));
-            },
-
-            else => @compileError(comptimePrint(
-                "no verification exists for {s} / {s}",
-                .{ type_name, @tagName(type_info) },
-            )),
-        }
+            .@"struct" => validateStruct(expect, actual),
+            .@"union" => validateUnion(expect, actual),
+            else => @compileError(
+                "validation for " ++ @typeName(Type) ++ " is not supported",
+            ),
+        };
     }
 
-    fn verifyStruct(
-        expectation: anytype,
-        actual: anytype,
-        source: []const u8,
-    ) bool {
-        inline for (@typeInfo(@TypeOf(expectation)).@"struct".fields) |field| {
-            if (!verifyValue(
-                @field(expectation, field.name),
+    fn validateStruct(expect: anytype, actual: @TypeOf(expect)) bool {
+        inline for (meta.fields(@TypeOf(expect))) |field| {
+            if (!validateValue(
+                @field(expect, field.name),
                 @field(actual, field.name),
-                source,
             )) {
                 return false;
             }
@@ -560,45 +649,35 @@ pub const Runner = struct {
         return true;
     }
 
-    fn verifyUnion(
-        expectation: anytype,
-        actual: anytype,
-        source: []const u8,
-    ) bool {
-        const Type = @TypeOf(expectation);
-        const type_info = @typeInfo(Type);
-        const Tag = std.meta.Tag(Type);
-
-        if (@as(Tag, expectation) != @as(Tag, actual)) {
+    fn validateUnion(expect: anytype, actual: @TypeOf(expect)) bool {
+        if (!mem.eql(u8, @tagName(expect), @tagName(actual))) {
             return false;
         }
 
-        inline for (type_info.@"union".fields) |field| {
-            if (!std.mem.eql(u8, @tagName(expectation), field.name)) {
-                comptime continue;
+        inline for (meta.fields(@TypeOf(expect))) |field| {
+            if (mem.eql(u8, field.name, @tagName(expect))) {
+                return validateValue(
+                    @field(expect, field.name),
+                    @field(actual, field.name),
+                );
             }
-
-            return verifyValue(
-                @field(expectation, field.name),
-                @field(actual, field.name),
-                source,
-            );
         }
 
-        unreachable;
+        return false;
     }
 
-    fn verifyArray(
-        expectation: anytype,
-        actual: anytype,
-        source: []const u8,
+    fn validateFixedArray(
+        T: type,
+        comptime capacity: usize,
+        expect: FixedArray(T, capacity),
+        actual: FixedArray(T, capacity),
     ) bool {
-        if (expectation.len != actual.len) {
+        if (expect.len != actual.len) {
             return false;
         }
 
-        for (expectation, actual) |expected_item, actual_item| {
-            if (!verifyValue(expected_item, actual_item, source)) {
+        for (expect.slice(), actual.slice()) |expect_item, actual_item| {
+            if (!validateValue(expect_item, actual_item)) {
                 return false;
             }
         }
@@ -606,50 +685,22 @@ pub const Runner = struct {
         return true;
     }
 
-    fn verifyString(expectation: anytype, actual: anytype) bool {
-        return std.mem.eql(u8, expectation, actual);
-    }
-
-    fn verifyOptional(
-        expectation: anytype,
-        actual: anytype,
-        source: []const u8,
+    fn validateLoc(
+        source: [:0]const u8,
+        expect: TestSetup.Expect.Loc,
+        actual: Span(u8),
     ) bool {
-        if (expectation == null and actual == null) {
-            return true;
+        switch (expect) {
+            .span,
+            => |span| {
+                return span.index == actual.index and span.len == actual.len;
+            },
+
+            .line,
+            => |line| {
+                const actual_line, _ = actual.toLineCol(source);
+                return line == actual_line;
+            },
         }
-
-        if (expectation == null or actual == null) {
-            return false;
-        }
-
-        return verifyValue(expectation.?, actual.?, source);
-    }
-
-    fn cloneDiags(
-        self: *Self,
-        diags: anytype,
-    ) error{OutOfMemory}!@typeInfo(@TypeOf(diags)).pointer.child {
-        const DiagsType = @typeInfo(@TypeOf(diags)).pointer.child;
-        var clone = DiagsType.init(self.allocator);
-
-        for (diags.getEntries()) |diag| {
-            try clone.add(meta.spread(diag, .{
-                .kind = try shared.clone.createClone(
-                    self.allocator,
-                    diag.kind,
-                    .{
-                        Sema.DiagEntry.Kind,
-                        Sema.DiagEntry.SemaTypeTuple,
-                        Sema.DiagEntry.ArityMismatch,
-                        Sema.DiagEntry.ArgTypeMismatch,
-                        SemaType,
-                        SemaType.Fn,
-                    },
-                ),
-            }));
-        }
-
-        return clone;
     }
 };

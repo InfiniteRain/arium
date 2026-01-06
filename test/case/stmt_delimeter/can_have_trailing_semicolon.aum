@@ -1,4 +1,7 @@
-/// run
+print(1);
+print(2);
 
-print(1); /// out 1
-print(2); /// out 2
+/// test(.run)
+/// out("1")
+/// out("2")
+

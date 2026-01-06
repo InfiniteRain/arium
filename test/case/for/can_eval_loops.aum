@@ -1,6 +1,8 @@
-/// run
-
 print(
   for false do
   end
-) /// out unit
+)
+
+/// test(.run)
+/// out("unit")
+

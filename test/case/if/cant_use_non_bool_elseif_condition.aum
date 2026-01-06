@@ -1,5 +1,7 @@
-/// sema
-
 if true then
-elseif 123 then /// err_sema 4 expected_expr_type bool
+elseif 123 then
 end
+
+/// test(.sema)
+/// sema_err(line(2), {.unexpected_expr_type = {.expected = {.type_bool}, .actual = .type_int}})
+

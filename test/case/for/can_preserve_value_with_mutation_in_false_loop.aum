@@ -1,9 +1,11 @@
-/// run
-
 let mut variable = "test"
 
 for false do
   variable = "wrong"
 end
 
-print(variable) /// out test
+print(variable)
+
+/// test(.run)
+/// out("test")
+

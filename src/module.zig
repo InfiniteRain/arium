@@ -8,7 +8,7 @@ const math = std.math;
 const debug_mod = @import("debug.zig");
 const Mode = debug_mod.BuildMode;
 const limits = @import("limits.zig");
-const Loc = @import("tokenizer.zig").Loc;
+const Span = @import("span.zig").Span;
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const TaggedValue = memory_mod.TaggedValue;
@@ -88,7 +88,7 @@ pub const Module = struct {
     constants: ArrayList(Value),
     constant_tags: ArrayList(Value.DebugTag),
     code: ArrayList(u8),
-    locs: ArrayList(Loc),
+    locs: ArrayList(Span(u8)),
     main: ?u64,
 
     pub const empty: Module = .{
@@ -132,7 +132,7 @@ pub const Module = struct {
         allocator: Allocator,
         locals_count: u32,
         body: []const u8,
-        locs: []const Loc,
+        locs: []const Span(u8),
     ) (Allocator.Error || error{BodyTooBig})!u64 {
         assert(body.len == locs.len);
 
@@ -157,7 +157,7 @@ pub const Module = struct {
         );
         self.code.appendSliceAssumeCapacity(body);
 
-        self.locs.appendSliceAssumeCapacity(&([_]Loc{.zero} ** 8));
+        self.locs.appendSliceAssumeCapacity(&([_]Span(u8){.zero} ** 8));
         self.locs.appendSliceAssumeCapacity(locs);
 
         return @intCast(top);

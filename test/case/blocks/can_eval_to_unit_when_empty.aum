@@ -1,3 +1,5 @@
-/// run
+print(do end)
 
-print(do end) /// out unit
+/// test(.run)
+/// out("unit")
+

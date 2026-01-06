@@ -1,4 +1,6 @@
-/// parse
-
 print 10 
-+ 20 /// err_parser 4 expected_expression
++ 20
+
+/// test(.parse)
+/// parse_err(line(2), .expected_expression)
+

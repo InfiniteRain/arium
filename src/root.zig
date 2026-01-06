@@ -21,12 +21,14 @@ pub const Parser = parser_mod.Parser;
 const tokenizer_mod = @import("tokenizer.zig");
 pub const Token = tokenizer_mod.Token;
 pub const Tokenizer = tokenizer_mod.Tokenizer;
-pub const Loc = tokenizer_mod.Loc;
+const span_mod = @import("span.zig");
+pub const Span = @import("span.zig").Span;
 const module_mod = @import("module.zig");
 pub const Module = module_mod.Module;
 pub const OpCode = module_mod.OpCode;
 const debug_mod = @import("debug.zig");
 pub const BuildMode = debug_mod.BuildMode;
+pub const FixedArray = @import("fixed_array.zig").FixedArray;
 
 test {
     _ = std.testing.refAllDeclsRecursive(@This());

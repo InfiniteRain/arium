@@ -20,7 +20,7 @@ const Value = memory_mod.Value;
 const module_mod = @import("module.zig");
 const Module = module_mod.Module;
 const OpCode = module_mod.OpCode;
-const Loc = @import("tokenizer.zig").Loc;
+const Span = @import("span.zig").Span;
 
 pub const Compiler = struct {
     allocator: Allocator,
@@ -39,7 +39,7 @@ pub const Compiler = struct {
 
         pub const Entry = struct {
             tag: Tag,
-            loc: Loc,
+            loc: Span(u8),
 
             pub const Tag = enum {
                 too_many_constants,
@@ -59,7 +59,7 @@ pub const Compiler = struct {
 
     pub const Scratch = struct {
         code: ArrayList(u8),
-        locs: ArrayList(Loc),
+        locs: ArrayList(Span(u8)),
         then_jumps: ArrayList(usize),
         else_jumps: ArrayList(usize),
         last_jump: usize,
@@ -114,8 +114,9 @@ pub const Compiler = struct {
         mode: Mode,
     ) Error!Module {
         var module: Module = .empty;
+        errdefer module.deinit(allocator);
 
-        var compiler = Compiler{
+        var compiler: Compiler = .{
             .allocator = allocator,
             .memory = memory,
             .module = &module,
@@ -157,6 +158,13 @@ pub const Compiler = struct {
 
     fn compileAssertStmt(self: *Compiler, expr: Air.Index) Error!void {
         try self.compileExpr(expr, .use);
+
+        const expr_type = expr.toType(self.air, self.intern_pool);
+
+        if (expr_type == .type_never) {
+            return;
+        }
+
         try self.writeU8(.assert, expr.toLoc(self.air));
     }
 
@@ -166,12 +174,17 @@ pub const Compiler = struct {
 
         try self.compileExpr(expr, .use);
 
+        if (expr_type == .type_never) {
+            return;
+        }
+
         switch (expr_type) {
             .type_unit => try self.writeU8(.print_unit, loc),
             .type_bool => try self.writeU8(.print_bool, loc),
             .type_int => try self.writeU8(.print_int, loc),
             .type_float => try self.writeU8(.print_float, loc),
             .type_string => try self.writeU8(.print_object, loc),
+            .type_never => try self.writeU8(.print_unit, loc),
             else => {
                 switch (expr_type.toKey(self.intern_pool)) {
                     .type_fn => try self.writeU8(.print_fn, loc),
@@ -185,7 +198,7 @@ pub const Compiler = struct {
         self: *Compiler,
         index: u32,
         expr_opt: ?Air.Index,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const index_u8: u8 = @intCast(index);
 
@@ -206,7 +219,11 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileFnStmt(self: *Compiler, air_fn: Air.Key.Fn, loc: Loc) Error!void {
+    fn compileFnStmt(
+        self: *Compiler,
+        air_fn: Air.Key.Fn,
+        loc: Span(u8),
+    ) Error!void {
         const fn_index = try self.compileFn(air_fn, loc);
 
         try self.writeConstant(.{ .@"fn" = fn_index }, .@"fn", loc);
@@ -216,7 +233,7 @@ pub const Compiler = struct {
     fn compileFn(
         self: *Compiler,
         air_fn: Air.Key.Fn,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!u64 {
         const code_scratch_top = self.scratch.code.items.len;
         defer self.scratch.code.shrinkRetainingCapacity(code_scratch_top);
@@ -324,7 +341,7 @@ pub const Compiler = struct {
         self: *Compiler,
         constant: InternPool.Index,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         assert(constant.toKind(self.intern_pool) == .value);
 
@@ -380,7 +397,7 @@ pub const Compiler = struct {
         self: *Compiler,
         air_key: Air.Key,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const binary = switch (air_key) {
             .add,
@@ -462,7 +479,7 @@ pub const Compiler = struct {
     fn compileUnaryExpr(
         self: *Compiler,
         air_key: Air.Key,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const rhs = air_key.neg;
         const rhs_type = rhs.toType(self.air, self.intern_pool);
@@ -490,7 +507,7 @@ pub const Compiler = struct {
         air_key: Air.Key,
         binary: Air.Key.Binary,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const else_offset = self.compileComparisonExprJumpOps(
             air_key,
@@ -516,7 +533,7 @@ pub const Compiler = struct {
         self: *Compiler,
         air_key: Air.Key,
         binary: Air.Key.Binary,
-        loc: Loc,
+        loc: Span(u8),
     ) (Error || error{EncounteredNever})!usize {
         const types = try self.compileBinaryExprOperands(binary);
 
@@ -564,7 +581,7 @@ pub const Compiler = struct {
         self: *Compiler,
         variable: Air.Key.Variable,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const index: u8 = @intCast(variable.stack_index);
 
@@ -589,7 +606,7 @@ pub const Compiler = struct {
         self: *Compiler,
         assignment: Air.Key.Assignment,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         try self.compileVariableMutation(
             assignment.stack_index,
@@ -606,7 +623,7 @@ pub const Compiler = struct {
         self: *Compiler,
         cond: Air.Key.Cond,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const then_scratch_top = self.scratch.then_jumps.items.len;
         const else_scratch_top = self.scratch.else_jumps.items.len;
@@ -771,7 +788,7 @@ pub const Compiler = struct {
         self: *Compiler,
         @"for": Air.Key.For,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const then_scratch_top = self.scratch.then_jumps.items.len;
         const else_scratch_top = self.scratch.else_jumps.items.len;
@@ -807,7 +824,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileBreakExpr(self: *Compiler, loc: Loc) Error!void {
+    fn compileBreakExpr(self: *Compiler, loc: Span(u8)) Error!void {
         for (0..self.scratch.break_never_pops) |_| {
             try self.writeU8(.pop, loc);
         }
@@ -816,7 +833,7 @@ pub const Compiler = struct {
         try self.scratch.break_jumps.append(self.allocator, offset);
     }
 
-    fn compileContinueExpr(self: *Compiler, loc: Loc) Error!void {
+    fn compileContinueExpr(self: *Compiler, loc: Span(u8)) Error!void {
         for (0..self.scratch.break_never_pops) |_| {
             try self.writeU8(.pop, loc);
         }
@@ -827,7 +844,7 @@ pub const Compiler = struct {
     fn compileReturnExpr(
         self: *Compiler,
         @"return": Air.Index,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         try self.compileExpr(@"return", .use);
         try self.writeU8(.@"return", loc);
@@ -837,7 +854,7 @@ pub const Compiler = struct {
         self: *Compiler,
         call: Air.Key.Call,
         value_usage: ValueUsage,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         // todo: add a test for this (break pops)
         try self.compileExpr(call.callee, .use);
@@ -868,7 +885,11 @@ pub const Compiler = struct {
         }
     }
 
-    fn writeU8(self: *Compiler, data: anytype, loc: Loc) Allocator.Error!void {
+    fn writeU8(
+        self: *Compiler,
+        data: anytype,
+        loc: Span(u8),
+    ) Allocator.Error!void {
         const DataType = @TypeOf(data);
         const data_type_info = @typeInfo(DataType);
         const bytes = if (data_type_info == .@"struct" and
@@ -884,7 +905,11 @@ pub const Compiler = struct {
         }
     }
 
-    fn writeU16(self: *Compiler, data: u16, loc: Loc) Allocator.Error!void {
+    fn writeU16(
+        self: *Compiler,
+        data: u16,
+        loc: Span(u8),
+    ) Allocator.Error!void {
         const bytes: [2]u8 = @bitCast(data);
 
         try self.writeU8(bytes[0], loc);
@@ -918,7 +943,7 @@ pub const Compiler = struct {
         self: *Compiler,
         value: Value,
         debug_tag: Value.DebugTag,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const result =
             if (self.mode == .debug)
@@ -955,7 +980,7 @@ pub const Compiler = struct {
     fn writeJump(
         self: *Compiler,
         op_code: OpCode,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!usize {
         try self.writeU8(op_code, loc);
         try self.writeU16(0, loc);
@@ -968,7 +993,7 @@ pub const Compiler = struct {
     fn writeNegativeJump(
         self: *Compiler,
         offset: usize,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!void {
         const jump = self.scratch.code.items.len - offset + 3;
 
@@ -1008,7 +1033,11 @@ pub const Compiler = struct {
         }
     }
 
-    fn compilerError(self: *Compiler, diag: Diags.Entry.Tag, loc: Loc) Error {
+    fn compilerError(
+        self: *Compiler,
+        diag: Diags.Entry.Tag,
+        loc: Span(u8),
+    ) Error {
         try self.diags.entries.append(self.allocator, .{
             .tag = diag,
             .loc = loc,

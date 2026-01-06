@@ -1,21 +1,22 @@
-/// run
+/// test(.run)
 
-print(1 != 0) /// out true
-print(1 != 1) /// out false
+print(1 != 0) /// out("true")
+print(1 != 1) /// out("false")
 
-print(1 == 1) /// out true
-print(1 == 0) /// out false
+print(1 == 1) /// out("true")
+print(1 == 0) /// out("false")
 
-print(1 > 0) /// out true
-print(1 > 1) /// out false
+print(1 > 0) /// out("true")
+print(1 > 1) /// out("false")
 
-print(0 < 1) /// out true
-print(0 < 0) /// out false
+print(0 < 1) /// out("true")
+print(0 < 0) /// out("false")
 
-print(1 >= 0) /// out true
-print(1 >= 1) /// out true
-print(1 >= 2) /// out false
+print(1 >= 0) /// out("true")
+print(1 >= 1) /// out("true")
+print(1 >= 2) /// out("false")
 
-print(0 <= 1) /// out true
-print(1 <= 1) /// out true
-print(2 <= 1) /// out false
+print(0 <= 1) /// out("true")
+print(1 <= 1) /// out("true")
+print(2 <= 1) /// out("false")
+

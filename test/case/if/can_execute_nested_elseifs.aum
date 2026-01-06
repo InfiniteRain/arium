@@ -1,7 +1,5 @@
-/// run
-
 if true then
-  print(1) /// out 1
+  print(1)
 elseif true then
   if true then
     print(2)
@@ -18,7 +16,7 @@ if false then
   print(1) 
 elseif true then
   if true then
-    print(2) /// out 2
+    print(2)
   elseif true then
     print(3)
   else
@@ -34,7 +32,7 @@ elseif true then
   if false then
     print(2)
   elseif true then
-    print(3) /// out 3
+    print(3)
   else
     print(4)
   end
@@ -50,7 +48,7 @@ elseif true then
   elseif false then
     print(3)
   else
-    print(4) /// out 4
+    print(4)
   end
 else
   print(5)
@@ -67,5 +65,13 @@ elseif false then
     print(4)
   end
 else
-  print(5) /// out 5
+  print(5)
 end
+
+/// test(.run)
+/// out("1")
+/// out("2")
+/// out("3")
+/// out("4")
+/// out("5")
+

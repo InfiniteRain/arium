@@ -1,6 +1,8 @@
-/// run
-
 print(do
   "hello"
   "world";
-end) /// out unit
+end)
+
+/// test(.run)
+/// out("unit")
+

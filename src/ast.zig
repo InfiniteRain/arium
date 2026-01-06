@@ -6,12 +6,12 @@ const assert = std.debug.assert;
 
 const shared = @import("shared");
 
-const Loc = @import("tokenizer.zig").Loc;
+const Span = @import("span.zig").Span;
 
 pub const Ast = struct {
     nodes: MultiArrayList(Node),
     extra: ArrayList(u32),
-    locs: ArrayList(Loc),
+    locs: ArrayList(Span(u8)),
 
     pub const Node = struct {
         tag: Tag,
@@ -178,7 +178,7 @@ pub const Ast = struct {
             return ast.get(self);
         }
 
-        pub fn toLoc(self: Index, ast: *const Ast) Loc {
+        pub fn toLoc(self: Index, ast: *const Ast) Span(u8) {
             return ast.locs.items[@intFromEnum(self)];
         }
 

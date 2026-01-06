@@ -1,6 +1,4 @@
-/// sema
-
-continue /// err_sema 3 continue_outside_loop
+continue
 
 for do
   if false then
@@ -8,4 +6,9 @@ for do
   end
 end
 
-continue /// err_sema 11 continue_outside_loop
+continue
+
+/// test(.sema)
+/// sema_err(line(1), .continue_outside_loop)
+/// sema_err(line(9), .continue_outside_loop)
+

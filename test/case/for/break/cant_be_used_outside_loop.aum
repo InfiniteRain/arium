@@ -1,9 +1,12 @@
-/// sema
-
-break /// err_sema 3 break_outside_loop
+break
 
 for do
   break
 end
 
-break /// err_sema 9 break_outside_loop
+break
+
+/// test(.sema)
+/// sema_err(line(1), .break_outside_loop)
+/// sema_err(line(7), .break_outside_loop)
+

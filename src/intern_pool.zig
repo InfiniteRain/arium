@@ -203,7 +203,20 @@ pub const InternPool = struct {
         }
 
         pub fn toKey(self: Index, intern_pool: *const InternPool) Key {
-            const item = intern_pool.items.get(self.toInt());
+            return self.toKeyWith(
+                intern_pool.items,
+                intern_pool.extra.items,
+                intern_pool.strings.items,
+            );
+        }
+
+        pub fn toKeyWith(
+            self: Index,
+            items: anytype,
+            extra: []const u32,
+            strings: []const u8,
+        ) Key {
+            const item = items.get(self.toInt());
             const data = item.data;
 
             return switch (item.tag) {
@@ -211,9 +224,9 @@ pub const InternPool = struct {
                 .type_simple => .{ .type_simple = @enumFromInt(data) },
                 .type_fn => .{
                     .type_fn = blk: {
-                        const arg_count = intern_pool.extra.items[data];
-                        const arg_types = intern_pool.extra.items[data + 1 ..][0..arg_count];
-                        const return_type = intern_pool.extra.items[data + 1 + arg_count];
+                        const arg_count = extra[data];
+                        const arg_types = extra[data + 1 ..][0..arg_count];
+                        const return_type = extra[data + 1 + arg_count];
 
                         break :blk .{
                             .arg_types = @ptrCast(arg_types),
@@ -228,7 +241,7 @@ pub const InternPool = struct {
                 ) },
                 .value_int_big => .{ .value_int = mem.bytesToValue(
                     i64,
-                    intern_pool.extra.items[data..][0..2],
+                    extra[data..][0..2],
                 ) },
                 .value_float_small => .{ .value_float = mem.bytesToValue(
                     f64,
@@ -236,29 +249,28 @@ pub const InternPool = struct {
                 ) },
                 .value_float_big => .{ .value_float = mem.bytesToValue(
                     f64,
-                    intern_pool.extra.items[data..][0..2],
+                    extra[data..][0..2],
                 ) },
                 .value_fn => .{
                     .value_fn = .{
-                        .id = intern_pool.extra.items[data],
-                        .locals_count = intern_pool.extra.items[data + 1],
-                        .type_fn = .from(intern_pool.extra.items[data + 2]),
+                        .id = extra[data],
+                        .locals_count = extra[data + 1],
+                        .type_fn = .from(extra[data + 2]),
                     },
                 },
                 .value_string_short => .{
                     .value_string = blk: {
-                        const data_ptr = &intern_pool.items
-                            .items(.data)[self.toInt()];
+                        const data_ptr = &items.items(.data)[self.toInt()];
                         const str_ptr: [*]const u8 = @ptrCast(data_ptr);
                         const str_slice = str_ptr[0..4];
                         break :blk mem.sliceTo(str_slice, 0);
                     },
                 },
                 .value_string_long => blk: {
-                    const loc = intern_pool.extra.items[data .. data + 2];
-                    break :blk .{ .value_string = intern_pool
-                        .strings
-                        .items[loc[0]..][0..loc[1]] };
+                    const loc = extra[data .. data + 2];
+                    break :blk .{
+                        .value_string = strings[loc[0]..][0..loc[1]],
+                    };
                 },
                 .invalid => .invalid,
             };

@@ -1,9 +1,7 @@
-/// sema
-
 print(
   if true then
     15
-  elseif true then /// err_sema 6 unexpected_elseif_type int unit
+  elseif true then
 
   elseif true then
 
@@ -17,7 +15,7 @@ print(
     15
   elseif true then
     10
-  elseif true then /// err_sema 20 unexpected_elseif_type int unit
+  elseif true then
 
   else
 
@@ -31,7 +29,7 @@ print(
     10
   elseif true then
     5
-  else /// err_sema 34 unexpected_else_type int unit
+  else
 
   end
 )
@@ -41,9 +39,16 @@ print(
     15
   elseif true then
     10
-  elseif true then /// err_sema 44 unexpected_elseif_type int unit
+  elseif true then
     
   else
     0
   end
 )
+
+/// test(.sema)
+/// sema_err(line(4), {.unexpected_expr_type = {.expected = {.type_int}, .actual = .type_unit}})
+/// sema_err(line(18), {.unexpected_expr_type = {.expected = {.type_int}, .actual = .type_unit}})
+/// sema_err(line(32), {.unexpected_expr_type = {.expected = {.type_int}, .actual = .type_unit}})
+/// sema_err(line(42), {.unexpected_expr_type = {.expected = {.type_int}, .actual = .type_unit}})
+

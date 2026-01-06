@@ -6,12 +6,12 @@ const ArrayList = std.ArrayList;
 
 const intern_pool_mod = @import("intern_pool.zig");
 const InternPool = intern_pool_mod.InternPool;
-const Loc = @import("tokenizer.zig").Loc;
+const Span = @import("span.zig").Span;
 
 pub const Air = struct {
     nodes: MultiArrayList(Node),
     extra: ArrayList(u32),
-    locs: ArrayList(Loc),
+    locs: ArrayList(Span(u8)),
 
     pub const Node = struct {
         tag: Tag,
@@ -139,7 +139,7 @@ pub const Air = struct {
             return air.get(self);
         }
 
-        pub fn toLoc(self: Index, air: *const Air) Loc {
+        pub fn toLoc(self: Index, air: *const Air) Span(u8) {
             return air.locs.items[@intFromEnum(self)];
         }
 
@@ -273,14 +273,7 @@ pub const Air = struct {
                     const cond = air.nodes.items(.a)[idx];
                     const cond_type = Index.from(cond).toType(air, intern_pool);
 
-                    if (cond_type == .type_never) {
-                        break :blk .type_never;
-                    }
-
-                    const body = air.nodes.items(.b)[idx];
-                    const body_type = Index.from(body).toType(air, intern_pool);
-
-                    break :blk if (body_type == .type_never)
+                    break :blk if (cond_type == .type_never)
                         .type_never
                     else
                         .type_unit;

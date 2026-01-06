@@ -1,9 +1,11 @@
-/// sema
-
 print(
   if true then
     "string"
-  else /// err_sema 6 unexpected_else_type string bool
+  else
     true
   end
 )
+
+/// test(.sema)
+/// sema_err(line(4), {.unexpected_expr_type = {.expected = {.type_string}, .actual = .type_bool}})
+

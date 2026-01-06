@@ -1,5 +1,7 @@
-/// sema
-
 let variable = 120
 
-variable = 100 /// err_sema 5 immutable_mutation variable
+variable = 100 // err_sema 5 immutable_mutation variable
+
+/// test(.sema)
+/// sema_err(line(3), {.immutable_mutation = {.index = 20, .len = 8}})
+

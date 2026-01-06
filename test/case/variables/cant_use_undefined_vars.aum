@@ -1,3 +1,5 @@
-/// sema
+print(bad_var)
 
-print(bad_var) /// err_sema 3 value_not_found bad_var
+/// test(.sema)
+/// sema_err(line(1), .undeclared_identifier)
+

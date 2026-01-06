@@ -1,13 +1,17 @@
-/// sema
-
-if 1234 then /// err_sema 3 expected_expr_type bool
+if 1234 then
   print(1)
 end
 
-if 3.14 then /// err_sema 7 expected_expr_type bool
+if 3.14 then
   print(2)
 end
 
-if "string" then /// err_sema 11 expected_expr_type bool
+if "string" then
   print(3)
 end
+
+/// test(.sema)
+/// sema_err(line(1), {.unexpected_expr_type = {.expected = {.type_bool}, .actual = .type_int}})
+/// sema_err(line(5), {.unexpected_expr_type = {.expected = {.type_bool}, .actual = .type_float}})
+/// sema_err(line(9), {.unexpected_expr_type = {.expected = {.type_bool}, .actual = .type_string}})
+

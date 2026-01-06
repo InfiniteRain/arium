@@ -1,5 +1,3 @@
-/// sema
-
 for do
   print(
     if false then
@@ -8,7 +6,7 @@ for do
       50 
     elseif true then
       break
-    else /// err_sema 11 unexpected_else_type int string
+    else
       "str"
     end
   )
@@ -20,7 +18,7 @@ for do
       50
     elseif false then
       break
-    elseif true then /// err_sema 23 unexpected_elseif_type int string
+    elseif true then
       "str"
     else
       40
@@ -34,7 +32,7 @@ for do
       break
     elseif false then
       "str"
-    elseif true then /// err_sema 37 unexpected_elseif_type string int
+    elseif true then
       50
     else
       40
@@ -50,8 +48,15 @@ for do
       "str"
     elseif true then
       break
-    else /// err_sema 53 unexpected_else_type string int
+    else
       40
     end
   )
 end
+
+/// test(.sema)
+/// sema_err(line(9), {.unexpected_expr_type = {.expected = {.type_int}, .actual = .type_string}})
+/// sema_err(line(21), {.unexpected_expr_type = {.expected = {.type_int}, .actual = .type_string}})
+/// sema_err(line(35), {.unexpected_expr_type = {.expected = {.type_string}, .actual = .type_int}})
+/// sema_err(line(51), {.unexpected_expr_type = {.expected = {.type_string}, .actual = .type_int}})
+

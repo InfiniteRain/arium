@@ -1,10 +1,11 @@
 const std = @import("std");
 const exit = std.posix.exit;
+const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const Reader = std.io.Reader;
 const ArrayList = std.ArrayList;
-const OpenError = std.fs.File.OpenError;
+const OpenError = fs.File.OpenError;
 
 const arium = @import("arium");
 const Output = arium.Output;
@@ -38,11 +39,11 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
     const stdout = Output.init(&stdout_writer.interface);
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var stderr_writer = fs.File.stderr().writer(&stderr_buffer);
     const stderr = Output.init(&stderr_writer.interface);
 
     const params = comptime clap.parseParamsComptime(
@@ -238,7 +239,7 @@ fn readFileAlloc(
     allocator: Allocator,
     file_path: []const u8,
 ) Error![:0]const u8 {
-    const file = try std.fs.cwd().openFile(
+    const file = try fs.cwd().openFile(
         file_path,
         .{ .mode = .read_only },
     );

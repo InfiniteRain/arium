@@ -1,5 +1,7 @@
-/// sema
-
 let variable: Int
 
-variable = "hello, world" /// err_sema 5 unexpected_assignment_type int string
+variable = "hello, world"
+
+/// test(.sema)
+/// sema_err(line(3), {.unexpected_expr_type = {.expected = {.type_int}, .actual = .type_string}})
+

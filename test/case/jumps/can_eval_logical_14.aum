@@ -1,37 +1,38 @@
-/// run
+/// test(.run)
 
-print((true or true) or true) /// out true
-print((false or true) or true) /// out true
-print((true or false) or true) /// out true
-print((false or false) or true) /// out true
-print((true or true) or false) /// out true
-print((false or true) or false) /// out true
-print((true or false) or false) /// out true
-print((false or false) or false) /// out false
+print((true or true) or true) /// out("true")
+print((false or true) or true) /// out("true")
+print((true or false) or true) /// out("true")
+print((false or false) or true) /// out("true")
+print((true or true) or false) /// out("true")
+print((false or true) or false) /// out("true")
+print((true or false) or false) /// out("true")
+print((false or false) or false) /// out("false")
 
-print((true and true) or true) /// out true
-print((false and true) or true) /// out true
-print((true and false) or true) /// out true
-print((false and false) or true) /// out true
-print((true and true) or false) /// out true
-print((false and true) or false) /// out false
-print((true and false) or false) /// out false
-print((false and false) or false) /// out false
+print((true and true) or true) /// out("true")
+print((false and true) or true) /// out("true")
+print((true and false) or true) /// out("true")
+print((false and false) or true) /// out("true")
+print((true and true) or false) /// out("true")
+print((false and true) or false) /// out("false")
+print((true and false) or false) /// out("false")
+print((false and false) or false) /// out("false")
 
-print((true or true) and true) /// out true
-print((false or true) and true) /// out true
-print((true or false) and true) /// out true
-print((false or false) and true) /// out false
-print((true or true) and false) /// out false
-print((false or true) and false) /// out false
-print((true or false) and false) /// out false
-print((false or false) and false) /// out false
+print((true or true) and true) /// out("true")
+print((false or true) and true) /// out("true")
+print((true or false) and true) /// out("true")
+print((false or false) and true) /// out("false")
+print((true or true) and false) /// out("false")
+print((false or true) and false) /// out("false")
+print((true or false) and false) /// out("false")
+print((false or false) and false) /// out("false")
 
-print((true and true) and true) /// out true
-print((false and true) and true) /// out false
-print((true and false) and true) /// out false
-print((false and false) and true) /// out false
-print((true and true) and false) /// out false
-print((false and true) and false) /// out false
-print((true and false) and false) /// out false
-print((false and false) and false) /// out false
+print((true and true) and true) /// out("true")
+print((false and true) and true) /// out("false")
+print((true and false) and true) /// out("false")
+print((false and false) and true) /// out("false")
+print((true and true) and false) /// out("false")
+print((false and true) and false) /// out("false")
+print((true and false) and false) /// out("false")
+print((false and false) and false) /// out("false")
+

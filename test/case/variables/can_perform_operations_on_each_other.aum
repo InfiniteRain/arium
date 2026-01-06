@@ -1,5 +1,3 @@
-/// run
-
 let int = 10
 let float = 0.5
 let bool = true
@@ -10,7 +8,14 @@ let float2 = 10.5
 let bool2 = false
 let string2 = "world"
 
-print(int + int2) /// out 30
-print(float * float2) /// out 5.25
-print(bool and bool2) /// out false
-print(string ++ string2) /// out hello, world
+print(int + int2)
+print(float * float2)
+print(bool and bool2)
+print(string ++ string2)
+
+/// test(.run)
+/// out("30")
+/// out("5.25")
+/// out("false")
+/// out("hello, world")
+

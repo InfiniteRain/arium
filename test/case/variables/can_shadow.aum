@@ -1,7 +1,10 @@
-/// run
-
 let variable = "hello"
-print(variable) /// out hello
+print(variable)
 
 let variable = "world"
-print(variable) /// out world
+print(variable)
+
+/// test(.run)
+/// out("hello")
+/// out("world")
+

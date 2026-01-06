@@ -1,4 +1,6 @@
-/// parse
-
-for true then /// err_parser 3 expected_token_after_condition do
+for true then
 end
+
+/// test(.parse)
+/// parse_err(line(1), {.expected_token_after_condition = .do})
+

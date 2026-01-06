@@ -1,12 +1,10 @@
-/// run
-
 print(
   if true then
     10
   elseif true then
     10
   end
-) /// out unit
+)
 
 print(
   if false then
@@ -14,4 +12,9 @@ print(
   elseif true then
     10
   end
-) /// out unit
+)
+
+/// test(.run)
+/// out("unit")
+/// out("unit")
+

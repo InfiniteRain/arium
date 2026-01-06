@@ -1,5 +1,3 @@
-/// run
-
 for true do
   print(
     if true then
@@ -26,7 +24,7 @@ for true do
     else
       7
     end
-  ) /// out 5
+  )
   break
 end
 
@@ -41,7 +39,7 @@ for true do
     else
       7
     end
-  ) /// out 5
+  )
   break
 end
 
@@ -56,6 +54,12 @@ for true do
     else
       break
     end
-  ) /// out 5
+  )
   break
 end
+
+/// test(.run)
+/// out("5")
+/// out("5")
+/// out("5")
+

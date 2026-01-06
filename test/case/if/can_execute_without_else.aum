@@ -1,9 +1,11 @@
-/// run
-
 if true then
-  print("hello") /// out hello
+  print("hello")
 end
 
 if false then
   print("world")
 end
+
+/// test(.run)
+/// out("hello")
+

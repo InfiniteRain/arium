@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const arium = @import("arium");
-const Loc = arium.Loc;
+const Span = arium.Span;
 const Output = arium.Output;
 const Token = arium.Token;
 const Parser = arium.Parser;
@@ -150,13 +150,13 @@ pub const DiagsPrinter = struct {
             .unassigned_variable,
             => self.output.printf(
                 "Variable '{s}' was not assigned a value.",
-                .{diag.loc.toStr(self.source)},
+                .{diag.loc.toSlice(self.source)},
             ),
 
             .immutable_mutation,
             => |loc| self.output.printf(
                 "Variable '{s}' is immutable.",
-                .{loc.toStr(self.source)},
+                .{loc.toSlice(self.source)},
             ),
 
             .unreachable_stmt,
@@ -324,7 +324,7 @@ pub const DiagsPrinter = struct {
         }
     }
 
-    fn printErrorHeader(self: *const DiagsPrinter, loc: Loc) void {
+    fn printErrorHeader(self: *const DiagsPrinter, loc: Span(u8)) void {
         const line, const column = loc.toLineCol(self.source);
 
         self.output.printf("Error at {}:{}: ", .{

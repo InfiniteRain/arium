@@ -1,5 +1,7 @@
-/// sema
-
 let variable
 
-print(variable) /// err_sema 5 value_not_assigned variable
+print(variable)
+
+/// test(.sema)
+/// sema_err(line(3), .unassigned_variable)
+

@@ -1,8 +1,6 @@
-/// run
-
 if true then
   if true then
-    print("string") /// out string
+    print("string")
     "string"
   else
     print("bool")
@@ -23,7 +21,7 @@ if true then
     print("string")
     "string"
   else
-    print("bool") /// out bool
+    print("bool")
     true
   end
 else
@@ -46,7 +44,7 @@ if false then
   end
 else
   if true then
-    print("int") /// out int
+    print("int")
     124
   else
     print("float")
@@ -67,7 +65,14 @@ else
     print("int")
     124
   else
-    print("float") /// out float
+    print("float")
     3.14
   end
 end
+
+/// test(.run)
+/// out("string")
+/// out("bool")
+/// out("int")
+/// out("float")
+

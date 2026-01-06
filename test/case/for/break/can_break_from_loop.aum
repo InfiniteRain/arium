@@ -1,6 +1,8 @@
-/// run
-
 for do
-  print("hello, world") /// out hello, world
+  print("hello, world")
   break
 end
+
+/// test(.run)
+/// out("hello, world")
+

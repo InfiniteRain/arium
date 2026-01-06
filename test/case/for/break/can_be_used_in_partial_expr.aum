@@ -1,13 +1,14 @@
-/// run
-
 let mut i = 0
 
 for i < 10 do
+  i = i + 1
+
   print(
     i + (
       i + do break end
     )
   )
-
-  i = i + 1
 end
+
+/// test(.run)
+

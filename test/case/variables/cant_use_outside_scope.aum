@@ -1,7 +1,9 @@
-/// sema
-
 do
   let variable = 120
 end
 
-print(variable) /// err_sema 7 value_not_found variable
+print(variable)
+
+/// test(.sema)
+/// sema_err(line(5), .undeclared_identifier)
+

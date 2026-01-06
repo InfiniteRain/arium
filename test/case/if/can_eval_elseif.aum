@@ -1,5 +1,3 @@
-/// run
-
 print(
   if true then
     5
@@ -10,7 +8,7 @@ print(
   else
     8
   end
-) /// out 5
+)
 
 print(
   if false then
@@ -22,7 +20,7 @@ print(
   else
     8
   end
-) /// out 6
+)
 
 print(
   if false then
@@ -34,7 +32,7 @@ print(
   else
     8
   end
-) /// out 7
+)
 
 print(
   if false then
@@ -46,4 +44,11 @@ print(
   else
     8
   end
-) /// out 8
+)
+
+/// test(.run)
+/// out("5")
+/// out("6")
+/// out("7")
+/// out("8")
+

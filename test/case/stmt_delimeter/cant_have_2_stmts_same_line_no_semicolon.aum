@@ -1,3 +1,5 @@
-/// parse
+print("test") print("test")
 
-print("test") print("test") /// err_parser 3 expected_end_token eof
+/// test(.parse)
+/// parse_err(line(1), {.expected_end_token = {.eof}})
+

@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run the app");
+    const run_step = b.step("run", "Run the CLI");
     run_step.dependOn(&run_cmd.step);
 
     // LANG TEST CMD
@@ -61,7 +61,7 @@ pub fn build(b: *std.Build) void {
     const lang_tests = b.addExecutable(.{
         .name = "lang-test",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("test/lang_tests.zig"),
+            .root_source_file = b.path("test/lang_test.zig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -82,39 +82,48 @@ pub fn build(b: *std.Build) void {
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
-    const exe_unit_tests = b.addTest(.{
-        .root_module = arium_mod,
+    const lang_tests_unit_tests = b.addTest(.{
+        .root_module = lang_tests.root_module,
     });
 
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+    const run_lang_tests_unit_tests = b.addRunArtifact(lang_tests_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
+    test_step.dependOn(&run_lang_tests_unit_tests.step);
 
     // CHECK CMD
 
-    const checks = .{
-        .{ "lang_tests", "test/lang_tests.zig" },
-        .{ "bin", "src/main.zig" },
-    };
-    var check_mods: [@typeInfo(@TypeOf(checks)).@"struct".fields.len]*std.Build.Module = undefined;
     const check_step = b.step("check", "Check build");
 
-    inline for (checks, 0..) |check, index| {
-        const check_mod = b.addExecutable(.{
-            .name = "check_" ++ check[0],
-            .root_module = b.createModule(.{
-                .root_source_file = b.path(check[1]),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
+    // CHECK CLI
 
-        check_step.dependOn(&check_mod.step);
+    const check_cli_mod = b.addExecutable(.{
+        .name = "check_cli",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("cli/cli.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
 
-        check_mod.root_module.addImport("arium", arium_mod);
+    check_step.dependOn(&check_cli_mod.step);
 
-        check_mods[index] = check_mod.root_module;
-    }
+    check_cli_mod.root_module.addImport("arium", arium_mod);
+    check_cli_mod.root_module.addImport("clap", clap_dep.module("clap"));
+
+    // CHECK LANG TEST
+
+    const check_lang_test_mod = b.addExecutable(.{
+        .name = "check_lang_test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/lang_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    check_step.dependOn(&check_lang_test_mod.step);
+
+    check_lang_test_mod.root_module.addImport("arium", arium_mod);
 }

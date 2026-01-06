@@ -1,5 +1,3 @@
-/// run
-
 print(
   do
     "hello"
@@ -7,4 +5,8 @@ print(
       "world"
     end
   end
-) /// out world
+)
+
+/// test(.run)
+/// out("world")
+

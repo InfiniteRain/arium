@@ -1,33 +1,39 @@
 const std = @import("std");
-
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const Writer = std.io.Writer;
 
 pub const TestWriter = struct {
-    const Self = @This();
+    allocator: Allocator,
+    output: *ArrayList(u8),
+    interface: Writer,
 
-    pub const WriteError = error{OutOfMemory};
-
-    pub const Writer = std.io.Writer(*Self, WriteError, write);
-
-    output: ArrayList(u8),
-
-    pub fn init(allocator: Allocator) Self {
+    pub fn init(allocator: Allocator, output: *ArrayList(u8)) TestWriter {
         return .{
-            .output = ArrayList(u8).init(allocator),
+            .allocator = allocator,
+            .output = output,
+            .interface = .{
+                .vtable = &.{
+                    .drain = drain,
+                },
+                .buffer = &.{},
+            },
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        self.output.clearAndFree();
-    }
+    pub fn drain(
+        io_w: *std.Io.Writer,
+        data: []const []const u8,
+        splat: usize,
+    ) Writer.Error!usize {
+        _ = splat;
 
-    pub fn writer(self: *Self) Writer {
-        return .{ .context = self };
-    }
+        const self: *TestWriter =
+            @alignCast(@fieldParentPtr("interface", io_w));
 
-    pub fn write(self: *Self, bytes: []const u8) WriteError!usize {
-        try self.output.appendSlice(bytes);
-        return bytes.len;
+        self.output.appendSlice(self.allocator, data[0]) catch
+            return error.WriteFailed;
+
+        return data[0].len;
     }
 };

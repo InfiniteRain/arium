@@ -1,5 +1,6 @@
-/// parse
-
-for then /// err_parser 3 expected_expression
+for then
 end
+
+/// test(.parse)
+/// parse_err(line(1), .expected_expression)
 

@@ -19,7 +19,7 @@ const intern_pool_mod = @import("intern_pool.zig");
 const InternPool = intern_pool_mod.InternPool;
 const limits = @import("limits.zig");
 const tokenizer_mod = @import("tokenizer.zig");
-const Loc = tokenizer_mod.Loc;
+const Span = @import("span.zig").Span;
 
 pub const Sema = struct {
     allocator: Allocator,
@@ -42,15 +42,15 @@ pub const Sema = struct {
 
         pub const Entry = struct {
             tag: Tag,
-            loc: Loc,
+            loc: Span(u8),
 
-            const Tag = union(enum) {
+            pub const Tag = union(enum) {
                 unexpected_expr_type: ExprTypeMismatch,
                 integer_overflow,
                 undeclared_identifier,
                 too_many_locals,
                 unassigned_variable,
-                immutable_mutation: Loc,
+                immutable_mutation: Span(u8),
                 unreachable_stmt,
                 break_outside_loop,
                 continue_outside_loop,
@@ -98,7 +98,7 @@ pub const Sema = struct {
         }
     };
 
-    const TypeArray = FixedArray(InternPool.Index, 2);
+    pub const TypeArray = FixedArray(InternPool.Index, 2);
 
     const Scope = struct {
         locals: MultiArrayList(Local),
@@ -732,7 +732,7 @@ pub const Sema = struct {
             .literal_int => blk: {
                 const parsed_int: i64 = std.fmt.parseInt(
                     i64,
-                    ast_expr.toLoc(self.ast).toStr(self.source),
+                    ast_expr.toLoc(self.ast).toSlice(self.source),
                     10,
                 ) catch |err| switch (err) {
                     error.Overflow => {
@@ -750,19 +750,20 @@ pub const Sema = struct {
 
             .literal_float => .{ .value_float = std.fmt.parseFloat(
                 f64,
-                ast_expr.toLoc(self.ast).toStr(self.source),
+                ast_expr.toLoc(self.ast).toSlice(self.source),
             ) catch unreachable },
 
             .literal_bool => .{
                 .value_simple = if (ast_expr.toLoc(self.ast)
-                    .toStr(self.source).len == 4)
+                    .toSlice(self.source).len == 4)
                     .bool_true
                 else
                     .bool_false,
             },
 
             .literal_string => blk: {
-                const lexeme = ast_expr.toLoc(self.ast).toStr(self.source);
+                const lexeme = ast_expr.toLoc(self.ast)
+                    .toSlice(self.source);
                 break :blk .{ .value_string = lexeme[1 .. lexeme.len - 1] };
             },
 
@@ -1226,7 +1227,7 @@ pub const Sema = struct {
 
     fn analyzeIfExprAux(
         self: *Sema,
-        loc: Loc,
+        loc: Span(u8),
         cond: Ast.Key.Conditional,
         elseif_blocks: []const Ast.Key.Conditional,
         else_block_opt: ?Ast.Index,
@@ -1574,7 +1575,7 @@ pub const Sema = struct {
         runtime: struct { index: Scope.Index, stack_index: usize },
         @"comptime": struct { index: Scope.Index },
     } {
-        const identifier = ast_expr.toLoc(self.ast).toStr(self.source);
+        const identifier = ast_expr.toLoc(self.ast).toSlice(self.source);
         var runtime_locals_count: usize = 0;
         var idx = self.scope.locals.len;
 
@@ -1591,7 +1592,7 @@ pub const Sema = struct {
             const local_name_str = if (local_name.tag == .ast)
                 Ast.Index.from(local_name.index)
                     .toLoc(self.ast)
-                    .toStr(self.source)
+                    .toSlice(self.source)
             else
                 InternPool.Index
                     .from(local_name.index)
@@ -1750,7 +1751,11 @@ pub const Sema = struct {
         return .ok;
     }
 
-    fn addNode(self: *Sema, key: Air.Key, loc: Loc) Allocator.Error!Air.Index {
+    fn addNode(
+        self: *Sema,
+        key: Air.Key,
+        loc: Span(u8),
+    ) Allocator.Error!Air.Index {
         try self.air.nodes.append(self.allocator, try self.prepareNode(key));
         try self.air.locs.append(self.allocator, loc);
 
@@ -1907,7 +1912,7 @@ pub const Sema = struct {
     fn addDiag(
         self: *const Sema,
         diag: Diags.Entry.Tag,
-        loc: Loc,
+        loc: Span(u8),
     ) Allocator.Error!void {
         try self.diags.entries.append(
             self.allocator,

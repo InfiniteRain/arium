@@ -1,5 +1,3 @@
-/// run
-
 for do
   print(
     if true then
@@ -29,3 +27,6 @@ for do
     end
   )
 end
+
+/// test(.run)
+

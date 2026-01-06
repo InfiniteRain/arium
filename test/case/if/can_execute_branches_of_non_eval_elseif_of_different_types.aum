@@ -1,7 +1,5 @@
-/// run
-
 if true then
-  print("int") /// out int
+  print("int")
   123
 elseif true then
   print("string")
@@ -17,7 +15,7 @@ if false then
   print("int")
   123
 elseif true then
-  print("string") /// out string
+  print("string")
   "string"
 elseif true then
   print("float")
@@ -33,7 +31,7 @@ elseif false then
   print("string")
   "string"
 elseif true then
-  print("float") /// out float
+  print("float")
   3.14
 else
   print("unit")
@@ -49,5 +47,12 @@ elseif false then
   print("float")
   3.14
 else
-  print("unit") /// out unit
+  print("unit")
 end
+
+/// test(.run)
+/// out("int")
+/// out("string")
+/// out("float")
+/// out("unit")
+

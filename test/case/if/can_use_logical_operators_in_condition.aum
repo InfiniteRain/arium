@@ -1,11 +1,9 @@
-/// run
-
 if true or true and true then
-  print(1) /// out 1
+  print(1)
 end
 
 if false or true and true then
-  print(2) /// out 2
+  print(2)
 end
 
 if false or false and true then
@@ -13,7 +11,7 @@ if false or false and true then
 end
 
 if true or true and false then
-  print(4) /// out 4
+  print(4)
 end
 
 if false or true and false then
@@ -23,3 +21,9 @@ end
 if false or false and false then
   print(6)
 end
+
+/// test(.run)
+/// out("1")
+/// out("2")
+/// out("4")
+

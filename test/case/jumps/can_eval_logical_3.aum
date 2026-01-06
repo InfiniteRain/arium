@@ -1,24 +1,25 @@
-/// run
+/// test(.run)
 
-print(true == true) /// out true
-print(false == true) /// out false
+print(true == true) /// out("true")
+print(false == true) /// out("false")
 
-print(true == true and true == true) /// out true
-print(true == true and false == true) /// out false
-print(false == true and true == true) /// out false
-print(false == true and false == true) /// out false
+print(true == true and true == true) /// out("true")
+print(true == true and false == true) /// out("false")
+print(false == true and true == true) /// out("false")
+print(false == true and false == true) /// out("false")
 
-print(true == true or true == true) /// out true
-print(true == true or false == true) /// out true
-print(false == true or true == true) /// out true
-print(false == true or false == true) /// out false
+print(true == true or true == true) /// out("true")
+print(true == true or false == true) /// out("true")
+print(false == true or true == true) /// out("true")
+print(false == true or false == true) /// out("false")
 
-print(1 > 0 == true and 1 > 0 == true) /// out true
-print(1 > 0 == true and 1 > 1 == true) /// out false
-print(1 > 1 == true and 1 > 0 == true) /// out false
-print(1 > 1 == true and 1 > 1 == true) /// out false
+print(1 > 0 == true and 1 > 0 == true) /// out("true")
+print(1 > 0 == true and 1 > 1 == true) /// out("false")
+print(1 > 1 == true and 1 > 0 == true) /// out("false")
+print(1 > 1 == true and 1 > 1 == true) /// out("false")
 
-print(1 > 0 == true or 1 > 0 == true) /// out true
-print(1 > 0 == true or 1 > 1 == true) /// out true
-print(1 > 1 == true or 1 > 0 == true) /// out true
-print(1 > 1 == true or 1 > 1 == true) /// out false
+print(1 > 0 == true or 1 > 0 == true) /// out("true")
+print(1 > 0 == true or 1 > 1 == true) /// out("true")
+print(1 > 1 == true or 1 > 0 == true) /// out("true")
+print(1 > 1 == true or 1 > 1 == true) /// out("false")
+

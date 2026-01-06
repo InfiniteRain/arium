@@ -90,7 +90,8 @@ fn GenericTreePrinter(AstType: type) type {
                     if (field.type != void) {
                         self.output.print(" = ");
                     } else {
-                        const str = index.toLoc(self.ast).toStr(self.source);
+                        const str = index.toLoc(self.ast)
+                            .toSlice(self.source);
 
                         if (str.len > 0) {
                             self.output.printf(" '{s}'", .{str});

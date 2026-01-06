@@ -1,5 +1,7 @@
-/// sema
-
-for 123 do /// err_sema 3 expected_expr_type bool
+for 123 do
   print("hello")
 end
+
+/// test(.sema)
+/// sema_err(line(1), {.unexpected_expr_type = {.expected = {.type_bool}, .actual = .type_int}})
+

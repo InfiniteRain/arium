@@ -1,3 +1,5 @@
-/// sema
+let test: BadType
 
-let test: BadType /// err_sema 3 type_not_found BadType
+/// test(.sema)
+/// sema_err(line(1), .undeclared_identifier)
+

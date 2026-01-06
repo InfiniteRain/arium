@@ -2,50 +2,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const StaticStringMap = std.StaticStringMap;
 
-pub const Loc = struct {
-    index: u32,
-    len: u32,
-
-    pub const zero: Loc = .{
-        .index = 0,
-        .len = 0,
-    };
-
-    pub fn toLineCol(self: Loc, source: []const u8) struct { u32, u32 } {
-        var line: u32 = 1;
-        var column: u32 = 1;
-
-        for (source, 0..) |char, index| {
-            if (index == self.index) {
-                return .{ line, column };
-            }
-
-            if (char == '\n') {
-                line += 1;
-                column = 1;
-            } else {
-                column += 1;
-            }
-        }
-
-        return .{ line, column };
-    }
-
-    pub fn toStr(self: Loc, source: []const u8) []const u8 {
-        return source[self.index..][0..self.len];
-    }
-
-    pub fn extend(a: Loc, b: Loc) Loc {
-        return .{
-            .index = a.index,
-            .len = (b.index - a.index) + b.len,
-        };
-    }
-};
+const Span = @import("span.zig").Span;
 
 pub const Token = struct {
     tag: Tag,
-    loc: Loc,
+    loc: Span(u8),
 
     pub const Tag = enum {
         left_paren,

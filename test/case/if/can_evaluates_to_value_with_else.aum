@@ -1,12 +1,10 @@
-/// run
-
 print(
   if true then
     "a"
   else
     "b"
   end
-) /// out a
+)
 
 print(
   if false then
@@ -14,4 +12,8 @@ print(
   else
     "b"
   end
-) /// out b
+)
+
+/// test(.run)
+/// out("a")
+/// out("b")

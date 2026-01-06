@@ -8,7 +8,7 @@ const assert = debug.assert;
 const debug_mod = @import("debug.zig");
 const Mode = debug_mod.BuildMode;
 const limits = @import("limits.zig");
-const Loc = @import("tokenizer.zig").Loc;
+const Span = @import("span.zig").Span;
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const TaggedValue = memory_mod.TaggedValue;
@@ -42,9 +42,9 @@ pub const Vm = struct {
 
         pub const Entry = struct {
             tag: Tag,
-            loc: Loc,
+            loc: Span(u8),
 
-            pub const Tag = union(enum) {
+            pub const Tag = enum {
                 stack_overflow,
             };
         };
@@ -450,7 +450,7 @@ pub const Vm = struct {
 
                 .print_unit => {
                     _ = self.pop(mode);
-                    output.print("unit");
+                    output.print("unit\n");
                 },
 
                 .print_bool => {
@@ -473,7 +473,7 @@ pub const Vm = struct {
 
                 .print_fn => {
                     const value = self.pop(mode);
-                    output.printf("<fn {}>", .{value.@"fn"});
+                    output.printf("<fn {}>\n", .{value.@"fn"});
                 },
 
                 .print_object => {

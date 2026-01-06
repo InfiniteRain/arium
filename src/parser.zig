@@ -12,7 +12,7 @@ const FixedArray = fixed_array_mod.FixedArray;
 const tokenizer_mod = @import("tokenizer.zig");
 const Tokenizer = tokenizer_mod.Tokenizer;
 const Token = tokenizer_mod.Token;
-const Loc = tokenizer_mod.Loc;
+const Span = @import("span.zig").Span;
 
 pub const Parser = struct {
     allocator: Allocator,
@@ -30,7 +30,7 @@ pub const Parser = struct {
 
         pub const Entry = struct {
             tag: Tag,
-            loc: Loc,
+            loc: Span(u8),
 
             pub const Tag = union(enum) {
                 expected_end_token: EndTokens,
@@ -82,7 +82,7 @@ pub const Parser = struct {
         diags: *Diags,
         scratch: *Scratch,
     ) Error!Ast {
-        var parser = Parser{
+        var parser: Parser = Parser{
             .allocator = allocator,
             .tokenizer = tokenizer,
             .ast = .empty,
@@ -91,6 +91,8 @@ pub const Parser = struct {
             .diags = diags,
             .scratch = scratch,
         };
+
+        errdefer parser.ast.deinit(allocator);
 
         parser.current_token = parser.nextNonCommentToken();
 
@@ -557,7 +559,7 @@ pub const Parser = struct {
     fn parseBlockExpr(
         self: *Parser,
         end_tokens: anytype,
-        loc: Loc,
+        loc: Span(u8),
     ) Error!Ast.Index {
         const key, const block_loc = try self.parseBlockExprKey(
             end_tokens,
@@ -569,8 +571,8 @@ pub const Parser = struct {
     fn parseBlockExprKey(
         self: *Parser,
         end_tokens: anytype,
-        loc: Loc,
-    ) Error!struct { Ast.Key, Loc } {
+        loc: Span(u8),
+    ) Error!struct { Ast.Key, Span(u8) } {
         const scratch_top = self.scratch.nodes.items.len;
         defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
@@ -897,7 +899,7 @@ pub const Parser = struct {
     fn addNode(
         self: *Parser,
         key: Ast.Key,
-        loc: Loc,
+        loc: Span(u8),
     ) Allocator.Error!Ast.Index {
         try self.ast.locs.append(self.allocator, loc);
         try self.ast.nodes.append(self.allocator, try self.prepareNode(key));
@@ -911,7 +913,7 @@ pub const Parser = struct {
         self: *Parser,
         index: u32,
         key: Ast.Key,
-        loc: Loc,
+        loc: Span(u8),
     ) Allocator.Error!void {
         self.ast.locs.items[index] = loc;
         self.ast.nodes.set(index, try self.prepareNode(key));
@@ -1114,7 +1116,7 @@ pub const Parser = struct {
     fn addDiag(
         self: *Parser,
         diag: Diags.Entry.Tag,
-        loc: Loc,
+        loc: Span(u8),
     ) Allocator.Error!void {
         try self.diags.entries.append(
             self.allocator,

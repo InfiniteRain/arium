@@ -1,5 +1,3 @@
-/// run
-
 print(
   if true then
     if true then
@@ -14,7 +12,7 @@ print(
       "d"
     end
   end
-) /// out a
+)
 
 print(
   if true then
@@ -30,7 +28,7 @@ print(
       "d"
     end
   end
-) /// out b
+)
 
 print(
   if false then
@@ -46,7 +44,7 @@ print(
       "d"
     end
   end
-) /// out c
+)
 
 print(
   if false then
@@ -62,4 +60,11 @@ print(
       "d"
     end
   end
-) /// out d
+)
+
+/// test(.run)
+/// out("a")
+/// out("b")
+/// out("c")
+/// out("d")
+
