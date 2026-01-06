@@ -9,10 +9,8 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const air_mod = @import("air.zig");
 const Air = air_mod.Air;
-const chunk_mod = @import("compiler/chunk.zig");
-const Chunk = chunk_mod.Chunk;
 const debug_mod = @import("debug.zig");
-const Mode = debug_mod.Mode;
+const Mode = debug_mod.BuildMode;
 const intern_pool_mod = @import("intern_pool.zig");
 const InternPool = intern_pool_mod.InternPool;
 const memory_mod = @import("memory.zig");
@@ -39,10 +37,15 @@ pub const Compiler = struct {
     pub const Diags = struct {
         entries: ArrayListUnmanaged(Entry),
 
-        pub const Entry = union(enum) {
-            too_many_constants,
-            jump_too_big,
-            fn_body_too_big,
+        pub const Entry = struct {
+            tag: Tag,
+            loc: Loc,
+
+            pub const Tag = enum {
+                too_many_constants,
+                jump_too_big,
+                fn_body_too_big,
+            };
         };
 
         pub const empty: Diags = .{
@@ -104,7 +107,6 @@ pub const Compiler = struct {
     pub fn compile(
         allocator: Allocator,
         memory: *Memory,
-        air_fn: Air.Index,
         intern_pool: *const InternPool,
         air: *const Air,
         diags: *Diags,
@@ -124,9 +126,11 @@ pub const Compiler = struct {
             .mode = mode,
         };
 
+        const root = Air.Index.from(0);
+
         module.main = try compiler.compileFn(
-            air_fn.toKey(air).@"fn",
-            air_fn.toLoc(air),
+            root.toKey(air).@"fn",
+            root.toLoc(air),
         );
 
         return module;
@@ -231,7 +235,7 @@ pub const Compiler = struct {
             self.scratch.code.items[code_scratch_top..],
             self.scratch.locs.items[locs_scratch_top..],
         ) catch |err| switch (err) {
-            error.BodyTooBig => self.compilerError(.fn_body_too_big),
+            error.BodyTooBig => self.compilerError(.fn_body_too_big, loc),
             else => |compiler_error| compiler_error,
         };
     }
@@ -934,7 +938,7 @@ pub const Compiler = struct {
             index
         else |err| switch (err) {
             error.TooManyConstants => {
-                return self.compilerError(.too_many_constants);
+                return self.compilerError(.too_many_constants, loc);
             },
             else => |alloc_err| return alloc_err,
         };
@@ -969,7 +973,7 @@ pub const Compiler = struct {
         const jump = self.scratch.code.items.len - offset + 3;
 
         if (jump > math.maxInt(u16)) {
-            return self.compilerError(.jump_too_big);
+            return self.compilerError(.jump_too_big, loc);
         }
 
         try self.writeU8(.negative_jump, loc);
@@ -983,7 +987,10 @@ pub const Compiler = struct {
         const jump = self.scratch.code.items.len - offset - 2;
 
         if (jump > math.maxInt(u16)) {
-            return self.compilerError(.jump_too_big);
+            return self.compilerError(
+                .jump_too_big,
+                self.scratch.locs.items[offset],
+            );
         }
 
         const jump_bytes: [2]u8 = @bitCast(@as(u16, @intCast(jump)));
@@ -1001,8 +1008,11 @@ pub const Compiler = struct {
         }
     }
 
-    fn compilerError(self: *Compiler, diag: Diags.Entry) Error {
-        try self.diags.entries.append(self.allocator, diag);
+    fn compilerError(self: *Compiler, diag: Diags.Entry.Tag, loc: Loc) Error {
+        try self.diags.entries.append(self.allocator, .{
+            .tag = diag,
+            .loc = loc,
+        });
         return error.CompileFailure;
     }
 

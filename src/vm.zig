@@ -6,7 +6,7 @@ const debug = std.debug;
 const assert = debug.assert;
 
 const debug_mod = @import("debug.zig");
-const Mode = debug_mod.Mode;
+const Mode = debug_mod.BuildMode;
 const limits = @import("limits.zig");
 const Loc = @import("tokenizer.zig").Loc;
 const memory_mod = @import("memory.zig");
@@ -23,6 +23,7 @@ fn ModeValue(comptime mode: Mode) type {
     return if (mode == .debug) TaggedValue else Value;
 }
 
+// todo: underflow/overflow checks
 pub const Vm = struct {
     memory: *Memory,
     module: *Module,
@@ -59,11 +60,11 @@ pub const Vm = struct {
     };
 
     pub const DebugTracer = struct {
-        ptr: *anyopaque,
+        ptr: *const anyopaque,
         vtable: *const VTable,
 
         pub const VTable = struct {
-            step: *const fn (*anyopaque, vm: *const Vm) void,
+            step: *const fn (*const anyopaque, vm: *const Vm) void,
         };
     };
 

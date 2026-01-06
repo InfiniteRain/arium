@@ -4,22 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // SHARED
-
-    const shared_mod = b.createModule(.{
-        .root_source_file = b.path("shared/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const shared_lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "shared",
-        .root_module = shared_mod,
-    });
-
-    b.installArtifact(shared_lib);
-
     // ARIUM
 
     const arium_mod = b.createModule(.{
@@ -27,8 +11,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
-    arium_mod.addImport("shared", shared_mod);
 
     const arium_lib = b.addLibrary(.{
         .linkage = .static,
@@ -41,13 +23,19 @@ pub fn build(b: *std.Build) void {
     // EXE
 
     const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("cli/cli.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     exe_mod.addImport("arium", arium_mod);
-    exe_mod.addImport("shared", shared_mod);
+
+    const clap_dep = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe_mod.addImport("clap", clap_dep.module("clap"));
 
     const exe = b.addExecutable(.{
         .name = "arium",
@@ -85,7 +73,6 @@ pub fn build(b: *std.Build) void {
     lang_tests_step.dependOn(&lang_tests_cmd.step);
 
     lang_tests.root_module.addImport("arium", arium_mod);
-    lang_tests.root_module.addImport("shared", shared_mod);
 
     // TEST CMD
 
@@ -96,7 +83,7 @@ pub fn build(b: *std.Build) void {
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_unit_tests = b.addTest(.{
-        .root_module = exe_mod,
+        .root_module = arium_mod,
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -126,30 +113,8 @@ pub fn build(b: *std.Build) void {
 
         check_step.dependOn(&check_mod.step);
 
-        check_mod.root_module.addImport("shared", shared_mod);
         check_mod.root_module.addImport("arium", arium_mod);
 
         check_mods[index] = check_mod.root_module;
-    }
-
-    // THIRD PARTY DEPENDENCIES
-
-    const dep_names = [_][]const u8{"clap"};
-    const mods = [_]*std.Build.Module{
-        arium_mod,
-        exe_mod,
-        shared_mod,
-        lang_tests.root_module,
-    } ++ check_mods;
-
-    for (dep_names) |dep_name| {
-        const dep = b.dependency(dep_name, .{
-            .target = target,
-            .optimize = optimize,
-        });
-
-        for (mods) |mod| {
-            mod.addImport(dep_name, dep.module(dep_name));
-        }
     }
 }

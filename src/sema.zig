@@ -1507,7 +1507,6 @@ pub const Sema = struct {
             self.scratch.nodes.appendAssumeCapacity(expr.toInt());
         }
 
-        std.debug.print("here: {any}\n", .{ast_expr.toLoc(self.ast)});
         return try self.addNode(
             switch (arg_types.len) {
                 else => .{ .call = .{

@@ -6,7 +6,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const math = std.math;
 
 const debug_mod = @import("debug.zig");
-const Mode = debug_mod.Mode;
+const Mode = debug_mod.BuildMode;
 const limits = @import("limits.zig");
 const Loc = @import("tokenizer.zig").Loc;
 const memory_mod = @import("memory.zig");
@@ -101,6 +101,7 @@ pub const Module = struct {
 
     pub fn deinit(self: *Module, allocator: Allocator) void {
         self.constants.deinit(allocator);
+        self.constant_tags.deinit(allocator);
         self.code.deinit(allocator);
         self.locs.deinit(allocator);
     }

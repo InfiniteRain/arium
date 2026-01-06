@@ -1,28 +1,22 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 
-const vm_mod = @import("../vm.zig");
-const Vm = vm_mod.Vm;
-const memory_mod = @import("../memory.zig");
-const Object = memory_mod.Object;
-const module_reporter = @import("../reporter/module_reporter.zig");
-const Output = @import("../output.zig").Output;
+const arium = @import("arium");
+const Vm = arium.Vm;
+const Object = arium.Object;
+const Output = arium.Output;
+
+const ModulePrinter = @import("module_printer.zig").ModulePrinter;
 
 pub const VmTracer = struct {
-    allocator: Allocator,
     output: *const Output,
 
-    pub fn init(
-        allocator: Allocator,
-        output: *const Output,
-    ) VmTracer {
+    pub fn init(output: *const Output) VmTracer {
         return .{
-            .allocator = allocator,
             .output = output,
         };
     }
 
-    pub fn debugTracer(self: *VmTracer) Vm.DebugTracer {
+    pub fn debugTracer(self: *const VmTracer) Vm.DebugTracer {
         return .{
             .ptr = self,
             .vtable = &.{
@@ -31,8 +25,8 @@ pub const VmTracer = struct {
         };
     }
 
-    fn step(ctx: *anyopaque, vm: *const Vm) void {
-        const self: *VmTracer = @ptrCast(@alignCast(ctx));
+    fn step(ctx: *const anyopaque, vm: *const Vm) void {
+        const self: *const VmTracer = @ptrCast(@alignCast(ctx));
 
         for (vm.st.items, 0..) |item, i| {
             self.output.print("[");
@@ -55,7 +49,7 @@ pub const VmTracer = struct {
 
         self.output.print("\n");
 
-        _ = module_reporter.printInstruction(
+        _ = ModulePrinter.printInstruction(
             vm.module,
             self.output,
             8,

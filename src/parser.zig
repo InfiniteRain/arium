@@ -5,8 +5,6 @@ const meta = std.meta;
 const fmt = std.fmt;
 const assert = std.debug.assert;
 
-const shared = @import("shared");
-
 const ast_mod = @import("ast.zig");
 const Ast = ast_mod.Ast;
 const fixed_array_mod = @import("fixed_array.zig");
@@ -842,7 +840,7 @@ pub const Parser = struct {
     }
 
     fn check(self: *Parser, args: anytype) bool {
-        const tuple = shared.meta.normalizeArgs(args);
+        const tuple = normalizeArgs(args);
 
         inline for (meta.fields(@TypeOf(tuple))) |field| {
             if (self.peek().tag == @field(tuple, field.name)) {
@@ -1122,5 +1120,21 @@ pub const Parser = struct {
             self.allocator,
             .{ .tag = diag, .loc = loc },
         );
+    }
+
+    fn normalizeArgs(args: anytype) blk: {
+        const ArgType = @TypeOf(args);
+        const type_info = @typeInfo(ArgType);
+        break :blk if (type_info == .@"struct" and type_info.@"struct".is_tuple)
+            ArgType
+        else
+            struct { ArgType };
+    } {
+        const type_info = @typeInfo(@TypeOf(args));
+
+        return if (type_info == .@"struct" and type_info.@"struct".is_tuple)
+            args
+        else
+            .{args};
     }
 };
