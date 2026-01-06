@@ -19,8 +19,8 @@ const Vm = arium.Vm;
 const clap = @import("clap");
 
 const DiagsPrinter = @import("diags_printer.zig").DiagsPrinter;
-const TreePrinter = @import("tree_printer.zig").TreePrinter;
 const ModulePrinter = @import("module_printer.zig").ModulePrinter;
+const TreePrinter = @import("tree_printer.zig").TreePrinter;
 const VmTracer = @import("vm_tracer.zig").VmTracer;
 
 pub const Error = Allocator.Error || OpenError || error{ReadFailed};
@@ -100,6 +100,8 @@ pub fn main() !void {
             std.posix.exit(1);
         },
     };
+
+    std.debug.print("{any}\n", .{gpa.deinit()});
 }
 
 fn runFile(
