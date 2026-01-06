@@ -1,11 +1,11 @@
 const std = @import("std");
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const fmt = std.fmt;
 const assert = std.debug.assert;
 const BoundedArray = std.BoundedArray;
-const MultiArrayListUnmanaged = std.MultiArrayList;
+const MultiArrayList = std.MultiArrayList;
 const meta = std.meta;
 const builtin = @import("builtin");
 
@@ -38,7 +38,7 @@ pub const Sema = struct {
     pub const Error = error{AnalyzeFailure} || Allocator.Error;
 
     pub const Diags = struct {
-        entries: ArrayListUnmanaged(Entry),
+        entries: ArrayList(Entry),
 
         pub const Entry = struct {
             tag: Tag,
@@ -87,7 +87,7 @@ pub const Sema = struct {
     };
 
     pub const Scratch = struct {
-        nodes: ArrayListUnmanaged(u32),
+        nodes: ArrayList(u32),
 
         pub const empty: Scratch = .{
             .nodes = .empty,
@@ -101,7 +101,7 @@ pub const Sema = struct {
     const TypeArray = FixedArray(InternPool.Index, 2);
 
     const Scope = struct {
-        locals: MultiArrayListUnmanaged(Local),
+        locals: MultiArrayList(Local),
         runtime_scope_top: usize,
         max_runtime_scope_top: usize,
         runtime_scope_bottom: usize,

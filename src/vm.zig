@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const debug = std.debug;
 const assert = debug.assert;
 
@@ -30,8 +30,8 @@ pub const Vm = struct {
     ip: usize,
     lv: usize,
     lv_len: usize,
-    st: ArrayListUnmanaged(Value),
-    st_tags: ArrayListUnmanaged(Value.DebugTag),
+    st: ArrayList(Value),
+    st_tags: ArrayList(Value.DebugTag),
     diags: *Diags,
     debug_tracer: DebugTracer,
 

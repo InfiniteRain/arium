@@ -5,7 +5,7 @@ const math = std.math;
 const StringHashMap = std.StringHashMap;
 const debug = std.debug;
 const assert = debug.assert;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 const air_mod = @import("air.zig");
 const Air = air_mod.Air;
@@ -35,7 +35,7 @@ pub const Compiler = struct {
     pub const Error = error{CompileFailure} || Allocator.Error;
 
     pub const Diags = struct {
-        entries: ArrayListUnmanaged(Entry),
+        entries: ArrayList(Entry),
 
         pub const Entry = struct {
             tag: Tag,
@@ -58,12 +58,12 @@ pub const Compiler = struct {
     };
 
     pub const Scratch = struct {
-        code: ArrayListUnmanaged(u8),
-        locs: ArrayListUnmanaged(Loc),
-        then_jumps: ArrayListUnmanaged(usize),
-        else_jumps: ArrayListUnmanaged(usize),
+        code: ArrayList(u8),
+        locs: ArrayList(Loc),
+        then_jumps: ArrayList(usize),
+        else_jumps: ArrayList(usize),
         last_jump: usize,
-        break_jumps: ArrayListUnmanaged(usize),
+        break_jumps: ArrayList(usize),
         break_never_pops: usize,
         loop_top: usize,
 
@@ -88,7 +88,7 @@ pub const Compiler = struct {
     };
 
     pub const DebugInfo = struct {
-        constants: ArrayListUnmanaged(Value.DebugTag),
+        constants: ArrayList(Value.DebugTag),
 
         pub const empty = DebugInfo{
             .constants = .empty,

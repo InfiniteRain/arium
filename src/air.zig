@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 const intern_pool_mod = @import("intern_pool.zig");
 const InternPool = intern_pool_mod.InternPool;
@@ -10,8 +10,8 @@ const Loc = @import("tokenizer.zig").Loc;
 
 pub const Air = struct {
     nodes: MultiArrayList(Node),
-    extra: ArrayListUnmanaged(u32),
-    locs: ArrayListUnmanaged(Loc),
+    extra: ArrayList(u32),
+    locs: ArrayList(Loc),
 
     pub const Node = struct {
         tag: Tag,

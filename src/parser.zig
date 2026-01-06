@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const meta = std.meta;
 const fmt = std.fmt;
 const assert = std.debug.assert;
@@ -26,7 +26,7 @@ pub const Parser = struct {
     pub const Error = error{ParseFailure} || Allocator.Error;
 
     pub const Diags = struct {
-        entries: ArrayListUnmanaged(Entry),
+        entries: ArrayList(Entry),
 
         pub const Entry = struct {
             tag: Tag,
@@ -60,7 +60,7 @@ pub const Parser = struct {
     };
 
     pub const Scratch = struct {
-        nodes: ArrayListUnmanaged(Ast.Index),
+        nodes: ArrayList(Ast.Index),
 
         pub const empty: Scratch = .{
             .nodes = .empty,

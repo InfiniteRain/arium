@@ -1,6 +1,6 @@
 const std = @import("std");
 const MultiArrayList = std.MultiArrayList;
-const ArrayListUmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const meta = std.meta;
@@ -18,8 +18,8 @@ pub const InternPool = struct {
         false,
     ),
     items: MultiArrayList(Item),
-    extra: ArrayListUmanaged(u32),
-    strings: ArrayListUmanaged(u8),
+    extra: ArrayList(u32),
+    strings: ArrayList(u8),
 
     pub const Item = struct {
         tag: Tag,

@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const math = std.math;
 
 const debug_mod = @import("debug.zig");
@@ -85,10 +85,10 @@ pub const OpCode = enum(u8) {
 };
 
 pub const Module = struct {
-    constants: ArrayListUnmanaged(Value),
-    constant_tags: ArrayListUnmanaged(Value.DebugTag),
-    code: ArrayListUnmanaged(u8),
-    locs: ArrayListUnmanaged(Loc),
+    constants: ArrayList(Value),
+    constant_tags: ArrayList(Value.DebugTag),
+    code: ArrayList(u8),
+    locs: ArrayList(Loc),
     main: ?u64,
 
     pub const empty: Module = .{

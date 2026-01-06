@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 
@@ -95,7 +95,7 @@ fn runFile(
     var parser = Parser.init(allocator);
     defer parser.deinit();
 
-    var parser_diags: ArrayListUnmanaged(Parser.Diag) = .{};
+    var parser_diags: ArrayList(Parser.Diag) = .{};
     defer parser_diags.deinit(allocator);
 
     var ast = parser.parse(&tokenizer, &parser_diags) catch |err| {

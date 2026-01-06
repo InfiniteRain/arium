@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const MultiArrayList = std.MultiArrayList;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
 const shared = @import("shared");
@@ -10,8 +10,8 @@ const Loc = @import("tokenizer.zig").Loc;
 
 pub const Ast = struct {
     nodes: MultiArrayList(Node),
-    extra: ArrayListUnmanaged(u32),
-    locs: ArrayListUnmanaged(Loc),
+    extra: ArrayList(u32),
+    locs: ArrayList(Loc),
 
     pub const Node = struct {
         tag: Tag,
