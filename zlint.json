@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "allocator-first-param": "error",
+    "avoid-as": "error",
+    "empty-file": "error",
+    "homeless-try": "error",
+    "line-length": ["error", { "max_length": 80 }],
+    "must-return-ref": "error",
+    "no-catch-return": "error",
+    "no-return-try": "error",
+    "no-unresolved": "error",
+    "returned-stack-reference": "error",
+    "suppressed-errors": "error",
+    "unused-decls": "error",
+    "useless-error-return": "error"
+  }
+}
