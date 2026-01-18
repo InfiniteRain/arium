@@ -158,5 +158,6 @@ pub fn main() !void {
 }
 
 test {
+    std.testing.expectEqual(3, 5);
     _ = std.testing.refAllDeclsRecursive(@This());
 }
