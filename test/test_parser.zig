@@ -8,7 +8,6 @@ const testing = std.testing;
 
 const arium = @import("arium");
 const FixedArray = arium.FixedArray;
-const Output = arium.Output;
 const Span = arium.Span;
 const AriumParser = arium.Parser;
 const AriumTokenizer = arium.Tokenizer;
@@ -18,7 +17,6 @@ const Compiler = arium.Compiler;
 const Vm = arium.Vm;
 
 const checkForFixedArray = @import("util.zig").checkForFixedArray;
-const TestDiagsPrinter = @import("test_diags_printer.zig").TestDiagsPrinter;
 const tokenizer_mod = @import("test_tokenizer.zig");
 const TestTokenizer = tokenizer_mod.TestTokenizer;
 const TestToken = tokenizer_mod.TestToken;
@@ -389,19 +387,19 @@ pub const TestParser = struct {
         const type_info = @typeInfo(T);
 
         if (T == []const u8) {
-            return try self.parseString();
+            return self.parseString();
         }
 
         if (T == InternPool.Index) {
-            return try self.parseIpIndex();
+            return self.parseIpIndex();
         }
 
         if (T == []const InternPool.Index) {
-            return try self.parseIpIndexArray();
+            return self.parseIpIndexArray();
         }
 
         if (checkForFixedArray(T)) |fixed_array| {
-            return try self.parseFixedArray(
+            return self.parseFixedArray(
                 fixed_array.T,
                 fixed_array.capacity,
             );
@@ -429,7 +427,7 @@ pub const TestParser = struct {
 
     fn parseIpIndex(self: *TestParser) Error!InternPool.Index {
         if (self.check(.dot)) {
-            return try self.parseEnum(InternPool.Index);
+            return self.parseEnum(InternPool.Index);
         }
 
         const directive = try self.parseDirective(.{.ip});

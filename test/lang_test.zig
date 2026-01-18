@@ -2,7 +2,6 @@ const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
 const time = std.time;
-const Allocator = mem.Allocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const ArrayList = std.ArrayList;
 

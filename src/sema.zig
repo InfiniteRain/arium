@@ -2,12 +2,9 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const fmt = std.fmt;
 const assert = std.debug.assert;
-const BoundedArray = std.BoundedArray;
 const MultiArrayList = std.MultiArrayList;
 const meta = std.meta;
-const builtin = @import("builtin");
 
 const air_mod = @import("air.zig");
 const Air = air_mod.Air;
@@ -18,7 +15,6 @@ const FixedArray = fixed_array_mod.FixedArray;
 const intern_pool_mod = @import("intern_pool.zig");
 const InternPool = intern_pool_mod.InternPool;
 const limits = @import("limits.zig");
-const tokenizer_mod = @import("tokenizer.zig");
 const Span = @import("span.zig").Span;
 
 pub const Sema = struct {
@@ -380,7 +376,7 @@ pub const Sema = struct {
             return error.AnalyzeFailure;
         }
 
-        return try self.addNode(
+        return self.addNode(
             .{ .assert = sema_child_expr },
             ast_stmt.toLoc(self.ast),
         );
@@ -396,7 +392,7 @@ pub const Sema = struct {
             .use,
         );
 
-        return try self.addNode(
+        return self.addNode(
             .{ .print = sema_child_expr },
             ast_stmt.toLoc(self.ast),
         );
@@ -430,7 +426,7 @@ pub const Sema = struct {
                 },
             });
 
-            return try self.addNode(
+            return self.addNode(
                 .{ .let = .{
                     .stack_index = @intCast(self.scope.runtime_scope_top - 1),
                     .rhs = null,
@@ -477,7 +473,7 @@ pub const Sema = struct {
             },
         });
 
-        return try self.addNode(
+        return self.addNode(
             .{ .let = .{
                 .stack_index = @intCast(self.scope.runtime_scope_top - 1),
                 .rhs = air_expr,
@@ -494,7 +490,7 @@ pub const Sema = struct {
         return_type: TypeReference,
         body: Ast.Index,
     ) Error!Air.Index {
-        return try self.addNode(
+        return self.addNode(
             try self.analyzeFnStmtKey(
                 identifier_opt,
                 args,
@@ -598,7 +594,10 @@ pub const Sema = struct {
                 },
             });
 
-            for (args, self.scratch.nodes.items[scratch_top..]) |arg, type_idx| {
+            for (
+                args,
+                self.scratch.nodes.items[scratch_top..],
+            ) |arg, type_idx| {
                 try self.scope.append(self.allocator, .{
                     .name = .from(arg.identifier),
                     .type = .from(type_idx),
@@ -751,7 +750,7 @@ pub const Sema = struct {
             .literal_float => .{ .value_float = std.fmt.parseFloat(
                 f64,
                 ast_expr.toLoc(self.ast).toSlice(self.source),
-            ) catch unreachable },
+            ) catch @panic("invalid float format") },
 
             .literal_bool => .{
                 .value_simple = if (ast_expr.toLoc(self.ast)
@@ -775,7 +774,7 @@ pub const Sema = struct {
             intern_pool_key,
         );
 
-        return try self.addNode(
+        return self.addNode(
             .{ .constant = intern_pool_index },
             ast_expr.toLoc(self.ast),
         );
@@ -795,7 +794,7 @@ pub const Sema = struct {
         if (air_binary.lhs.toType(self.air, self.intern_pool) == .invalid or
             air_binary.rhs.toType(self.air, self.intern_pool) == .invalid)
         {
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         return switch (ast_expr_key) {
@@ -856,10 +855,10 @@ pub const Sema = struct {
             air_binary,
             .from(.{ .type_int, .type_float }),
         ) == .mismatch) {
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
-        return try self.addNode(switch (ast_expr_key) {
+        return self.addNode(switch (ast_expr_key) {
             .add => .{ .add = air_binary },
             .sub => .{ .sub = air_binary },
             .mul => .{ .mul = air_binary },
@@ -884,10 +883,10 @@ pub const Sema = struct {
             air_binary,
             .from(.type_string),
         ) == .mismatch) {
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
-        return try self.addNode(switch (ast_expr_key) {
+        return self.addNode(switch (ast_expr_key) {
             .concat => .{ .concat = air_binary },
             else => unreachable, // non-concat binary node
         }, ast_expr.toLoc(self.ast));
@@ -905,12 +904,12 @@ pub const Sema = struct {
             air_binary,
             .from(.type_bool),
         ) == .mismatch) {
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const loc = ast_expr.toLoc(self.ast);
 
-        return try self.addNode(switch (ast_expr_key) {
+        return self.addNode(switch (ast_expr_key) {
             .@"and" => .{ .cond = .{
                 .cond = air_binary.lhs,
                 .then_branch = air_binary.rhs,
@@ -947,10 +946,10 @@ pub const Sema = struct {
                 } },
                 ast_binary.rhs.toLoc(self.ast),
             );
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
-        return try self.addNode(switch (ast_expr_key) {
+        return self.addNode(switch (ast_expr_key) {
             .equal => .{ .equal = air_binary },
             .not_equal => .{ .not_equal = air_binary },
             else => unreachable, // non-equality binary node
@@ -967,7 +966,7 @@ pub const Sema = struct {
         const child_type = child_air_expr.toType(self.air, self.intern_pool);
 
         if (child_type == .invalid) {
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const expected_types: TypeArray = switch (ast_key) {
@@ -984,10 +983,10 @@ pub const Sema = struct {
                 } },
                 child_ast_expr.toLoc(self.ast),
             );
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
-        return try self.addNode(
+        return self.addNode(
             .{ .neg = child_air_expr },
             ast_expr.toLoc(self.ast),
         );
@@ -1017,15 +1016,20 @@ pub const Sema = struct {
 
         for (stmts, 0..) |stmt, i| {
             const is_last = i == stmts.len - 1;
+
             const stmt_value_usage = if (is_last)
                 value_usage
             else
                 .discard;
-            const sema_stmt = self.analyzeStmt(stmt, stmt_value_usage) catch |err|
-                switch (err) {
-                    error.AnalyzeFailure => continue,
-                    else => return err,
-                };
+
+            const sema_stmt = self.analyzeStmt(
+                stmt,
+                stmt_value_usage,
+            ) catch |err| switch (err) {
+                error.AnalyzeFailure => continue,
+                else => return err,
+            };
+
             try self.scratch.nodes.append(self.allocator, sema_stmt.toInt());
 
             if (sema_stmt.toType(self.air, self.intern_pool) == .type_never) {
@@ -1079,7 +1083,7 @@ pub const Sema = struct {
             try self.scratch.nodes.append(self.allocator, unit_node.toInt());
         }
 
-        return try self.addNode(
+        return self.addNode(
             .{ .block = @ptrCast(self.scratch.nodes.items[scratch_top..]) },
             ast_expr.toLoc(self.ast),
         );
@@ -1096,12 +1100,13 @@ pub const Sema = struct {
                         .undeclared_identifier,
                         ast_expr.toLoc(self.ast),
                     );
-                    return try self.addInvalidNode();
+                    return self.addInvalidNode();
                 },
             };
 
         const local = switch (result) {
-            .@"comptime" => @panic("TODO: variables can't be comptime"), // todo: add proper logic after proper comptime support
+            // todo: add proper logic after proper comptime support
+            .@"comptime" => @panic("TODO: variables can't be comptime"),
             .runtime => |data| data,
         };
 
@@ -1112,10 +1117,10 @@ pub const Sema = struct {
                 .unassigned_variable,
                 ast_expr.toLoc(self.ast),
             );
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
-        return try self.addNode(
+        return self.addNode(
             .{ .variable = .{
                 .stack_index = @intCast(local.stack_index),
                 .type = local.index.toItem(&self.scope, .type),
@@ -1136,12 +1141,13 @@ pub const Sema = struct {
                         .undeclared_identifier,
                         binary.lhs.toLoc(self.ast),
                     );
-                    return try self.addInvalidNode();
+                    return self.addInvalidNode();
                 },
             };
 
         const local = switch (result) {
-            .@"comptime" => @panic("TODO: variables can't be comptime"), // todo: add proper logic after proper comptime support
+            // todo: add proper logic after proper comptime support
+            .@"comptime" => @panic("TODO: variables can't be comptime"),
             .runtime => |data| data,
         };
 
@@ -1152,7 +1158,7 @@ pub const Sema = struct {
                 .{ .immutable_mutation = binary.lhs.toLoc(self.ast) },
                 ast_expr.toLoc(self.ast),
             );
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const rhs = try self.analyzeExpr(binary.rhs, .use);
@@ -1171,12 +1177,12 @@ pub const Sema = struct {
                 } },
                 binary.rhs.toLoc(self.ast),
             );
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         } else if (lhs_type.* == .none) {
             lhs_type.* = rhs_type;
         }
 
-        return try self.addNode(
+        return self.addNode(
             .{ .assignment = .{
                 .stack_index = @intCast(local.stack_index),
                 .rhs = rhs,
@@ -1192,7 +1198,8 @@ pub const Sema = struct {
         value_usage: ValueUsage,
     ) Error!Air.Index {
         var condition: Ast.Key.Conditional = undefined;
-        var elseif_blocks: []const Ast.Key.Conditional = &[_]Ast.Key.Conditional{};
+        var elseif_blocks: []const Ast.Key.Conditional =
+            &[_]Ast.Key.Conditional{};
         var else_block: ?Ast.Index = null;
 
         switch (ast_key) {
@@ -1215,7 +1222,7 @@ pub const Sema = struct {
             else => unreachable,
         }
 
-        return try self.analyzeIfExprAux(
+        return self.analyzeIfExprAux(
             ast_expr.toLoc(self.ast),
             condition,
             elseif_blocks,
@@ -1242,7 +1249,7 @@ pub const Sema = struct {
                 .expected = .from(.type_bool),
                 .actual = air_cond_type,
             } }, cond.condition.toLoc(self.ast));
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const then_key = cond.body.toKey(self.ast);
@@ -1257,7 +1264,8 @@ pub const Sema = struct {
                         else
                             .force_append_unit,
 
-                        else => .force_append_unit, // the last stmt isn't expr stmt
+                        // the last stmt isn't expr stmt
+                        else => .force_append_unit,
                     }
                 else
                     .force_append_unit // then block is empty
@@ -1285,7 +1293,7 @@ pub const Sema = struct {
                 .expected = .from(@"type"),
                 .actual = then_block_type,
             } }, cond.body.toLoc(self.ast));
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const else_block, const else_block_loc = if (elseif_blocks.len > 0)
@@ -1325,10 +1333,10 @@ pub const Sema = struct {
                 .expected = .from(@"type"),
                 .actual = else_block_type,
             } }, else_block_loc);
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
-        return try self.addNode(
+        return self.addNode(
             .{ .cond = .{
                 .cond = air_cond,
                 .then_branch = then_block,
@@ -1365,7 +1373,7 @@ pub const Sema = struct {
                 .expected = .from(.type_bool),
                 .actual = air_cond_type,
             } }, ast_key.for_conditional.condition.toLoc(self.ast));
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const prev_loop_mode = self.loop_mode;
@@ -1375,7 +1383,7 @@ pub const Sema = struct {
 
         const air_body = try self.analyzeExpr(body, .discard);
 
-        return try self.addNode(.{ .@"for" = .{
+        return self.addNode(.{ .@"for" = .{
             .cond = air_cond,
             .body = air_body,
         } }, loc);
@@ -1393,7 +1401,7 @@ pub const Sema = struct {
             return self.addInvalidNode();
         }
 
-        return try self.addNode(.@"break", ast_expr.toLoc(self.ast));
+        return self.addNode(.@"break", ast_expr.toLoc(self.ast));
     }
 
     fn analyzeContinueExpr(
@@ -1408,7 +1416,7 @@ pub const Sema = struct {
             return self.addInvalidNode();
         }
 
-        return try self.addNode(.@"continue", ast_expr.toLoc(self.ast));
+        return self.addNode(.@"continue", ast_expr.toLoc(self.ast));
     }
 
     fn analyzeReturnExpr(
@@ -1434,7 +1442,7 @@ pub const Sema = struct {
             });
         }
 
-        return try self.addNode(.{ .@"return" = rhs }, loc);
+        return self.addNode(.{ .@"return" = rhs }, loc);
     }
 
     fn analyzeCallExpr(
@@ -1451,14 +1459,14 @@ pub const Sema = struct {
         const callee_type = callee.toType(self.air, self.intern_pool);
 
         if (callee_type == .invalid) {
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const callee_type_key = callee_type.toKey(self.intern_pool);
 
         if (callee_type_key != .type_fn) {
             try self.addDiag(.non_callable_call, ast_expr.toLoc(self.ast));
-            return try self.addInvalidNode();
+            return self.addInvalidNode();
         }
 
         const args = switch (ast_key) {
@@ -1508,7 +1516,7 @@ pub const Sema = struct {
             self.scratch.nodes.appendAssumeCapacity(expr.toInt());
         }
 
-        return try self.addNode(
+        return self.addNode(
             switch (arg_types.len) {
                 else => .{ .call = .{
                     .callee = callee,
@@ -1548,7 +1556,8 @@ pub const Sema = struct {
 
         const local = switch (result) {
             .@"comptime" => |data| data.index,
-            .runtime => @panic("TODO: types can't be runtime"), // todo: add proper logic after proper comptime support
+            // todo: add proper logic after proper comptime support
+            .runtime => @panic("TODO: types can't be runtime"),
         };
 
         const local_type = local.toItem(&self.scope, .type);
@@ -1639,7 +1648,8 @@ pub const Sema = struct {
 
         return switch (result) {
             .@"comptime" => |data| data.index,
-            .runtime => @panic("TODO: types can't be runtime"), // todo: add proper logic after proper comptime support
+            // todo: add proper logic after proper comptime support
+            .runtime => @panic("TODO: types can't be runtime"),
         };
     }
 

@@ -511,7 +511,8 @@ pub const Vm = struct {
 
                 .call => {
                     const args_count = self.readU8();
-                    const value = self.st.items[self.st.items.len - 1 - args_count];
+                    const value =
+                        self.st.items[self.st.items.len - 1 - args_count];
                     const locals_count = mem.bytesToValue(
                         u32,
                         self.module.code.items[value.@"fn"..][0..4],

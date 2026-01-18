@@ -177,7 +177,10 @@ pub const Air = struct {
                         .from(air.nodes.items(.b)[idx])
                         .toType(air, intern_pool);
 
-                    break :blk if (lhs_type == .type_never or rhs_type == .type_never)
+                    const is_never = lhs_type == .type_never or
+                        rhs_type == .type_never;
+
+                    break :blk if (is_never)
                         .type_never
                     else
                         lhs_type;
@@ -197,7 +200,10 @@ pub const Air = struct {
                         .from(air.nodes.items(.b)[idx])
                         .toType(air, intern_pool);
 
-                    break :blk if (lhs_type == .type_never or rhs_type == .type_never)
+                    const is_never = lhs_type == .type_never or
+                        rhs_type == .type_never;
+
+                    break :blk if (is_never)
                         .type_never
                     else
                         .type_bool;
@@ -216,7 +222,10 @@ pub const Air = struct {
                     const then = air.extra.items[extra_idx];
                     const then_type = Index.from(then).toType(air, intern_pool);
                     const @"else" = air.extra.items[extra_idx + 1];
-                    const else_type = Index.from(@"else").toType(air, intern_pool);
+                    const else_type = Index.from(@"else").toType(
+                        air,
+                        intern_pool,
+                    );
 
                     break :blk if (then_type != .type_never)
                         then_type
@@ -412,7 +421,9 @@ pub const Air = struct {
             } },
             .call => .{ .call = .{
                 .callee = .from(a),
-                .args = @ptrCast(self.extra.items[b + 1 ..][0..self.extra.items[b]]),
+                .args = @ptrCast(
+                    self.extra.items[b + 1 ..][0..self.extra.items[b]],
+                ),
             } },
         };
     }
