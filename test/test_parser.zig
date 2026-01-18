@@ -892,3 +892,7 @@ test "out directive" {
     try testing.expectEqualStrings("world", out2.toSlice(source));
     try testing.expectEqualStrings("", out3.toSlice(source));
 }
+
+test "workflow_test" {
+    try testing.expectEqualStrings("foo", "bar");
+}

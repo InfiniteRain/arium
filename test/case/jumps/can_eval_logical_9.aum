@@ -1,6 +1,6 @@
 /// test(.run)
 
-print(1 > 0 == true or (1 > 0 == true or 1 > 0 == true)) /// out("true")
+print(1 > 0 == true or (1 > 0 == true or 1 > 0 == true)) /// out("false")
 print(1 > 0 == false or (1 > 0 == true or 1 > 0 == true)) /// out("true")
 print(1 > 0 == true or (1 > 0 == false or 1 > 0 == true)) /// out("true")
 print(1 > 0 == false or (1 > 0 == false or 1 > 0 == true)) /// out("true")
