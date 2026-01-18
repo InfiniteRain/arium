@@ -2,7 +2,6 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const math = std.math;
-const StringHashMap = std.StringHashMap;
 const debug = std.debug;
 const assert = debug.assert;
 const ArrayList = std.ArrayList;
@@ -555,7 +554,7 @@ pub const Compiler = struct {
             },
         }
 
-        return try self.writeJump(
+        return self.writeJump(
             invertComparisonJumpOp(airComparisonKeyToJumpOp(air_key)),
             loc,
         );
@@ -948,14 +947,14 @@ pub const Compiler = struct {
         const result =
             if (self.mode == .debug)
                 self.module.writeConstant(
-                    .debug,
                     self.allocator,
+                    .debug,
                     .from(value, debug_tag),
                 )
             else
                 self.module.writeConstant(
-                    .release,
                     self.allocator,
+                    .release,
                     value,
                 );
 

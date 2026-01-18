@@ -2,7 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const meta = std.meta;
-const fmt = std.fmt;
 const assert = std.debug.assert;
 
 const ast_mod = @import("ast.zig");
@@ -139,7 +138,7 @@ pub const Parser = struct {
         const assert_token = self.advance();
         const expr = try self.parseExpr(.newline_terminated);
 
-        return try self.addNode(
+        return self.addNode(
             .{ .assert = expr },
             assert_token.loc.extend(expr.toLoc(&self.ast)),
         );
@@ -149,7 +148,7 @@ pub const Parser = struct {
         const print_token = self.advance();
         const expr = try self.parseExpr(.newline_terminated);
 
-        return try self.addNode(
+        return self.addNode(
             .{ .print = expr },
             print_token.loc.extend(expr.toLoc(&self.ast)),
         );
@@ -159,21 +158,26 @@ pub const Parser = struct {
         const let_token = self.advance();
         const is_mutable = self.match(.mut, .newline_terminated) != null;
         const name_identifier = try self.parseIdentifier();
-        const type_opt = if (self.match(.colon, .newline_terminated) != null)
+
+        const matched_colon = self.match(.colon, .newline_terminated) != null;
+        const type_opt = if (matched_colon)
             try self.parseType()
         else
             null;
-        const expr_opt = if (self.match(.equal, .newline_terminated) != null) blk: {
+
+        const matched_equal = self.match(.equal, .newline_terminated) != null;
+        const expr_opt = if (matched_equal) blk: {
             self.skipNewLines();
             break :blk try self.parseExpr(.newline_terminated);
         } else null;
+
         const let: Ast.Key.Let = .{
             .identifier = name_identifier,
             .type = type_opt,
             .expr = expr_opt,
         };
 
-        return try self.addNode(
+        return self.addNode(
             if (is_mutable) .{ .let_mut = let } else .{ .let = let },
             let_token.loc.extend(
                 (expr_opt orelse (type_opt orelse name_identifier)).toLoc(
@@ -218,7 +222,7 @@ pub const Parser = struct {
         const return_type = try self.parseType();
         const body = try self.parseBlockExpr(.end, fn_token.loc);
 
-        return try self.addNode(
+        return self.addNode(
             .{ .@"fn" = .{
                 .identifier = identifier,
                 .params = @ptrCast(self.scratch.nodes.items[scratch_top..]),
@@ -232,14 +236,14 @@ pub const Parser = struct {
     fn parseExprStmt(self: *Parser) Error!Ast.Index {
         const expr = try self.parseExpr(.newline_terminated);
 
-        return try self.addNode(
+        return self.addNode(
             .{ .expr_stmt = expr },
             expr.toLoc(&self.ast),
         );
     }
 
     fn parseExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
-        return try self.parseAssignmentExpr(termination);
+        return self.parseAssignmentExpr(termination);
     }
 
     fn parseAssignmentExpr(
@@ -255,7 +259,7 @@ pub const Parser = struct {
             const rhs = try self.parseAssignmentExpr(termination);
 
             if (expr.toTag(&self.ast) == .identifier) {
-                return try self.addNode(
+                return self.addNode(
                     .{ .assignment = .{
                         .lhs = expr,
                         .rhs = rhs,
@@ -457,7 +461,7 @@ pub const Parser = struct {
 
             const rhs = try self.parseUnaryExpr(termination);
 
-            return try self.addNode(
+            return self.addNode(
                 if (token.tag == .minus)
                     .{ .neg_num = rhs }
                 else
@@ -466,7 +470,7 @@ pub const Parser = struct {
             );
         }
 
-        return try self.parseCallExpr(termination);
+        return self.parseCallExpr(termination);
     }
 
     fn parseCallExpr(
@@ -547,7 +551,7 @@ pub const Parser = struct {
 
     fn parseIdentifier(self: *Parser) Error!Ast.Index {
         const token = try self.consume(.identifier, .expected_identifier);
-        return try self.addNode(.identifier, token.loc);
+        return self.addNode(.identifier, token.loc);
     }
 
     fn parseGroupExpr(self: *Parser) Error!Ast.Index {
@@ -565,7 +569,7 @@ pub const Parser = struct {
             end_tokens,
             loc,
         );
-        return try self.addNode(key, block_loc);
+        return self.addNode(key, block_loc);
     }
 
     fn parseBlockExprKey(
@@ -651,7 +655,7 @@ pub const Parser = struct {
 
                 switch (self.prev().tag) {
                     .end => {
-                        return try self.addNode(
+                        return self.addNode(
                             .{ .@"if" = conditional },
                             loc.extend(body.toLoc(&self.ast)),
                         );
@@ -662,7 +666,7 @@ pub const Parser = struct {
                             self.prev().loc,
                         );
 
-                        return try self.addNode(
+                        return self.addNode(
                             .{ .if_else = .{
                                 .conditional = conditional,
                                 .else_block = else_block,
@@ -698,7 +702,7 @@ pub const Parser = struct {
 
                 switch (self.prev().tag) {
                     .end => {
-                        return try self.addNode(
+                        return self.addNode(
                             .{ .if_elseif = .{
                                 .conditionals = @ptrCast(
                                     self.scratch.nodes.items[scratch_top..],
@@ -718,7 +722,7 @@ pub const Parser = struct {
                             self.prev().loc,
                         );
 
-                        return try self.addNode(
+                        return self.addNode(
                             .{ .if_elseif_else = .{
                                 .conditionals = @ptrCast(
                                     self.scratch.nodes.items[scratch_top..],
@@ -746,7 +750,7 @@ pub const Parser = struct {
         );
         const body_block = try self.parseBlockExpr(.end, do_token.loc);
 
-        return try self.addNode(
+        return self.addNode(
             if (condition_opt) |condition|
                 .{ .for_conditional = .{
                     .condition = condition,
@@ -759,14 +763,14 @@ pub const Parser = struct {
     }
 
     fn parseBreakExpr(self: *Parser) Error!Ast.Index {
-        return try self.addNode(
+        return self.addNode(
             .@"break",
             self.prev().loc,
         );
     }
 
     fn parseContinueExpr(self: *Parser) Error!Ast.Index {
-        return try self.addNode(
+        return self.addNode(
             .@"continue",
             self.prev().loc,
         );
@@ -777,13 +781,13 @@ pub const Parser = struct {
 
         if (self.matchStmtTerminator() == .none) {
             const expr = try self.parseExpr(.newline_terminated);
-            return try self.addNode(
+            return self.addNode(
                 .{ .return_value = expr },
                 loc.extend(expr.toLoc(&self.ast)),
             );
         }
 
-        return try self.addNode(.@"return", loc);
+        return self.addNode(.@"return", loc);
     }
 
     fn advance(self: *Parser) Token {

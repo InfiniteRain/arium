@@ -21,7 +21,6 @@ pub const Parser = parser_mod.Parser;
 const tokenizer_mod = @import("tokenizer.zig");
 pub const Token = tokenizer_mod.Token;
 pub const Tokenizer = tokenizer_mod.Tokenizer;
-const span_mod = @import("span.zig");
 pub const Span = @import("span.zig").Span;
 const module_mod = @import("module.zig");
 pub const Module = module_mod.Module;

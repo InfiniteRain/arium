@@ -2,8 +2,6 @@ const std = @import("std");
 const meta = std.meta;
 const fmt = std.fmt;
 
-const shared = @import("shared");
-
 const arium = @import("arium");
 const Output = arium.Output;
 const InternPool = arium.InternPool;

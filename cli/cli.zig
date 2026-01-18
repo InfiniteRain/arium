@@ -1,9 +1,7 @@
 const std = @import("std");
-const exit = std.posix.exit;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
-const Reader = std.io.Reader;
 const ArrayList = std.ArrayList;
 const OpenError = fs.File.OpenError;
 

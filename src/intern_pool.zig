@@ -5,7 +5,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const meta = std.meta;
 const testing = std.testing;
-const math = std.math;
 const ArrayHashMapUnmanaged = std.ArrayHashMapUnmanaged;
 const Wyhash = std.hash.Wyhash;
 const assert = std.debug.assert;
@@ -153,8 +152,11 @@ pub const InternPool = struct {
                         type_simple,
                         b.type_simple,
                     ),
-                    .type_fn => |type_fn| std.mem.eql(Index, type_fn.arg_types, b.type_fn.arg_types) and
-                        type_fn.return_type == b.type_fn.return_type,
+                    .type_fn => |type_fn| std.mem.eql(
+                        Index,
+                        type_fn.arg_types,
+                        b.type_fn.arg_types,
+                    ) and type_fn.return_type == b.type_fn.return_type,
                     .value_simple => |value_simple| meta.eql(
                         value_simple,
                         b.value_simple,

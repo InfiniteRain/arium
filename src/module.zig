@@ -1,6 +1,5 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const math = std.math;
@@ -12,8 +11,6 @@ const Span = @import("span.zig").Span;
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const TaggedValue = memory_mod.TaggedValue;
-const Object = memory_mod.Object;
-const Memory = memory_mod.Memory;
 
 pub const OpCode = enum(u8) {
     constant_u8,
@@ -108,8 +105,8 @@ pub const Module = struct {
 
     pub fn writeConstant(
         self: *Module,
-        comptime mode: Mode,
         allocator: Allocator,
+        comptime mode: Mode,
         constant: if (mode == .debug) TaggedValue else Value,
     ) (error{TooManyConstants} || Allocator.Error)!usize {
         if (self.constants.items.len == limits.max_constants) {

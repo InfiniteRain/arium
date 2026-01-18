@@ -2,7 +2,6 @@ const std = @import("std");
 const mem = std.mem;
 
 const arium = @import("arium");
-const Compiler = arium.Compiler;
 const Object = arium.Object;
 const Module = arium.Module;
 const OpCode = arium.OpCode;
@@ -156,7 +155,8 @@ pub const ModulePrinter = struct {
         offset: usize,
     ) usize {
         const op_code: OpCode = @enumFromInt(self.module.code.items[offset]);
-        const index_bytes = self.module.code.items[offset + 1 ..][0..@sizeOf(T)];
+        const index_bytes =
+            self.module.code.items[offset + 1 ..][0..@sizeOf(T)];
         const index = mem.bytesToValue(T, index_bytes);
 
         self.printOpCode(op_code);

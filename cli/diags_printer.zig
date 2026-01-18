@@ -1,5 +1,3 @@
-const std = @import("std");
-
 const arium = @import("arium");
 const Span = arium.Span;
 const Output = arium.Output;
