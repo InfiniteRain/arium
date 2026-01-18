@@ -1,4 +1,4 @@
-name: Run Tests
+name: Checks
 
 on:
   pull_request:
@@ -8,18 +8,28 @@ env:
   ZIG_VERSION: 0.15.2
 
 jobs:
-  unit:
+  lint:
     runs-on: ubuntu-latest
-    name: Unit
+    name: Lint
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: curl -fsSL https://raw.githubusercontent.com/DonIsaac/zlint/refs/heads/main/tasks/install.sh | bash
+      - run: zlint
+  unit-tests:
+    runs-on: ubuntu-latest
+    name: Unit Tests
     steps:
       - uses: actions/checkout@v3
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
       - run: zig build test
-  language:
+  language-tests:
     runs-on: ubuntu-latest
-    name: Language
+    name: Language Tests
     steps:
       - uses: actions/checkout@v3
       - uses: mlugg/setup-zig@v2
