@@ -14,7 +14,7 @@ pub const VmTracer = struct {
         };
     }
 
-    pub fn debugTracer(self: *const VmTracer) Vm.DebugTracer {
+    pub fn debugTracer(self: *const VmTracer) Vm(.debug).DebugTracer {
         return .{
             .ptr = self,
             .vtable = &.{
@@ -23,21 +23,21 @@ pub const VmTracer = struct {
         };
     }
 
-    fn step(ctx: *const anyopaque, vm: *const Vm) void {
+    fn step(ctx: *const anyopaque, vm: *const Vm(.debug)) void {
         const self: *const VmTracer = @ptrCast(@alignCast(ctx));
 
-        for (vm.st.items, 0..) |item, i| {
+        for (vm.st.items) |item| {
             self.output.print("[");
 
-            switch (vm.st_tags.items[i]) {
-                .int => self.output.printf("{}", .{item.int}),
-                .float => self.output.printf("{d}", .{item.float}),
-                .bool => self.output.printf("{}", .{item.bool}),
-                .@"fn" => self.output.printf("<fn {}>", .{item.@"fn"}),
-                .object => switch (item.object.tag) {
+            switch (item) {
+                .int => |int| self.output.printf("{}", .{int}),
+                .float => |float| self.output.printf("{d}", .{float}),
+                .bool => |@"bool"| self.output.printf("{}", .{@"bool"}),
+                .@"fn" => |@"fn"| self.output.printf("<fn {}>", .{@"fn"}),
+                .object => |object| switch (object.tag) {
                     .string => self.output.printf(
                         "\"{s}\"",
-                        .{item.object.as(Object.String).chars},
+                        .{object.as(Object(.debug).String).chars},
                     ),
                 },
             }

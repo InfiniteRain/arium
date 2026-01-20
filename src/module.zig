@@ -4,13 +4,10 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const math = std.math;
 
-const debug_mod = @import("debug.zig");
-const Mode = debug_mod.BuildMode;
+const ExecutionMode = @import("debug.zig").ExecutionMode;
 const limits = @import("limits.zig");
 const Span = @import("span.zig").Span;
-const memory_mod = @import("memory.zig");
-const Value = memory_mod.Value;
-const TaggedValue = memory_mod.TaggedValue;
+const Value = @import("memory.zig").Value;
 
 pub const OpCode = enum(u8) {
     constant_u8,
@@ -81,82 +78,76 @@ pub const OpCode = enum(u8) {
     _,
 };
 
-pub const Module = struct {
-    constants: ArrayList(Value),
-    constant_tags: ArrayList(Value.DebugTag),
-    code: ArrayList(u8),
-    locs: ArrayList(Span(u8)),
-    main: ?u64,
+pub fn Module(comptime mode: ExecutionMode) type {
+    return struct {
+        constants: ArrayList(Value(mode)),
+        code: ArrayList(u8),
+        locs: ArrayList(Span(u8)),
+        main: ?u64,
 
-    pub const empty: Module = .{
-        .constants = .empty,
-        .constant_tags = .empty,
-        .code = .empty,
-        .locs = .empty,
-        .main = 0,
-    };
+        const Self = @This();
 
-    pub fn deinit(self: *Module, allocator: Allocator) void {
-        self.constants.deinit(allocator);
-        self.constant_tags.deinit(allocator);
-        self.code.deinit(allocator);
-        self.locs.deinit(allocator);
-    }
+        pub const empty: Self = .{
+            .constants = .empty,
+            .code = .empty,
+            .locs = .empty,
+            .main = 0,
+        };
 
-    pub fn writeConstant(
-        self: *Module,
-        allocator: Allocator,
-        comptime mode: Mode,
-        constant: if (mode == .debug) TaggedValue else Value,
-    ) (error{TooManyConstants} || Allocator.Error)!usize {
-        if (self.constants.items.len == limits.max_constants) {
-            return error.TooManyConstants;
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            self.constants.deinit(allocator);
+            self.code.deinit(allocator);
+            self.locs.deinit(allocator);
         }
 
-        if (mode == .debug) {
-            const value, const tag = constant.separate();
-            try self.constants.append(allocator, value);
-            try self.constant_tags.append(allocator, tag);
-        } else {
+        pub fn writeConstant(
+            self: *Self,
+            allocator: Allocator,
+            constant: Value(mode),
+        ) (error{TooManyConstants} || Allocator.Error)!usize {
+            if (self.constants.items.len == limits.max_constants) {
+                return error.TooManyConstants;
+            }
+
             try self.constants.append(allocator, constant);
+
+            return self.constants.items.len - 1;
         }
 
-        return self.constants.items.len - 1;
-    }
+        pub fn writeFn(
+            self: *Self,
+            allocator: Allocator,
+            locals_count: u32,
+            body: []const u8,
+            locs: []const Span(u8),
+        ) (Allocator.Error || error{BodyTooBig})!u64 {
+            assert(body.len == locs.len);
 
-    pub fn writeFn(
-        self: *Module,
-        allocator: Allocator,
-        locals_count: u32,
-        body: []const u8,
-        locs: []const Span(u8),
-    ) (Allocator.Error || error{BodyTooBig})!u64 {
-        assert(body.len == locs.len);
+            if (body.len > math.maxInt(u32)) {
+                return error.BodyTooBig;
+            }
 
-        if (body.len > math.maxInt(u32)) {
-            return error.BodyTooBig;
+            const locals_count_bytes: [4]u8 = @bitCast(locals_count);
+            const len: u32 = @intCast(body.len);
+            const size_bytes: [4]u8 = @bitCast(len);
+            const top = self.code.items.len;
+            const additional_capacity =
+                @sizeOf(@TypeOf(locals_count_bytes)) +
+                @sizeOf(@TypeOf(size_bytes)) +
+                body.len;
+
+            try self.code.ensureUnusedCapacity(allocator, additional_capacity);
+            try self.locs.ensureUnusedCapacity(allocator, additional_capacity);
+
+            self.code.appendSliceAssumeCapacity(
+                &(locals_count_bytes ++ size_bytes),
+            );
+            self.code.appendSliceAssumeCapacity(body);
+
+            self.locs.appendSliceAssumeCapacity(&([_]Span(u8){.zero} ** 8));
+            self.locs.appendSliceAssumeCapacity(locs);
+
+            return @intCast(top);
         }
-
-        const locals_count_bytes: [4]u8 = @bitCast(locals_count);
-        const len: u32 = @intCast(body.len);
-        const size_bytes: [4]u8 = @bitCast(len);
-        const top = self.code.items.len;
-        const additional_capacity =
-            @sizeOf(@TypeOf(locals_count_bytes)) +
-            @sizeOf(@TypeOf(size_bytes)) +
-            body.len;
-
-        try self.code.ensureUnusedCapacity(allocator, additional_capacity);
-        try self.locs.ensureUnusedCapacity(allocator, additional_capacity);
-
-        self.code.appendSliceAssumeCapacity(
-            &(locals_count_bytes ++ size_bytes),
-        );
-        self.code.appendSliceAssumeCapacity(body);
-
-        self.locs.appendSliceAssumeCapacity(&([_]Span(u8){.zero} ** 8));
-        self.locs.appendSliceAssumeCapacity(locs);
-
-        return @intCast(top);
-    }
-};
+    };
+}

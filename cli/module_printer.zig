@@ -8,11 +8,11 @@ const OpCode = arium.OpCode;
 const Output = arium.Output;
 
 pub const ModulePrinter = struct {
-    module: *const Module,
+    module: *const Module(.debug),
     output: *const Output,
 
     pub fn print(
-        module: *const Module,
+        module: *const Module(.debug),
         output: *const Output,
     ) void {
         var index: usize = 0;
@@ -50,7 +50,7 @@ pub const ModulePrinter = struct {
     }
 
     pub fn printInstruction(
-        module: *const Module,
+        module: *const Module(.debug),
         output: *const Output,
         offset_start: usize,
         offset: usize,
@@ -162,23 +162,17 @@ pub const ModulePrinter = struct {
         self.printOpCode(op_code);
         self.output.printf(" {: <4} '", .{index});
 
-        const value = self.module.constants.items[index];
-
-        if (self.module.constant_tags.items.len > 0) {
-            switch (self.module.constant_tags.items[index]) {
-                .int => self.output.printf("{}", .{value.int}),
-                .float => self.output.printf("{d}", .{value.float}),
-                .bool => self.output.printf("{}", .{value.bool}),
-                .@"fn" => self.output.printf("<fn {}>", .{value.@"fn"}),
-                .object => switch (value.object.tag) {
-                    .string => self.output.printf(
-                        "{s}",
-                        .{value.object.as(Object.String).chars},
-                    ),
-                },
-            }
-        } else {
-            self.output.printf("{X}", .{value.int});
+        switch (self.module.constants.items[index]) {
+            .int => |int| self.output.printf("{}", .{int}),
+            .float => |float| self.output.printf("{d}", .{float}),
+            .bool => |@"bool"| self.output.printf("{}", .{@"bool"}),
+            .@"fn" => |@"fn"| self.output.printf("<fn {}>", .{@"fn"}),
+            .object => |object| switch (object.tag) {
+                .string => self.output.printf(
+                    "{s}",
+                    .{object.as(Object(.debug).String).chars},
+                ),
+            },
         }
 
         self.output.print("'\n");
