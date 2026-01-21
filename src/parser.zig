@@ -39,7 +39,6 @@ pub const Parser = struct {
                 expected_right_paren_after_args,
                 expected_left_paren_before_params,
                 expected_right_paren_after_params,
-                expected_colon_after_params,
                 expected_colon_after_param,
                 expected_right_paren_after_expr,
                 invalid_assignment_target,
@@ -201,9 +200,12 @@ pub const Parser = struct {
             }
         }
 
-        _ = try self.consume(.colon, .expected_colon_after_params);
+        const return_type =
+            if (self.match(.colon, .newline_terminated) != null)
+                try self.parseTypeExpr()
+            else
+                null;
 
-        const return_type = try self.parseTypeExpr();
         const body = try self.parseBlockExpr(.end, fn_token.loc);
 
         return self.addNode(
@@ -1133,7 +1135,10 @@ pub const Parser = struct {
                 );
                 self.ast.extra.appendSliceAssumeCapacity(
                     &[_]u32{
-                        @"fn".return_type.toInt(),
+                        if (@"fn".return_type) |return_type|
+                            return_type.toInt()
+                        else
+                            0,
                         @"fn".body.toInt(),
                     },
                 );

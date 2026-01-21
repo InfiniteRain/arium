@@ -75,9 +75,6 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
                 .expected_right_paren_after_params,
                 => self.output.print("Expected ')' after parameter list."),
 
-                .expected_colon_after_params,
-                => self.output.print("Expected ':' after parameter list."),
-
                 .expected_colon_after_param,
                 => self.output.print("Expected ':' after parameter."),
 
