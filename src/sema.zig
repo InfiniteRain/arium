@@ -54,6 +54,8 @@ pub const Sema = struct {
                 non_callable_call,
                 arity_mismatch: ArityMismatch,
                 unexpected_arg_type: ArgTypeMismatch,
+                comptime_var_mutation_at_runtime: Span(u8),
+                runtime_var_access_at_comptime,
 
                 pub const ExprTypeMismatch = struct {
                     expected: TypeArray,
@@ -198,7 +200,6 @@ pub const Sema = struct {
             mutability: Mutability,
             assignment: Assignement,
             eval_time: EvalTime,
-            type_hood: TypeHood,
         },
 
         pub const Mutability = enum(u1) { mutable, immutable };
@@ -206,8 +207,6 @@ pub const Sema = struct {
         pub const Assignement = enum(u1) { assigned, unassigned };
 
         pub const EvalTime = enum(u1) { @"comptime", runtime };
-
-        pub const TypeHood = enum(u1) { type, not_type };
 
         pub const Name = packed struct(u32) {
             tag: enum(u1) { ast, intern_pool },
@@ -272,7 +271,6 @@ pub const Sema = struct {
                     .mutability = .immutable,
                     .assignment = .assigned,
                     .eval_time = .@"comptime",
-                    .type_hood = .type,
                 },
             });
         }
@@ -400,7 +398,7 @@ pub const Sema = struct {
         let: Ast.Key.Let,
     ) Error!Air.Index {
         const let_type_opt = if (let.type) |ast_type_expr|
-            try self.analyzeTypeExpr(ast_type_expr)
+            try self.evaluateTypeExpr(ast_type_expr)
         else
             null;
         const mutability: Local.Mutability = if (ast_stmt_key == .let)
@@ -417,7 +415,6 @@ pub const Sema = struct {
                     .mutability = mutability,
                     .assignment = .unassigned,
                     .eval_time = .runtime,
-                    .type_hood = .not_type,
                 },
             });
 
@@ -464,7 +461,6 @@ pub const Sema = struct {
                 .mutability = mutability,
                 .assignment = .assigned,
                 .eval_time = .runtime,
-                .type_hood = .not_type,
             },
         });
 
@@ -512,7 +508,7 @@ pub const Sema = struct {
         try self.scratch.nodes.ensureUnusedCapacity(self.allocator, args.len);
 
         for (args) |arg| {
-            const arg_type = try self.analyzeTypeExpr(arg.type);
+            const arg_type = try self.evaluateTypeExpr(arg.type);
 
             try self.scratch.nodes.append(
                 self.allocator,
@@ -522,7 +518,7 @@ pub const Sema = struct {
 
         const return_type_index =
             if (return_type) |@"type"|
-                try self.analyzeTypeExpr(@"type")
+                try self.evaluateTypeExpr(@"type")
             else
                 .type_unit;
 
@@ -553,7 +549,6 @@ pub const Sema = struct {
                 .mutability = .immutable,
                 .assignment = .assigned,
                 .eval_time = .runtime,
-                .type_hood = .not_type,
             },
         });
 
@@ -579,7 +574,6 @@ pub const Sema = struct {
                     .mutability = .immutable,
                     .assignment = .assigned,
                     .eval_time = .runtime,
-                    .type_hood = .not_type,
                 },
             });
 
@@ -594,7 +588,6 @@ pub const Sema = struct {
                         .mutability = .immutable,
                         .assignment = .assigned,
                         .eval_time = .runtime,
-                        .type_hood = .not_type,
                     },
                 });
             }
@@ -704,6 +697,12 @@ pub const Sema = struct {
             .call_simple,
             .call,
             => try self.analyzeCallExpr(ast_expr, ast_key),
+
+            .fn_type,
+            => try self.addNode(
+                .{ .constant = try self.evaluateExpr(ast_expr) },
+                ast_expr.toLoc(self.ast),
+            ),
 
             else => unreachable, // non-expr node
         };
@@ -1092,10 +1091,12 @@ pub const Sema = struct {
                     return self.addInvalidNode();
                 },
             };
+        const loc = ast_expr.toLoc(self.ast);
 
         const local = switch (result) {
-            // todo: add proper logic after proper comptime support
-            .@"comptime" => @panic("TODO: variables can't be comptime"),
+            .@"comptime" => |data| {
+                return self.addNode(.{ .constant = data.ip_index }, loc);
+            },
             .runtime => |data| data,
         };
 
@@ -1134,25 +1135,36 @@ pub const Sema = struct {
                 },
             };
 
-        const local = switch (result) {
-            // todo: add proper logic after proper comptime support
-            .@"comptime" => @panic("TODO: variables can't be comptime"),
-            .runtime => |data| data,
+        const expr_loc = ast_expr.toLoc(self.ast);
+        const lhs_loc = binary.lhs.toLoc(self.ast);
+        const local_index = switch (result) {
+            .@"comptime" => |data| data.index,
+            .runtime => |data| data.index,
         };
-
-        const flags = local.index.toItemPtr(&self.scope, .flags);
+        const flags = local_index.toItemPtr(&self.scope, .flags);
 
         if (flags.mutability == .immutable and flags.assignment == .assigned) {
             try self.addDiag(
-                .{ .immutable_mutation = binary.lhs.toLoc(self.ast) },
-                ast_expr.toLoc(self.ast),
+                .{ .immutable_mutation = lhs_loc },
+                expr_loc,
             );
             return self.addInvalidNode();
         }
 
+        const local_stack_index = switch (result) {
+            .@"comptime" => {
+                try self.addDiag(
+                    .{ .comptime_var_mutation_at_runtime = lhs_loc },
+                    expr_loc,
+                );
+                return self.addInvalidNode();
+            },
+            .runtime => |data| data.stack_index,
+        };
+
         const rhs = try self.analyzeExpr(binary.rhs, .use);
         const rhs_type = rhs.toType(self.air, self.intern_pool);
-        const lhs_type = local.index.toItemPtr(&self.scope, .type);
+        const lhs_type = local_index.toItemPtr(&self.scope, .type);
 
         flags.assignment = .assigned;
 
@@ -1173,10 +1185,10 @@ pub const Sema = struct {
 
         return self.addNode(
             .{ .assignment = .{
-                .stack_index = @intCast(local.stack_index),
+                .stack_index = @intCast(local_stack_index),
                 .rhs = rhs,
             } },
-            ast_expr.toLoc(self.ast),
+            expr_loc,
         );
     }
 
@@ -1516,20 +1528,43 @@ pub const Sema = struct {
         );
     }
 
-    fn analyzeTypeExpr(
+    fn evaluateTypeExpr(
+        self: *Sema,
+        ast_expr: Ast.Index,
+    ) Error!InternPool.Index {
+        const value = try self.evaluateExpr(ast_expr);
+
+        if (self.typeCheck(
+            value.toType(self.intern_pool),
+            .from(.type_type),
+        ) == .mismatch) {
+            try self.addDiag(
+                .{ .unexpected_expr_type = .{
+                    .expected = .from(.type_type),
+                    .actual = value.toType(self.intern_pool),
+                } },
+                ast_expr.toLoc(self.ast),
+            );
+            return .invalid;
+        }
+
+        return value;
+    }
+
+    fn evaluateExpr(
         self: *Sema,
         ast_expr: Ast.Index,
     ) Error!InternPool.Index {
         const key = ast_expr.toKey(self.ast);
 
         return switch (key) {
-            .identifier => try self.analyzeIdentifierTypeExpr(ast_expr),
-            .fn_type => |fn_type| try self.analyzeFnTypeExpr(fn_type),
-            else => unreachable, // non-type expr
+            .identifier => try self.evaluateVariableExpr(ast_expr),
+            .fn_type => |fn_type| try self.evaluateFnTypeExpr(fn_type),
+            else => @panic("todo: implement comptime eval"),
         };
     }
 
-    fn analyzeIdentifierTypeExpr(
+    fn evaluateVariableExpr(
         self: *Sema,
         ast_expr: Ast.Index,
     ) Error!InternPool.Index {
@@ -1540,34 +1575,25 @@ pub const Sema = struct {
                         .undeclared_identifier,
                         ast_expr.toLoc(self.ast),
                     );
-                    return InternPool.Index.invalid;
+                    return .invalid;
                 },
             };
 
         const local = switch (result) {
             .@"comptime" => |data| data.index,
-            // todo: add proper logic after proper comptime support
-            .runtime => @panic("TODO: types can't be runtime"),
+            .runtime => {
+                try self.addDiag(
+                    .runtime_var_access_at_comptime,
+                    ast_expr.toLoc(self.ast),
+                );
+                return .invalid;
+            },
         };
 
-        const local_type = local.toItem(&self.scope, .type);
-        const flags = local.toItem(&self.scope, .flags);
-
-        if (flags.type_hood != .type) {
-            try self.addDiag(
-                .{ .unexpected_expr_type = .{
-                    .expected = .from(.type_type),
-                    .actual = local_type,
-                } },
-                ast_expr.toLoc(self.ast),
-            );
-            return .invalid;
-        }
-
-        return local_type;
+        return local.toItem(&self.scope, .type);
     }
 
-    fn analyzeFnTypeExpr(
+    fn evaluateFnTypeExpr(
         self: *Sema,
         fn_type: Ast.Key.FnType,
     ) Error!InternPool.Index {
@@ -1580,12 +1606,12 @@ pub const Sema = struct {
         );
 
         for (fn_type.arg_types) |arg_type_expr| {
-            const arg_type = try self.analyzeTypeExpr(arg_type_expr);
+            const arg_type = try self.evaluateTypeExpr(arg_type_expr);
             self.scratch.nodes.appendAssumeCapacity(arg_type.toInt());
         }
 
         const return_type = if (fn_type.return_type) |return_type|
-            try self.analyzeTypeExpr(return_type)
+            try self.evaluateTypeExpr(return_type)
         else
             .type_unit;
 
@@ -1603,7 +1629,7 @@ pub const Sema = struct {
         ast_expr: Ast.Index,
     ) error{UndeclaredIdentifier}!union(enum) {
         runtime: struct { index: Scope.Index, stack_index: usize },
-        @"comptime": struct { index: Scope.Index },
+        @"comptime": struct { index: Scope.Index, ip_index: InternPool.Index },
     } {
         const identifier = ast_expr.toLoc(self.ast).toSlice(self.source);
         var runtime_locals_count: usize = 0;
@@ -1632,11 +1658,10 @@ pub const Sema = struct {
             if (mem.eql(u8, identifier, local_name_str)) {
                 const index = Scope.Index.from(idx);
 
-                // todo: double check logic once comptime is implemented
-                //       should comptime vars be accessible from closures...?
                 return if (eval_time == .@"comptime")
                     .{ .@"comptime" = .{
                         .index = index,
+                        .ip_index = self.scope.locals.items(.type)[idx],
                     } }
                 else if (idx < self.scope.runtime_scope_bottom)
                     error.UndeclaredIdentifier
@@ -1665,11 +1690,11 @@ pub const Sema = struct {
         }
 
         for (targets.slice()) |target| {
-            assert(target.toType(self.intern_pool) == .type_type);
-
             if (target == .invalid) {
                 return .ok;
             }
+
+            assert(target.toType(self.intern_pool) == .type_type);
 
             switch (subject) {
                 .type_int,
@@ -1695,6 +1720,10 @@ pub const Sema = struct {
 
                         .type_fn,
                         => |@"fn"| {
+                            if (target_key != .type_fn) {
+                                return .mismatch;
+                            }
+
                             const target_fn = target_key.type_fn;
 
                             if (@"fn".return_type != target_fn.return_type) {

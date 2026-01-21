@@ -193,6 +193,18 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
                     self.printType(mismatch.actual);
                     self.output.print("`.");
                 },
+
+                .comptime_var_mutation_at_runtime,
+                => |loc| self.output.printf(
+                    "Cannot mutate comptime variable '{s}' at runtime.",
+                    .{loc.toSlice(self.source)},
+                ),
+
+                .runtime_var_access_at_comptime,
+                => self.output.printf(
+                    "Cannot access runtime variable '{s}' at comptime.",
+                    .{diag.loc.toSlice(self.source)},
+                ),
             }
         }
 

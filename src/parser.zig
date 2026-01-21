@@ -516,7 +516,6 @@ pub const Parser = struct {
                 .true,
                 .false,
                 .string,
-                .left_paren,
                 .do,
                 .@"if",
                 .@"for",
@@ -531,7 +530,6 @@ pub const Parser = struct {
                 .float => try self.addNode(.literal_float, token.loc),
                 .true, .false => try self.addNode(.literal_bool, token.loc),
                 .string => try self.addNode(.literal_string, token.loc),
-                .left_paren => try self.parseGroupExpr(),
                 .do => try self.parseBlockExpr(.end, token.loc),
                 .@"if" => try self.parseIfExpr(),
                 .@"for" => try self.parseForExpr(),
@@ -555,6 +553,7 @@ pub const Parser = struct {
         return switch (token.tag) {
             .identifier => try self.addNode(.identifier, token.loc),
             .@"fn" => try self.parseFnTypeExpr(token),
+            .left_paren => try self.parseGroupExpr(),
             else => {
                 if (token.tag == .invalid) {
                     try self.addDiag(.invalid_token, token.loc);
