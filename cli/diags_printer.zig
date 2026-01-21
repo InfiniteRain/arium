@@ -119,32 +119,35 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             switch (diag.tag) {
                 .unexpected_expr_type,
                 => |mismatch| {
-                    self.output.print("Expected expression of type ");
+                    self.output.print("Expected expression of type `");
 
                     const expected = mismatch.expected.slice();
 
                     for (expected, 0..) |@"type", index| {
                         if (index > 0) {
                             if (index == expected.len - 1) {
-                                self.output.print(" or ");
+                                self.output.print("` or `");
                             } else {
-                                self.output.print(", ");
+                                self.output.print("`, `");
                             }
                         }
 
                         self.printType(@"type");
                     }
 
-                    self.output.print(", got ");
+                    self.output.print("`, got `");
                     self.printType(mismatch.actual);
-                    self.output.print(".");
+                    self.output.print("`.");
                 },
 
                 .integer_overflow,
                 => self.output.print("Integer value overflows."),
 
                 .undeclared_identifier,
-                => self.output.print("Undeclared identifier."),
+                => self.output.printf(
+                    "Undeclared identifier '{s}'.",
+                    .{diag.loc.toSlice(self.source)},
+                ),
 
                 .too_many_locals,
                 => self.output.print("Too many locals declared."),
@@ -185,13 +188,13 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
                 .unexpected_arg_type,
                 => |mismatch| {
                     self.output.printf(
-                        "Function expects argument {} to be of type ",
+                        "Function expects argument {} to be of type `",
                         .{mismatch.index + 1},
                     );
                     self.printType(mismatch.expected);
-                    self.output.print(", got ");
+                    self.output.print("`, got `");
                     self.printType(mismatch.actual);
-                    self.output.print(".");
+                    self.output.print("`.");
                 },
             }
         }
@@ -298,7 +301,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
                 _ => {
                     switch (@"type".toKey(self.intern_pool)) {
                         .type_fn => |type_fn| {
-                            self.output.print("Fn(");
+                            self.output.print("fn(");
 
                             for (type_fn.arg_types, 0..) |arg, index| {
                                 self.printType(arg);

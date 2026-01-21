@@ -52,6 +52,7 @@ pub const Ast = struct {
             return_value,
             call,
             call_simple,
+            fn_type,
 
             assert,
             print,
@@ -99,6 +100,7 @@ pub const Ast = struct {
         return_value: Index,
         call: Call,
         call_simple: CallSimple,
+        fn_type: FnType,
 
         assert: Index,
         print: Index,
@@ -147,6 +149,11 @@ pub const Ast = struct {
         pub const FnArg = extern struct {
             identifier: Index,
             type: Index,
+        };
+
+        pub const FnType = struct {
+            arg_types: []const Index,
+            return_type: ?Index,
         };
 
         pub const Call = struct {
@@ -267,6 +274,15 @@ pub const Ast = struct {
                 .callee = Index.from(a),
                 .arg = if (b == 0) null else Index.from(b),
             } },
+            .fn_type => blk: {
+                const arg_count = self.extra.items[b];
+                const arg_types = self.extra.items[b + 1 ..][0..arg_count];
+
+                break :blk .{ .fn_type = .{
+                    .arg_types = @ptrCast(arg_types),
+                    .return_type = if (a == 0) null else .from(a),
+                } };
+            },
 
             .assert => .{ .assert = Index.from(a) },
             .print => .{ .print = Index.from(a) },

@@ -241,11 +241,6 @@ pub const Sema = struct {
         not_in_loop,
     };
 
-    const TypeReference = union(enum) {
-        identifier: Ast.Index,
-        intern_pool: InternPool.Index,
-    };
-
     pub fn analyze(
         allocator: Allocator,
         source: []const u8,
@@ -305,7 +300,7 @@ pub const Sema = struct {
         const @"fn" = try sema.analyzeFnStmtKey(
             null,
             &[_]Ast.Key.FnArg{},
-            .{ .intern_pool = .type_unit },
+            null,
             .from(0),
         );
 
@@ -346,7 +341,7 @@ pub const Sema = struct {
                 ast_stmt,
                 @"fn".identifier,
                 @"fn".params,
-                .{ .identifier = @"fn".return_type },
+                @"fn".return_type,
                 @"fn".body,
             ),
 
@@ -487,7 +482,7 @@ pub const Sema = struct {
         ast_stmt: Ast.Index,
         identifier_opt: ?Ast.Index,
         args: []const Ast.Key.FnArg,
-        return_type: TypeReference,
+        return_type: ?Ast.Index,
         body: Ast.Index,
     ) Error!Air.Index {
         return self.addNode(
@@ -505,7 +500,7 @@ pub const Sema = struct {
         self: *Sema,
         identifier_opt: ?Ast.Index,
         args: []const Ast.Key.FnArg,
-        return_type: TypeReference,
+        return_type: ?Ast.Index,
         body: Ast.Index,
     ) Error!Air.Key {
         const scratch_top = self.scratch.nodes.items.len;
@@ -517,25 +512,19 @@ pub const Sema = struct {
         try self.scratch.nodes.ensureUnusedCapacity(self.allocator, args.len);
 
         for (args) |arg| {
-            const arg_type_local =
-                self.resolveComptimeIdentifier(arg.type) catch
-                    return .{ .constant = .invalid };
+            const arg_type = try self.analyzeTypeExpr(arg.type);
 
             try self.scratch.nodes.append(
                 self.allocator,
-                arg_type_local.toItem(&self.scope, .type).toInt(),
+                arg_type.toInt(),
             );
         }
 
-        const return_type_index = switch (return_type) {
-            .identifier => |identifier| blk: {
-                const return_type_local =
-                    self.resolveComptimeIdentifier(identifier) catch
-                        return .{ .constant = .invalid };
-                break :blk return_type_local.toItem(&self.scope, .type);
-            },
-            .intern_pool => |index| index,
-        };
+        const return_type_index =
+            if (return_type) |@"type"|
+                try self.analyzeTypeExpr(@"type")
+            else
+                .type_unit;
 
         const fn_type = try self.intern_pool.get(
             self.allocator,
@@ -1535,6 +1524,7 @@ pub const Sema = struct {
 
         return switch (key) {
             .identifier => try self.analyzeIdentifierTypeExpr(ast_expr),
+            .fn_type => |fn_type| try self.analyzeFnTypeExpr(fn_type),
             else => unreachable, // non-type expr
         };
     }
@@ -1575,6 +1565,37 @@ pub const Sema = struct {
         }
 
         return local_type;
+    }
+
+    fn analyzeFnTypeExpr(
+        self: *Sema,
+        fn_type: Ast.Key.FnType,
+    ) Error!InternPool.Index {
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
+
+        try self.scratch.nodes.ensureUnusedCapacity(
+            self.allocator,
+            fn_type.arg_types.len,
+        );
+
+        for (fn_type.arg_types) |arg_type_expr| {
+            const arg_type = try self.analyzeTypeExpr(arg_type_expr);
+            self.scratch.nodes.appendAssumeCapacity(arg_type.toInt());
+        }
+
+        const return_type = if (fn_type.return_type) |return_type|
+            try self.analyzeTypeExpr(return_type)
+        else
+            .type_unit;
+
+        return self.intern_pool.get(
+            self.allocator,
+            .{ .type_fn = .{
+                .arg_types = @ptrCast(self.scratch.nodes.items[scratch_top..]),
+                .return_type = return_type,
+            } },
+        );
     }
 
     fn resolveIdentifier(
@@ -1629,28 +1650,6 @@ pub const Sema = struct {
         }
 
         return error.UndeclaredIdentifier;
-    }
-
-    fn resolveComptimeIdentifier(
-        self: *const Sema,
-        identifier: Ast.Index,
-    ) (error{UndeclaredIdentifier} || Allocator.Error)!Scope.Index {
-        const result = self.resolveIdentifier(identifier) catch |err|
-            switch (err) {
-                error.UndeclaredIdentifier => {
-                    try self.addDiag(
-                        .undeclared_identifier,
-                        identifier.toLoc(self.ast),
-                    );
-                    return error.UndeclaredIdentifier;
-                },
-            };
-
-        return switch (result) {
-            .@"comptime" => |data| data.index,
-            // todo: add proper logic after proper comptime support
-            .runtime => @panic("TODO: types can't be runtime"),
-        };
     }
 
     fn typeCheck(
