@@ -89,7 +89,6 @@ pub const Parser = struct {
             .diags = diags,
             .scratch = scratch,
         };
-
         errdefer parser.ast.deinit(allocator);
 
         parser.current_token = parser.nextNonCommentToken();

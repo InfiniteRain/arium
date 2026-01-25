@@ -137,7 +137,6 @@ pub fn Compiler(comptime mode: ExecutionMode) type {
                 .let => |let| if (let.rhs) |rhs| {
                     try self.compileVariableMutation(let.stack_index, rhs, loc);
                 },
-                .@"fn" => |@"fn"| try self.compileFnStmt(@"fn", loc),
                 else => try self.compileExpr(stmt, value_usage),
             }
         }
@@ -205,7 +204,7 @@ pub fn Compiler(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn compileFnStmt(
+        fn compileFnExpr(
             self: *Self,
             air_fn: Air.Key.Fn,
             loc: Span(u8),
@@ -213,7 +212,6 @@ pub fn Compiler(comptime mode: ExecutionMode) type {
             const fn_index = try self.compileFn(air_fn, loc);
 
             try self.writeConstant(.{ .@"fn" = fn_index }, loc);
-            try self.compileVariableMutation(air_fn.stack_index, null, loc);
         }
 
         fn compileFn(
@@ -286,7 +284,7 @@ pub fn Compiler(comptime mode: ExecutionMode) type {
                 => |cond| try self.compileCondExpr(cond, value_usage, loc),
 
                 .block,
-                => |block| try self.compileBlockExpr(block, value_usage),
+                => |block| try self.compileBlockExpr(block, value_usage, loc),
 
                 .variable,
                 => |variable| try self.compileVariableExpr(
@@ -313,6 +311,8 @@ pub fn Compiler(comptime mode: ExecutionMode) type {
 
                 .@"return",
                 => |@"return"| try self.compileReturnExpr(@"return", loc),
+
+                .@"fn" => |@"fn"| try self.compileFnExpr(@"fn", loc),
 
                 .call,
                 => |call| {
@@ -548,16 +548,24 @@ pub fn Compiler(comptime mode: ExecutionMode) type {
 
         fn compileBlockExpr(
             self: *Self,
-            block: []const Air.Index,
+            block: Air.Key.Block,
             value_usage: ValueUsage,
+            loc: Span(u8),
         ) Error!void {
-            for (block, 0..) |stmt, index| {
+            for (block.exprs, 0..) |stmt, index| {
                 try self.compileStmt(
                     stmt,
-                    if (value_usage == .use and index == block.len - 1)
+                    if (value_usage == .use and index == block.exprs.len - 1)
                         .use
                     else
                         .discard,
+                );
+            }
+
+            for (block.closed) |closed| {
+                try self.writeU8(
+                    .{ .close_u8, @as(u8, @intCast(closed)) },
+                    loc,
                 );
             }
         }
@@ -1078,6 +1086,8 @@ pub fn Compiler(comptime mode: ExecutionMode) type {
                 .print,
                 .let,
                 .@"fn",
+                .get_upvalue,
+                .set_upvalue,
                 => .non_branching,
             };
         }

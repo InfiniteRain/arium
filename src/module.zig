@@ -73,6 +73,7 @@ pub const OpCode = enum(u8) {
     print_fn,
     print_object,
     call,
+    close_u8,
     @"return",
     pop,
     _,

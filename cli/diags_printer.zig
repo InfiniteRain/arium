@@ -205,6 +205,19 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
                     "Cannot access runtime variable '{s}' at comptime.",
                     .{diag.loc.toSlice(self.source)},
                 ),
+
+                .too_many_upvalues,
+                => self.output.print("Too many upvalues captured."),
+
+                .unassigned_upvalue,
+                => self.output.print(
+                    "Cannot close over an uninitialized variable.",
+                ),
+
+                .runtime_upvalue_capture_at_comptime,
+                => self.output.print(
+                    "Cannot close over a runtime variable in comptime.",
+                ),
             }
         }
 

@@ -399,18 +399,18 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
                     .if_true => {
                         const offset = self.readU16();
-                        const a = self.pop().bool;
+                        const a = self.pop().int;
 
-                        if (a) {
+                        if (a != 0) {
                             self.ip += offset;
                         }
                     },
 
                     .if_false => {
                         const offset = self.readU16();
-                        const a = self.pop().bool;
+                        const a = self.pop().int;
 
-                        if (!a) {
+                        if (a == 0) {
                             self.ip += offset;
                         }
                     },
@@ -466,14 +466,11 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
                         switch (value.object.tag) {
                             .string => {
-                                output.printf(
-                                    "{s}\n",
-                                    .{
-                                        value.object.as(
-                                            Object(mode).String,
-                                        ).chars,
-                                    },
+                                const string = value.object.as(
+                                    Object(mode).String,
                                 );
+
+                                output.printf("{s}\n", .{string.chars});
                             },
                         }
                     },
@@ -524,11 +521,15 @@ pub fn Vm(comptime mode: ExecutionMode) type {
                             locals_count - args_count - 1,
                         );
 
-                        self.pushAssumeCapacity(.{ .int = @intCast(prev_ip) });
-                        self.pushAssumeCapacity(.{ .int = @intCast(prev_lv) });
-                        self.pushAssumeCapacity(
+                        self.pushSliceAssumeCapacity(&.{
+                            .{ .int = @intCast(prev_ip) },
+                            .{ .int = @intCast(prev_lv) },
                             .{ .int = @intCast(prev_lv_len) },
-                        );
+                        });
+                    },
+
+                    .close_u8 => {
+                        _ = self.pop();
                     },
 
                     .pop => {
@@ -554,6 +555,13 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
         fn pushAssumeCapacity(self: *Self, value: Value(mode)) void {
             self.st.appendAssumeCapacity(value);
+        }
+
+        fn pushSliceAssumeCapacity(
+            self: *Self,
+            values: []const Value(mode),
+        ) void {
+            self.st.appendSliceAssumeCapacity(values);
         }
 
         fn pushNTimes(self: *Self, value: Value(mode), n: usize) Error!void {
