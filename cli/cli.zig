@@ -193,18 +193,14 @@ fn runFile(
         TreePrinter.printAir(source, stderr, &intern_pool, &air);
     }
 
-    var memory: Memory(mode) = .init(allocator);
-    defer memory.deinit();
-
-    var compiler_diags: Compiler(mode).Diags = .empty;
+    var compiler_diags: Compiler.Diags = .empty;
     defer compiler_diags.deinit(allocator);
 
-    var compiler_scratch: Compiler(mode).Scratch = .empty;
+    var compiler_scratch: Compiler.Scratch = .empty;
     defer compiler_scratch.deinit(allocator);
 
-    var module = Compiler(mode).compile(
+    var module = Compiler.compile(
         allocator,
-        &memory,
         &intern_pool,
         &air,
         &compiler_diags,
@@ -225,6 +221,9 @@ fn runFile(
     if (args.print_byte_code and mode == .debug) {
         ModulePrinter.print(&module, stderr);
     }
+
+    var memory: Memory(mode) = .init(allocator);
+    defer memory.deinit();
 
     const vm_tracer = VmTracer.init(stderr);
     const debug_tracer: ?Vm(mode).DebugTracer =

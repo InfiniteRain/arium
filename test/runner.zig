@@ -257,7 +257,7 @@ pub const Runner = struct {
     pub const Actual = union(enum) {
         parse_err: AriumParser.Diags.Entry,
         sema_err: Sema.Diags.Entry,
-        compile_err: Compiler(.release).Diags.Entry,
+        compile_err: Compiler.Diags.Entry,
         vm_err: Vm(.release).Diags.Entry,
         out: Span(u8),
     };
@@ -415,18 +415,14 @@ pub const Runner = struct {
             return;
         }
 
-        var memory = Memory(.release).init(self.allocator);
-        defer memory.deinit();
-
-        var compiler_diags: Compiler(.release).Diags = .empty;
+        var compiler_diags: Compiler.Diags = .empty;
         defer compiler_diags.deinit(self.allocator);
 
-        var compiler_scratch: Compiler(.release).Scratch = .empty;
+        var compiler_scratch: Compiler.Scratch = .empty;
         defer compiler_scratch.deinit(self.allocator);
 
-        var module = Compiler(.release).compile(
+        var module = Compiler.compile(
             self.allocator,
-            &memory,
             intern_pool,
             &air,
             &compiler_diags,
@@ -453,6 +449,9 @@ pub const Runner = struct {
         if (setup.kind == .compile) {
             return;
         }
+
+        var memory = Memory(.release).init(self.allocator);
+        defer memory.deinit();
 
         var vm_diags: Vm(.release).Diags = .empty;
         defer vm_diags.deinit(self.allocator);

@@ -4,10 +4,16 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const math = std.math;
 
-const ExecutionMode = @import("debug.zig").ExecutionMode;
 const limits = @import("limits.zig");
 const Span = @import("span.zig").Span;
-const Value = @import("memory.zig").Value;
+
+pub const ConstantValue = union(enum) {
+    int: i64,
+    float: f64,
+    bool: bool,
+    @"fn": u64,
+    string: Span(u8),
+};
 
 pub const OpCode = enum(u8) {
     constant_u8,
@@ -78,76 +84,89 @@ pub const OpCode = enum(u8) {
     _,
 };
 
-pub fn Module(comptime mode: ExecutionMode) type {
-    return struct {
-        constants: ArrayList(Value(mode)),
-        code: ArrayList(u8),
-        locs: ArrayList(Span(u8)),
-        main: ?u64,
+pub const Module = struct {
+    strings: ArrayList(u8),
+    constants: ArrayList(ConstantValue),
+    code: ArrayList(u8),
+    locs: ArrayList(Span(u8)),
+    main: ?u64,
 
-        const Self = @This();
+    const Self = @This();
 
-        pub const empty: Self = .{
-            .constants = .empty,
-            .code = .empty,
-            .locs = .empty,
-            .main = 0,
-        };
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            self.constants.deinit(allocator);
-            self.code.deinit(allocator);
-            self.locs.deinit(allocator);
-        }
-
-        pub fn writeConstant(
-            self: *Self,
-            allocator: Allocator,
-            constant: Value(mode),
-        ) (error{TooManyConstants} || Allocator.Error)!usize {
-            if (self.constants.items.len == limits.max_constants) {
-                return error.TooManyConstants;
-            }
-
-            try self.constants.append(allocator, constant);
-
-            return self.constants.items.len - 1;
-        }
-
-        pub fn writeFn(
-            self: *Self,
-            allocator: Allocator,
-            locals_count: u32,
-            body: []const u8,
-            locs: []const Span(u8),
-        ) (Allocator.Error || error{BodyTooBig})!u64 {
-            assert(body.len == locs.len);
-
-            if (body.len > math.maxInt(u32)) {
-                return error.BodyTooBig;
-            }
-
-            const locals_count_bytes: [4]u8 = @bitCast(locals_count);
-            const len: u32 = @intCast(body.len);
-            const size_bytes: [4]u8 = @bitCast(len);
-            const top = self.code.items.len;
-            const additional_capacity =
-                @sizeOf(@TypeOf(locals_count_bytes)) +
-                @sizeOf(@TypeOf(size_bytes)) +
-                body.len;
-
-            try self.code.ensureUnusedCapacity(allocator, additional_capacity);
-            try self.locs.ensureUnusedCapacity(allocator, additional_capacity);
-
-            self.code.appendSliceAssumeCapacity(
-                &(locals_count_bytes ++ size_bytes),
-            );
-            self.code.appendSliceAssumeCapacity(body);
-
-            self.locs.appendSliceAssumeCapacity(&([_]Span(u8){.zero} ** 8));
-            self.locs.appendSliceAssumeCapacity(locs);
-
-            return @intCast(top);
-        }
+    pub const empty: Self = .{
+        .strings = .empty,
+        .constants = .empty,
+        .code = .empty,
+        .locs = .empty,
+        .main = 0,
     };
-}
+
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.strings.deinit(allocator);
+        self.constants.deinit(allocator);
+        self.code.deinit(allocator);
+        self.locs.deinit(allocator);
+    }
+
+    pub fn writeStringSpan(
+        self: *Self,
+        allocator: Allocator,
+        string: []const u8,
+    ) Allocator.Error!Span(u8) {
+        const string_top = self.strings.items.len;
+
+        try self.strings.appendSlice(allocator, string);
+
+        return .init(string_top, self.strings.items.len);
+    }
+
+    pub fn writeConstant(
+        self: *Self,
+        allocator: Allocator,
+        constant: ConstantValue,
+    ) (error{TooManyConstants} || Allocator.Error)!usize {
+        if (self.constants.items.len == limits.max_constants) {
+            return error.TooManyConstants;
+        }
+
+        try self.constants.append(allocator, constant);
+
+        return self.constants.items.len - 1;
+    }
+
+    pub fn writeFn(
+        self: *Self,
+        allocator: Allocator,
+        locals_count: u32,
+        body: []const u8,
+        locs: []const Span(u8),
+    ) (Allocator.Error || error{BodyTooBig})!u64 {
+        assert(body.len == locs.len);
+
+        if (body.len > math.maxInt(u32)) {
+            return error.BodyTooBig;
+        }
+
+        const locals_count_bytes: [4]u8 = @bitCast(locals_count);
+        const len: u32 = @intCast(body.len);
+        const size_bytes: [4]u8 = @bitCast(len);
+        const top = self.code.items.len;
+        const additional_capacity =
+            @sizeOf(@TypeOf(locals_count_bytes)) +
+            @sizeOf(@TypeOf(size_bytes)) +
+            body.len;
+
+        try self.code.ensureUnusedCapacity(allocator, additional_capacity);
+        try self.locs.ensureUnusedCapacity(allocator, additional_capacity);
+
+        self.code.appendSliceAssumeCapacity(
+            &(locals_count_bytes ++ size_bytes),
+        );
+        self.code.appendSliceAssumeCapacity(body);
+
+        self.locs.appendSliceAssumeCapacity(&([_]Span(u8){.zero} ** 8));
+        self.locs.appendSliceAssumeCapacity(locs);
+
+        return @intCast(top);
+    }
+};

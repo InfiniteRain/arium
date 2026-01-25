@@ -210,7 +210,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
 
         pub fn printCompilerDiags(
             source: []const u8,
-            diags: *const Compiler(mode).Diags,
+            diags: *const Compiler.Diags,
             output: *const Output,
         ) void {
             const diags_printer: Self = .{
@@ -227,7 +227,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
 
         fn printCompilerDiagEntry(
             self: *const Self,
-            diag: Compiler(mode).Diags.Entry,
+            diag: Compiler.Diags.Entry,
         ) void {
             self.printErrorHeader(diag.loc);
 

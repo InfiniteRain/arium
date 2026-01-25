@@ -40,13 +40,13 @@ pub const Air = struct {
             @"break",
             @"continue",
             @"return",
+            @"fn",
             call_simple,
             call,
 
             assert,
             print,
             let,
-            @"fn",
         };
     };
 
@@ -72,12 +72,12 @@ pub const Air = struct {
         @"break",
         @"continue",
         @"return": Index,
+        @"fn": Fn,
         call: Call,
 
         assert: Index,
         print: Index,
         let: Let,
-        @"fn": Fn,
 
         pub const Binary = struct {
             lhs: Index,
@@ -111,9 +111,8 @@ pub const Air = struct {
         };
 
         pub const Fn = struct {
-            stack_index: u32,
-            body: Index,
             id: u32,
+            body: Index,
             locals_count: u32,
             fn_type: InternPool.Index,
         };
@@ -245,8 +244,8 @@ pub const Air = struct {
                         .toType(air, intern_pool);
                 },
 
-                .variable => InternPool.Index
-                    .from(air.nodes.items(.b)[idx]),
+                .variable,
+                => .from(air.nodes.items(.b)[idx]),
 
                 .assert,
                 .print,
@@ -294,7 +293,12 @@ pub const Air = struct {
                 => .type_never,
 
                 .@"fn",
-                => .type_unit,
+                => blk: {
+                    const b = air.nodes.items(.b)[idx];
+                    break :blk InternPool.Index.from(
+                        air.extra.items[b + 2],
+                    );
+                },
 
                 .call_simple,
                 .call,
@@ -334,13 +338,13 @@ pub const Air = struct {
                 .@"break",
                 .@"continue",
                 .@"return",
+                .@"fn",
                 .call,
                 => .expr,
 
                 .assert,
                 .print,
                 .let,
-                .@"fn",
                 => .stmt,
             };
         }
@@ -397,21 +401,13 @@ pub const Air = struct {
             } },
             .@"break" => .@"break",
             .@"continue" => .@"continue",
-
-            .assert => .{ .assert = .from(a) },
-            .print => .{ .print = .from(a) },
-            .let => .{ .let = .{
-                .stack_index = a,
-                .rhs = if (b == 0) null else .from(b),
-            } },
-            .@"fn" => .{ .@"fn" = .{
-                .stack_index = a,
-                .body = .from(self.extra.items[b]),
-                .id = self.extra.items[b + 1],
-                .locals_count = self.extra.items[b + 2],
-                .fn_type = .from(self.extra.items[b + 3]),
-            } },
             .@"return" => .{ .@"return" = .from(a) },
+            .@"fn" => .{ .@"fn" = .{
+                .id = a,
+                .body = .from(self.extra.items[b]),
+                .locals_count = self.extra.items[b + 1],
+                .fn_type = .from(self.extra.items[b + 2]),
+            } },
             .call_simple => .{ .call = .{
                 .callee = .from(a),
                 .args = if (b == 0)
@@ -424,6 +420,13 @@ pub const Air = struct {
                 .args = @ptrCast(
                     self.extra.items[b + 1 ..][0..self.extra.items[b]],
                 ),
+            } },
+
+            .assert => .{ .assert = .from(a) },
+            .print => .{ .print = .from(a) },
+            .let => .{ .let = .{
+                .stack_index = a,
+                .rhs = if (b == 0) null else .from(b),
             } },
         };
     }

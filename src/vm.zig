@@ -21,7 +21,8 @@ const Output = @import("output.zig").Output;
 pub fn Vm(comptime mode: ExecutionMode) type {
     return struct {
         memory: *Memory(mode),
-        module: *Module(mode),
+        constants: ArrayList(Value(mode)),
+        module: *Module,
         ip: usize,
         lv: usize,
         lv_len: usize,
@@ -66,15 +67,40 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
         pub fn interpret(
             memory: *Memory(mode),
-            module: *Module(mode),
+            module: *Module,
             output: *const Output,
             diags: *Diags,
             debug_tracer_opt: ?DebugTracer,
         ) Error!void {
             const allocator = memory.allocator();
 
+            var constants: ArrayList(Value(mode)) = try .initCapacity(
+                allocator,
+                module.constants.items.len,
+            );
+
+            for (module.constants.items) |contant_value| {
+                const value: Value(mode) = switch (contant_value) {
+                    .int => |int| .{ .int = int },
+                    .float => |float| .{ .float = float },
+                    .bool => |@"bool"| .{ .bool = @"bool" },
+                    .@"fn" => |@"fn"| .{ .@"fn" = @"fn" },
+                    .string => |string| blk: {
+                        const stringObject = try Object(mode).String.create(
+                            memory,
+                            string.toSlice(module.strings.items),
+                        );
+
+                        break :blk .{ .object = &stringObject.object };
+                    },
+                };
+
+                constants.appendAssumeCapacity(value);
+            }
+
             var vm = Self{
                 .memory = memory,
+                .constants = constants,
                 .module = module,
                 .ip = undefined,
                 .lv = undefined,
@@ -84,6 +110,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
                 .debug_tracer = debug_tracer_opt orelse undefined,
             };
             defer {
+                vm.constants.deinit(allocator);
                 vm.st.deinit(allocator);
             }
 
@@ -399,18 +426,18 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
                     .if_true => {
                         const offset = self.readU16();
-                        const a = self.pop().bool;
+                        const a = self.pop().int;
 
-                        if (a) {
+                        if (a != 0) {
                             self.ip += offset;
                         }
                     },
 
                     .if_false => {
                         const offset = self.readU16();
-                        const a = self.pop().bool;
+                        const a = self.pop().int;
 
-                        if (!a) {
+                        if (a == 0) {
                             self.ip += offset;
                         }
                     },
@@ -466,14 +493,11 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
                         switch (value.object.tag) {
                             .string => {
-                                output.printf(
-                                    "{s}\n",
-                                    .{
-                                        value.object.as(
-                                            Object(mode).String,
-                                        ).chars,
-                                    },
+                                const string = value.object.as(
+                                    Object(mode).String,
                                 );
+
+                                output.printf("{s}\n", .{string.chars});
                             },
                         }
                     },
@@ -524,11 +548,11 @@ pub fn Vm(comptime mode: ExecutionMode) type {
                             locals_count - args_count - 1,
                         );
 
-                        self.pushAssumeCapacity(.{ .int = @intCast(prev_ip) });
-                        self.pushAssumeCapacity(.{ .int = @intCast(prev_lv) });
-                        self.pushAssumeCapacity(
+                        self.pushSliceAssumeCapacity(&.{
+                            .{ .int = @intCast(prev_ip) },
+                            .{ .int = @intCast(prev_lv) },
                             .{ .int = @intCast(prev_lv_len) },
-                        );
+                        });
                     },
 
                     .pop => {
@@ -554,6 +578,13 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
         fn pushAssumeCapacity(self: *Self, value: Value(mode)) void {
             self.st.appendAssumeCapacity(value);
+        }
+
+        fn pushSliceAssumeCapacity(
+            self: *Self,
+            values: []const Value(mode),
+        ) void {
+            self.st.appendSliceAssumeCapacity(values);
         }
 
         fn pushNTimes(self: *Self, value: Value(mode), n: usize) Error!void {
@@ -598,7 +629,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
         }
 
         fn constant(self: *Self, index: u32) Value(mode) {
-            return self.module.constants.items[index];
+            return self.constants.items[index];
         }
 
         fn readOpCode(self: *Self) OpCode {

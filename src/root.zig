@@ -24,6 +24,7 @@ pub const Token = tokenizer_mod.Token;
 pub const Tokenizer = tokenizer_mod.Tokenizer;
 pub const Span = @import("span.zig").Span;
 const module_mod = @import("module.zig");
+pub const ConstantValue = module_mod.ConstantValue;
 pub const Module = module_mod.Module;
 pub const OpCode = module_mod.OpCode;
 const debug_mod = @import("debug.zig");
