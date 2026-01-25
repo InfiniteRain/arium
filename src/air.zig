@@ -36,17 +36,19 @@ pub const Air = struct {
             block,
             variable,
             assignment,
+            get_upvalue,
+            set_upvalue,
             @"for",
             @"break",
             @"continue",
             @"return",
+            @"fn",
             call_simple,
             call,
 
             assert,
             print,
             let,
-            @"fn",
         };
     };
 
@@ -65,19 +67,21 @@ pub const Air = struct {
         less_than: Binary,
         less_equal: Binary,
         cond: Cond,
-        block: []const Index,
+        block: Block,
         variable: Variable,
         assignment: Assignment,
+        get_upvalue: Variable,
+        set_upvalue: Assignment,
         @"for": For,
         @"break",
         @"continue",
         @"return": Index,
+        @"fn": Fn,
         call: Call,
 
         assert: Index,
         print: Index,
         let: Let,
-        @"fn": Fn,
 
         pub const Binary = struct {
             lhs: Index,
@@ -88,6 +92,11 @@ pub const Air = struct {
             cond: Index,
             then_branch: Index,
             else_branch: Index,
+        };
+
+        pub const Block = struct {
+            exprs: []const Index,
+            closed: []const u32,
         };
 
         pub const Variable = struct {
@@ -111,9 +120,9 @@ pub const Air = struct {
         };
 
         pub const Fn = struct {
-            stack_index: u32,
-            body: Index,
             id: u32,
+            upvalues: []const u32,
+            body: Index,
             locals_count: u32,
             fn_type: InternPool.Index,
         };
@@ -121,6 +130,11 @@ pub const Air = struct {
         pub const Call = struct {
             callee: Index,
             args: []const Index,
+        };
+
+        pub const Closure = struct {
+            @"fn": Index,
+            upvalues: []const Index,
         };
     };
 
@@ -239,14 +253,15 @@ pub const Air = struct {
                 => blk: {
                     const a = air.nodes.items(.a)[idx];
                     const b = air.nodes.items(.b)[idx];
-                    const stmts = air.extra.items[b..][0..a];
+                    const stmts = air.extra.items[b + 1 ..][0..a];
 
                     break :blk Index.from(stmts[stmts.len - 1])
                         .toType(air, intern_pool);
                 },
 
-                .variable => InternPool.Index
-                    .from(air.nodes.items(.b)[idx]),
+                .variable,
+                .get_upvalue,
+                => .from(air.nodes.items(.b)[idx]),
 
                 .assert,
                 .print,
@@ -262,6 +277,7 @@ pub const Air = struct {
 
                 .let,
                 .assignment,
+                .set_upvalue,
                 => blk: {
                     const b = air.nodes.items(.b)[idx];
 
@@ -294,7 +310,10 @@ pub const Air = struct {
                 => .type_never,
 
                 .@"fn",
-                => .type_unit,
+                => blk: {
+                    const b = air.nodes.items(.b)[idx];
+                    break :blk InternPool.Index.from(air.extra.items[b + 3]);
+                },
 
                 .call_simple,
                 .call,
@@ -330,17 +349,19 @@ pub const Air = struct {
                 .block,
                 .variable,
                 .assignment,
+                .set_upvalue,
+                .get_upvalue,
                 .@"for",
                 .@"break",
                 .@"continue",
                 .@"return",
+                .@"fn",
                 .call,
                 => .expr,
 
                 .assert,
                 .print,
                 .let,
-                .@"fn",
                 => .stmt,
             };
         }
@@ -382,12 +403,27 @@ pub const Air = struct {
                 .then_branch = .from(self.extra.items[b]),
                 .else_branch = .from(self.extra.items[b + 1]),
             } },
-            .block => .{ .block = @ptrCast(self.extra.items[b..][0..a]) },
+            .block => blk: {
+                const closed_len = self.extra.items[b];
+
+                break :blk .{ .block = .{
+                    .exprs = @ptrCast(self.extra.items[b + 1 ..][0..a]),
+                    .closed = self.extra.items[b + a + 1 ..][0..closed_len],
+                } };
+            },
             .variable => .{ .variable = .{
                 .stack_index = a,
                 .type = .from(b),
             } },
             .assignment => .{ .assignment = .{
+                .stack_index = a,
+                .rhs = .from(b),
+            } },
+            .get_upvalue => .{ .get_upvalue = .{
+                .stack_index = a,
+                .type = .from(b),
+            } },
+            .set_upvalue => .{ .set_upvalue = .{
                 .stack_index = a,
                 .rhs = .from(b),
             } },
@@ -397,21 +433,18 @@ pub const Air = struct {
             } },
             .@"break" => .@"break",
             .@"continue" => .@"continue",
-
-            .assert => .{ .assert = .from(a) },
-            .print => .{ .print = .from(a) },
-            .let => .{ .let = .{
-                .stack_index = a,
-                .rhs = if (b == 0) null else .from(b),
-            } },
-            .@"fn" => .{ .@"fn" = .{
-                .stack_index = a,
-                .body = .from(self.extra.items[b]),
-                .id = self.extra.items[b + 1],
-                .locals_count = self.extra.items[b + 2],
-                .fn_type = .from(self.extra.items[b + 3]),
-            } },
             .@"return" => .{ .@"return" = .from(a) },
+            .@"fn" => blk: {
+                const upvalues_len = self.extra.items[b];
+
+                break :blk .{ .@"fn" = .{
+                    .id = a,
+                    .upvalues = self.extra.items[b + 1 ..][0..upvalues_len],
+                    .body = .from(self.extra.items[b + upvalues_len + 1]),
+                    .locals_count = self.extra.items[b + upvalues_len + 2],
+                    .fn_type = .from(self.extra.items[b + upvalues_len + 3]),
+                } };
+            },
             .call_simple => .{ .call = .{
                 .callee = .from(a),
                 .args = if (b == 0)
@@ -424,6 +457,13 @@ pub const Air = struct {
                 .args = @ptrCast(
                     self.extra.items[b + 1 ..][0..self.extra.items[b]],
                 ),
+            } },
+
+            .assert => .{ .assert = .from(a) },
+            .print => .{ .print = .from(a) },
+            .let => .{ .let = .{
+                .stack_index = a,
+                .rhs = if (b == 0) null else .from(b),
             } },
         };
     }

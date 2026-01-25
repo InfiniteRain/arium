@@ -37,8 +37,8 @@ pub const TestSetup = struct {
     pub const Expect = union(enum) {
         parse_err: ExpectErr(AriumParser.Diags.Entry.Tag),
         sema_err: ExpectErr(Sema.Diags.Entry.Tag),
-        compile_err: ExpectErr(Compiler.Diags.Entry.Tag),
-        vm_err: ExpectErr(Vm.Diags.Entry.Tag),
+        compile_err: ExpectErr(Compiler(.release).Diags.Entry.Tag),
+        vm_err: ExpectErr(Vm(.release).Diags.Entry.Tag),
         out: Span(u8),
 
         pub const Loc = union(enum) {
@@ -349,11 +349,11 @@ pub const TestParser = struct {
                 .loc = loc,
             } } },
             .compile_err => .{ .expect = .{ .compile_err = .{
-                .tag = try self.parseType(Compiler.Diags.Entry.Tag),
+                .tag = try self.parseType(Compiler(.release).Diags.Entry.Tag),
                 .loc = loc,
             } } },
             .vm_err => .{ .expect = .{ .vm_err = .{
-                .tag = try self.parseType(Vm.Diags.Entry.Tag),
+                .tag = try self.parseType(Vm(.release).Diags.Entry.Tag),
                 .loc = loc,
             } } },
             else => unreachable, // non-err-expect directive

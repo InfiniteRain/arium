@@ -5,278 +5,263 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const StringHashMapUnmanaged = std.StringHashMapUnmanaged;
 
-pub const Value = packed union {
-    int: i64,
-    float: f64,
-    bool: bool,
-    @"fn": u64,
-    object: *Object,
+const ExecutionMode = @import("debug.zig").ExecutionMode;
 
-    comptime {
-        assert(@sizeOf(Value) == 8);
-    }
+pub fn Value(comptime mode: ExecutionMode) type {
+    return switch (mode) {
+        .debug => union(enum) {
+            int: i64,
+            float: f64,
+            bool: bool,
+            @"fn": u64,
+            object: *Object(.debug),
+        },
+        .release => packed union {
+            int: i64,
+            float: f64,
+            bool: bool,
+            @"fn": u64,
+            object: *Object(.release),
 
-    pub const DebugTag = enum {
-        int,
-        float,
-        bool,
-        @"fn",
-        object,
+            comptime {
+                assert(@sizeOf(@This()) == 8);
+            }
+        },
     };
-};
+}
 
-pub const TaggedValue = union(enum) {
-    int: i64,
-    float: f64,
-    bool: bool,
-    @"fn": u64,
-    object: *Object,
+pub fn Object(comptime mode: ExecutionMode) type {
+    return struct {
+        tag: Tag,
+        next: ?*Self,
 
-    pub fn from(value: Value, tag: Value.DebugTag) TaggedValue {
-        return switch (tag) {
-            .int => .{ .int = value.int },
-            .float => .{ .float = value.float },
-            .bool => .{ .bool = value.bool },
-            .@"fn" => .{ .@"fn" = value.@"fn" },
-            .object => .{ .object = value.object },
+        const Self = @This();
+
+        const Tag = enum {
+            string,
         };
-    }
 
-    pub fn separate(self: TaggedValue) struct { Value, Value.DebugTag } {
-        return switch (self) {
-            .int => |int| .{ .{ .int = int }, .int },
-            .float => |float| .{ .{ .float = float }, .float },
-            .bool => |@"bool"| .{ .{ .bool = @"bool" }, .bool },
-            .@"fn" => |@"fn"| .{ .{ .@"fn" = @"fn" }, .@"fn" },
-            .object => |object| .{ .{ .object = object }, .object },
-        };
-    }
-};
+        pub const String = struct {
+            object: Self,
+            chars: []u8,
 
-pub const Object = struct {
-    tag: Tag,
-    next: ?*Object,
+            pub fn create(
+                memory: *Memory(mode),
+                buf: []const u8,
+            ) Allocator.Error!*String {
+                if (memory.string_pool.get(buf)) |string| {
+                    return string;
+                }
 
-    const Tag = enum {
-        string,
-    };
+                const allocator = memory.allocator();
 
-    pub const String = struct {
-        object: Object,
-        chars: []u8,
+                const prev_gc_lock_status = memory.gc_lock_status;
+                defer memory.gc_lock_status = prev_gc_lock_status;
 
-        pub fn create(
-            memory: *Memory,
-            buf: []const u8,
-        ) Allocator.Error!*String {
-            if (memory.string_pool.get(buf)) |string| {
+                memory.gc_lock_status = .locked;
+
+                var object = try Self.create(String, memory);
+                var string = object.as(String);
+
+                string.chars = try allocator.alloc(u8, buf.len);
+                @memcpy(string.chars, buf);
+
+                _ = try memory.string_pool.put(allocator, buf, string);
+
                 return string;
             }
 
-            const allocator = memory.allocator();
+            pub fn createTakeOwnership(
+                memory: *Memory(mode),
+                buf: []u8,
+            ) Allocator.Error!*String {
+                const allocator = memory.allocator();
 
-            const prev_gc_lock_status = memory.gc_lock_status;
-            defer memory.gc_lock_status = prev_gc_lock_status;
+                if (memory.string_pool.get(buf)) |string| {
+                    allocator.free(buf);
+                    return string;
+                }
 
-            memory.gc_lock_status = .locked;
+                const prev_gc_lock_status = memory.gc_lock_status;
+                defer memory.gc_lock_status = prev_gc_lock_status;
 
-            var object = try Object.create(String, memory);
-            var string = object.as(String);
+                memory.gc_lock_status = .locked;
 
-            string.chars = try allocator.alloc(u8, buf.len);
-            @memcpy(string.chars, buf);
+                var object = try Self.create(String, memory);
+                var string = object.as(String);
 
-            _ = try memory.string_pool.put(allocator, buf, string);
+                string.chars = buf;
 
-            return string;
+                _ = try memory.string_pool.put(allocator, buf, string);
+
+                return string;
+            }
+        };
+
+        pub fn as(self: *Self, T: type) *T {
+            return @fieldParentPtr("object", self);
         }
 
-        pub fn createTakeOwnership(
-            memory: *Memory,
+        pub fn destroy(self: *Self, memory: *Memory(mode)) void {
+            const allocator = memory.allocator();
+
+            switch (self.tag) {
+                .string => {
+                    const string = self.as(String);
+                    allocator.free(string.chars);
+                    allocator.destroy(string);
+                },
+            }
+        }
+
+        fn create(T: type, memory: *Memory(mode)) Allocator.Error!*Self {
+            const object = try memory.allocator().create(T);
+
+            object.object = .{
+                .tag = typeToTag(T),
+                .next = memory.head,
+            };
+
+            memory.head = &object.object;
+
+            return &object.object;
+        }
+
+        fn typeToTag(T: type) Tag {
+            return switch (T) {
+                String => .string,
+                else => @compileError("type is not a valid object"),
+            };
+        }
+    };
+}
+
+pub fn Memory(comptime mode: ExecutionMode) type {
+    return struct {
+        backing_allocator: Allocator,
+        bytes_allocated: usize,
+        head: ?*Object(mode),
+        string_pool: StringHashMapUnmanaged(*Object(mode).String),
+        gc_lock_status: enum { locked, unlocked },
+
+        const Self = @This();
+
+        pub fn init(backing_allocator: Allocator) Self {
+            return .{
+                .backing_allocator = backing_allocator,
+                .bytes_allocated = 0,
+                .head = null,
+                .string_pool = .empty,
+                .gc_lock_status = .unlocked,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            var current = self.head;
+
+            while (current) |object| {
+                const next = object.next;
+                object.destroy(self);
+                current = next;
+            }
+
+            self.string_pool.deinit(self.backing_allocator);
+        }
+
+        pub fn allocator(self: *Self) Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .free = free,
+                    .remap = remap,
+                },
+            };
+        }
+
+        fn alloc(
+            ctx: *anyopaque,
+            len: usize,
+            ptr_align: std.mem.Alignment,
+            ret_addr: usize,
+        ) ?[*]u8 {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            const out_opt = self.backing_allocator.rawAlloc(
+                len,
+                ptr_align,
+                ret_addr,
+            );
+
+            if (out_opt != null) {
+                self.bytes_allocated += len;
+            }
+
+            return out_opt;
+        }
+
+        fn resize(
+            ctx: *anyopaque,
             buf: []u8,
-        ) Allocator.Error!*String {
-            const allocator = memory.allocator();
+            buf_align: std.mem.Alignment,
+            new_len: usize,
+            ret_addr: usize,
+        ) bool {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            const is_same_address = self.backing_allocator.rawResize(
+                buf,
+                buf_align,
+                new_len,
+                ret_addr,
+            );
 
-            if (memory.string_pool.get(buf)) |string| {
-                allocator.free(buf);
-                return string;
+            if (is_same_address) {
+                if (new_len > buf.len) {
+                    self.bytes_allocated += new_len - buf.len;
+                } else {
+                    self.bytes_allocated -= buf.len - new_len;
+                }
             }
 
-            const prev_gc_lock_status = memory.gc_lock_status;
-            defer memory.gc_lock_status = prev_gc_lock_status;
+            return is_same_address;
+        }
 
-            memory.gc_lock_status = .locked;
+        fn remap(
+            ctx: *anyopaque,
+            memory: []u8,
+            alignment: std.mem.Alignment,
+            new_len: usize,
+            ret_addr: usize,
+        ) ?[*]u8 {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            const result = self.backing_allocator.rawRemap(
+                memory,
+                alignment,
+                new_len,
+                ret_addr,
+            );
 
-            var object = try Object.create(String, memory);
-            var string = object.as(String);
+            if (result != null) {
+                if (new_len > memory.len) {
+                    self.bytes_allocated += new_len - memory.len;
+                } else {
+                    self.bytes_allocated -= memory.len - new_len;
+                }
+            }
 
-            string.chars = buf;
+            return result;
+        }
 
-            _ = try memory.string_pool.put(allocator, buf, string);
+        fn free(
+            ctx: *anyopaque,
+            buf: []u8,
+            buf_align: std.mem.Alignment,
+            ret_addr: usize,
+        ) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
 
-            return string;
+            self.backing_allocator.rawFree(buf, buf_align, ret_addr);
+            self.bytes_allocated -= buf.len;
         }
     };
-
-    pub fn as(self: *Object, T: type) *T {
-        return @fieldParentPtr("object", self);
-    }
-
-    pub fn destroy(self: *Object, memory: *Memory) void {
-        const allocator = memory.allocator();
-
-        switch (self.tag) {
-            .string => {
-                const string = self.as(String);
-                allocator.free(string.chars);
-                allocator.destroy(string);
-            },
-        }
-    }
-
-    fn create(T: type, memory: *Memory) Allocator.Error!*Object {
-        const object = try memory.allocator().create(T);
-
-        object.object = .{
-            .tag = typeToTag(T),
-            .next = memory.head,
-        };
-
-        memory.head = &object.object;
-
-        return &object.object;
-    }
-
-    fn typeToTag(T: type) Tag {
-        return switch (T) {
-            String => .string,
-            else => @compileError("type is not a valid object"),
-        };
-    }
-};
-
-pub const Memory = struct {
-    backing_allocator: Allocator,
-    bytes_allocated: usize,
-    head: ?*Object,
-    string_pool: StringHashMapUnmanaged(*Object.String),
-    gc_lock_status: enum { locked, unlocked },
-
-    pub fn init(backing_allocator: Allocator) Memory {
-        return .{
-            .backing_allocator = backing_allocator,
-            .bytes_allocated = 0,
-            .head = null,
-            .string_pool = .empty,
-            .gc_lock_status = .unlocked,
-        };
-    }
-
-    pub fn deinit(self: *Memory) void {
-        var current = self.head;
-
-        while (current) |object| {
-            const next = object.next;
-            object.destroy(self);
-            current = next;
-        }
-
-        self.string_pool.deinit(self.backing_allocator);
-    }
-
-    pub fn allocator(self: *Memory) Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = alloc,
-                .resize = resize,
-                .free = free,
-                .remap = remap,
-            },
-        };
-    }
-
-    fn alloc(
-        ctx: *anyopaque,
-        len: usize,
-        ptr_align: std.mem.Alignment,
-        ret_addr: usize,
-    ) ?[*]u8 {
-        const self: *Memory = @ptrCast(@alignCast(ctx));
-        const out_opt = self.backing_allocator.rawAlloc(
-            len,
-            ptr_align,
-            ret_addr,
-        );
-
-        if (out_opt != null) {
-            self.bytes_allocated += len;
-        }
-
-        return out_opt;
-    }
-
-    fn resize(
-        ctx: *anyopaque,
-        buf: []u8,
-        buf_align: std.mem.Alignment,
-        new_len: usize,
-        ret_addr: usize,
-    ) bool {
-        const self: *Memory = @ptrCast(@alignCast(ctx));
-        const is_same_address = self.backing_allocator.rawResize(
-            buf,
-            buf_align,
-            new_len,
-            ret_addr,
-        );
-
-        if (is_same_address) {
-            if (new_len > buf.len) {
-                self.bytes_allocated += new_len - buf.len;
-            } else {
-                self.bytes_allocated -= buf.len - new_len;
-            }
-        }
-
-        return is_same_address;
-    }
-
-    fn remap(
-        ctx: *anyopaque,
-        memory: []u8,
-        alignment: std.mem.Alignment,
-        new_len: usize,
-        ret_addr: usize,
-    ) ?[*]u8 {
-        const self: *Memory = @ptrCast(@alignCast(ctx));
-        const result = self.backing_allocator.rawRemap(
-            memory,
-            alignment,
-            new_len,
-            ret_addr,
-        );
-
-        if (result != null) {
-            if (new_len > memory.len) {
-                self.bytes_allocated += new_len - memory.len;
-            } else {
-                self.bytes_allocated -= memory.len - new_len;
-            }
-        }
-
-        return result;
-    }
-
-    fn free(
-        ctx: *anyopaque,
-        buf: []u8,
-        buf_align: std.mem.Alignment,
-        ret_addr: usize,
-    ) void {
-        const self: *Memory = @ptrCast(@alignCast(ctx));
-
-        self.backing_allocator.rawFree(buf, buf_align, ret_addr);
-        self.bytes_allocated -= buf.len;
-    }
-};
+}

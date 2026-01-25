@@ -1,4 +1,4 @@
-pub const BuildMode = enum {
+pub const ExecutionMode = enum {
     debug,
     release,
 };

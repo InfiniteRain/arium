@@ -52,6 +52,7 @@ pub const Ast = struct {
             return_value,
             call,
             call_simple,
+            fn_type,
 
             assert,
             print,
@@ -99,6 +100,7 @@ pub const Ast = struct {
         return_value: Index,
         call: Call,
         call_simple: CallSimple,
+        fn_type: FnType,
 
         assert: Index,
         print: Index,
@@ -140,13 +142,18 @@ pub const Ast = struct {
         pub const Fn = struct {
             identifier: Index,
             params: []const FnArg,
-            return_type: Index,
+            return_type: ?Index,
             body: Index,
         };
 
         pub const FnArg = extern struct {
             identifier: Index,
             type: Index,
+        };
+
+        pub const FnType = struct {
+            arg_types: []const Index,
+            return_type: ?Index,
         };
 
         pub const Call = struct {
@@ -220,8 +227,8 @@ pub const Ast = struct {
             .greater_equal => getBinary("greater_equal", a, b),
             .less_than => getBinary("less_than", a, b),
             .less_equal => getBinary("less_equal", a, b),
-            .neg_bool => .{ .neg_bool = Index.from(a) },
-            .neg_num => .{ .neg_num = Index.from(a) },
+            .neg_bool => .{ .neg_bool = .from(a) },
+            .neg_num => .{ .neg_num = .from(a) },
             .block => .{ .block = @ptrCast(self.extra.items[b..][0..a]) },
             .block_semicolon => .{
                 .block_semicolon = @ptrCast(self.extra.items[b..][0..a]),
@@ -229,48 +236,55 @@ pub const Ast = struct {
             .identifier => .identifier,
             .assignment => getBinary("assignment", a, b),
             .@"if" => .{ .@"if" = .{
-                .condition = Index.from(a),
-                .body = Index.from(b),
+                .condition = .from(a),
+                .body = .from(b),
             } },
             .if_else => .{ .if_else = .{
                 .conditional = .{
-                    .condition = Index.from(a),
-                    .body = Index.from(self.extra.items[b]),
+                    .condition = .from(a),
+                    .body = .from(self.extra.items[b]),
                 },
-                .else_block = Index.from(self.extra.items[b + 1]),
+                .else_block = .from(self.extra.items[b + 1]),
             } },
-            .if_elseif => .{
-                .if_elseif = .{
-                    .conditionals = @ptrCast(self.extra.items[b..][0 .. a * 2]),
-                },
-            },
+            .if_elseif => .{ .if_elseif = .{
+                .conditionals = @ptrCast(self.extra.items[b..][0 .. a * 2]),
+            } },
             .if_elseif_else => .{ .if_elseif_else = .{
                 .conditionals = @ptrCast(self.extra.items[b..][0 .. a * 2]),
-                .else_block = Index.from(self.extra.items[b + a * 2]),
+                .else_block = .from(self.extra.items[b + a * 2]),
             } },
-            .@"for" => .{ .@"for" = Index.from(a) },
+            .@"for" => .{ .@"for" = .from(a) },
             .for_conditional => .{ .for_conditional = .{
-                .condition = Index.from(a),
-                .body = Index.from(b),
+                .condition = .from(a),
+                .body = .from(b),
             } },
             .@"break" => .@"break",
             .@"continue" => .@"continue",
             .@"return" => .@"return",
-            .return_value => .{ .return_value = Index.from(a) },
+            .return_value => .{ .return_value = .from(a) },
             .call => .{ .call = .{
-                .callee = Index.from(a),
+                .callee = .from(a),
                 .args = @ptrCast(
                     self.extra.items[b + 1 ..][0..self.extra.items[b]],
                 ),
             } },
             .call_simple => .{ .call_simple = .{
-                .callee = Index.from(a),
-                .arg = if (b == 0) null else Index.from(b),
+                .callee = .from(a),
+                .arg = if (b == 0) null else .from(b),
             } },
+            .fn_type => blk: {
+                const arg_count = self.extra.items[b];
+                const arg_types = self.extra.items[b + 1 ..][0..arg_count];
 
-            .assert => .{ .assert = Index.from(a) },
-            .print => .{ .print = Index.from(a) },
-            .expr_stmt => .{ .expr_stmt = Index.from(a) },
+                break :blk .{ .fn_type = .{
+                    .arg_types = @ptrCast(arg_types),
+                    .return_type = if (a == 0) null else .from(a),
+                } };
+            },
+
+            .assert => .{ .assert = .from(a) },
+            .print => .{ .print = .from(a) },
+            .expr_stmt => .{ .expr_stmt = .from(a) },
             .let => self.getLet("let", a, b),
             .let_mut => self.getLet("let_mut", a, b),
             .@"fn" => blk: {
@@ -280,10 +294,13 @@ pub const Ast = struct {
                 const body = self.extra.items[b + arg_count * 2 + 2];
 
                 break :blk .{ .@"fn" = .{
-                    .identifier = Index.from(a),
+                    .identifier = .from(a),
                     .params = @ptrCast(params),
-                    .return_type = Index.from(return_type),
-                    .body = Index.from(body),
+                    .return_type = if (return_type == 0)
+                        null
+                    else
+                        .from(return_type),
+                    .body = .from(body),
                 } };
             },
         };
@@ -291,17 +308,17 @@ pub const Ast = struct {
 
     fn getBinary(comptime tag: []const u8, a: u32, b: u32) Key {
         return @unionInit(Key, tag, .{
-            .lhs = Index.from(a),
-            .rhs = Index.from(b),
+            .lhs = .from(a),
+            .rhs = .from(b),
         });
     }
 
     fn getLet(self: *const Ast, comptime tag: []const u8, a: u32, b: u32) Key {
         const extra = self.extra.items[b..][0..2];
         return @unionInit(Key, tag, .{
-            .identifier = Index.from(a),
-            .type = if (extra[0] == 0) null else Index.from(extra[0]),
-            .expr = if (extra[1] == 0) null else Index.from(extra[1]),
+            .identifier = .from(a),
+            .type = if (extra[0] == 0) null else .from(extra[0]),
+            .expr = if (extra[1] == 0) null else .from(extra[1]),
         });
     }
 };

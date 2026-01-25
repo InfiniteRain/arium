@@ -13,7 +13,7 @@ const InternPool = arium.InternPool;
 const Sema = arium.Sema;
 const Memory = arium.Memory;
 const Compiler = arium.Compiler;
-const BuildMode = arium.BuildMode;
+const ExecutionMode = arium.ExecutionMode;
 const Vm = arium.Vm;
 const clap = @import("clap");
 
@@ -82,18 +82,33 @@ pub fn main() !void {
         return;
     };
 
-    runFile(
-        allocator,
-        &stdout,
-        &stderr,
-        .{
-            .print_byte_code = res.args.@"dprint-byte-code" > 0,
-            .trace_execution = res.args.@"dtrace-execution" > 0,
-            .print_ast = res.args.@"dprint-ast" > 0,
-            .print_air = res.args.@"dprint-air" > 0,
-            .file_name = file_name,
-        },
-    ) catch |err| switch (err) {
+    const args: CliArgs = .{
+        .print_byte_code = res.args.@"dprint-byte-code" > 0,
+        .trace_execution = res.args.@"dtrace-execution" > 0,
+        .print_ast = res.args.@"dprint-ast" > 0,
+        .print_air = res.args.@"dprint-air" > 0,
+        .file_name = file_name,
+    };
+
+    const result =
+        if (args.print_byte_code or args.trace_execution)
+            runFile(
+                allocator,
+                &stdout,
+                &stderr,
+                args,
+                .debug,
+            )
+        else
+            runFile(
+                allocator,
+                &stdout,
+                &stderr,
+                args,
+                .release,
+            );
+
+    result catch |err| switch (err) {
         error.OutOfMemory => {
             stderr.print("Out of memory.\n");
             std.posix.exit(1);
@@ -106,6 +121,7 @@ fn runFile(
     stdout: *const Output,
     stderr: *const Output,
     args: CliArgs,
+    comptime mode: ExecutionMode,
 ) Allocator.Error!void {
     const source = readFileAlloc(allocator, args.file_name) catch |err|
         switch (err) {
@@ -132,7 +148,7 @@ fn runFile(
         &parser_scratch,
     ) catch |err| switch (err) {
         error.ParseFailure => {
-            DiagsPrinter.printParserDiags(source, &parser_diags, stderr);
+            DiagsPrinter(mode).printParserDiags(source, &parser_diags, stderr);
             std.posix.exit(1);
         },
         else => |cli_error| return cli_error,
@@ -161,7 +177,7 @@ fn runFile(
         &sema_scratch,
     ) catch |err| switch (err) {
         error.AnalyzeFailure => {
-            DiagsPrinter.printSemaDiags(
+            DiagsPrinter(mode).printSemaDiags(
                 source,
                 &sema_diags,
                 &intern_pool,
@@ -177,56 +193,59 @@ fn runFile(
         TreePrinter.printAir(source, stderr, &intern_pool, &air);
     }
 
-    var memory = Memory.init(allocator);
+    var memory: Memory(mode) = .init(allocator);
     defer memory.deinit();
 
-    var compiler_diags: Compiler.Diags = .empty;
+    var compiler_diags: Compiler(mode).Diags = .empty;
     defer compiler_diags.deinit(allocator);
 
-    var compiler_scratch: Compiler.Scratch = .empty;
+    var compiler_scratch: Compiler(mode).Scratch = .empty;
     defer compiler_scratch.deinit(allocator);
 
-    const build_mode: BuildMode =
-        if (args.print_byte_code or args.trace_execution)
-            .debug
-        else
-            .release;
-
-    var module = Compiler.compile(
+    var module = Compiler(mode).compile(
         allocator,
         &memory,
         &intern_pool,
         &air,
         &compiler_diags,
         &compiler_scratch,
-        build_mode,
     ) catch |err| switch (err) {
         error.CompileFailure => {
-            DiagsPrinter.printCompilerDiags(source, &compiler_diags, stderr);
+            DiagsPrinter(mode).printCompilerDiags(
+                source,
+                &compiler_diags,
+                stderr,
+            );
             std.posix.exit(1);
         },
         else => |cli_error| return cli_error,
     };
     defer module.deinit(allocator);
 
-    if (args.print_byte_code) {
+    if (args.print_byte_code and mode == .debug) {
         ModulePrinter.print(&module, stderr);
     }
 
     const vm_tracer = VmTracer.init(stderr);
-    const debug_tracer: ?Vm.DebugTracer =
-        if (args.trace_execution)
+    const debug_tracer: ?Vm(mode).DebugTracer =
+        if (args.trace_execution and mode == .debug)
             vm_tracer.debugTracer()
         else
             null;
 
-    var vm_diags: Vm.Diags = .empty;
+    var vm_diags: Vm(mode).Diags = .empty;
     defer vm_diags.deinit(allocator);
 
-    Vm.interpret(&memory, &module, stdout, &vm_diags, debug_tracer) catch |err|
+    Vm(mode).interpret(
+        &memory,
+        &module,
+        stdout,
+        &vm_diags,
+        debug_tracer,
+    ) catch |err|
         switch (err) {
             error.Panic => {
-                DiagsPrinter.printVmDiags(source, &vm_diags, stderr);
+                DiagsPrinter(mode).printVmDiags(source, &vm_diags, stderr);
                 std.posix.exit(1);
             },
             else => |cli_error| return cli_error,

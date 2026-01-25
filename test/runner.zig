@@ -257,8 +257,8 @@ pub const Runner = struct {
     pub const Actual = union(enum) {
         parse_err: AriumParser.Diags.Entry,
         sema_err: Sema.Diags.Entry,
-        compile_err: Compiler.Diags.Entry,
-        vm_err: Vm.Diags.Entry,
+        compile_err: Compiler(.release).Diags.Entry,
+        vm_err: Vm(.release).Diags.Entry,
         out: Span(u8),
     };
 
@@ -415,23 +415,22 @@ pub const Runner = struct {
             return;
         }
 
-        var memory = Memory.init(self.allocator);
+        var memory = Memory(.release).init(self.allocator);
         defer memory.deinit();
 
-        var compiler_diags: Compiler.Diags = .empty;
+        var compiler_diags: Compiler(.release).Diags = .empty;
         defer compiler_diags.deinit(self.allocator);
 
-        var compiler_scratch: Compiler.Scratch = .empty;
+        var compiler_scratch: Compiler(.release).Scratch = .empty;
         defer compiler_scratch.deinit(self.allocator);
 
-        var module = Compiler.compile(
+        var module = Compiler(.release).compile(
             self.allocator,
             &memory,
             intern_pool,
             &air,
             &compiler_diags,
             &compiler_scratch,
-            .release,
         ) catch |err| switch (err) {
             error.CompileFailure => {
                 try self.scratch.actuals.ensureUnusedCapacity(
@@ -455,7 +454,7 @@ pub const Runner = struct {
             return;
         }
 
-        var vm_diags: Vm.Diags = .empty;
+        var vm_diags: Vm(.release).Diags = .empty;
         defer vm_diags.deinit(self.allocator);
 
         var output_bytes: ArrayList(u8) = .empty;
@@ -464,7 +463,13 @@ pub const Runner = struct {
         var test_writer = TestWriter.init(self.allocator, &output_bytes);
         const output = Output.init(&test_writer.interface);
 
-        Vm.interpret(&memory, &module, &output, &vm_diags, null) catch |err|
+        Vm(.release).interpret(
+            &memory,
+            &module,
+            &output,
+            &vm_diags,
+            null,
+        ) catch |err|
             switch (err) {
                 error.Panic => {
                     if (vm_diags.entry) |entry| {
