@@ -1,0 +1,20 @@
+fn func1_proto()
+end
+
+fn func2_proto(a: Int)
+end
+
+fn func3_proto(a: Int, b: Int)
+end
+
+fn func4_proto(a: Int, b: Int): Int
+  return 3
+end
+
+let func1: fn() = func1_proto
+let func2: fn(Int) = func2_proto
+let func3: fn(Int, Int) = func3_proto
+let func4: fn(Int, Int): Int = func4_proto
+
+/// test(.run)
+

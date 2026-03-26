@@ -1,0 +1,4 @@
+/// test(.parse)
+/// parse_err(line(5), .expected_right_paren_after_params)
+
+fn func(a: Int

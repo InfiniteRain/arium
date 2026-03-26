@@ -4,13 +4,16 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const math = std.math;
 
-const debug_mod = @import("debug.zig");
-const Mode = debug_mod.BuildMode;
 const limits = @import("limits.zig");
 const Span = @import("span.zig").Span;
-const memory_mod = @import("memory.zig");
-const Value = memory_mod.Value;
-const TaggedValue = memory_mod.TaggedValue;
+
+pub const ConstantValue = union(enum) {
+    int: i64,
+    float: f64,
+    bool: bool,
+    @"fn": u64,
+    string: Span(u8),
+};
 
 pub const OpCode = enum(u8) {
     constant_u8,
@@ -82,50 +85,57 @@ pub const OpCode = enum(u8) {
 };
 
 pub const Module = struct {
-    constants: ArrayList(Value),
-    constant_tags: ArrayList(Value.DebugTag),
+    strings: ArrayList(u8),
+    constants: ArrayList(ConstantValue),
     code: ArrayList(u8),
     locs: ArrayList(Span(u8)),
     main: ?u64,
 
-    pub const empty: Module = .{
+    const Self = @This();
+
+    pub const empty: Self = .{
+        .strings = .empty,
         .constants = .empty,
-        .constant_tags = .empty,
         .code = .empty,
         .locs = .empty,
         .main = 0,
     };
 
-    pub fn deinit(self: *Module, allocator: Allocator) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.strings.deinit(allocator);
         self.constants.deinit(allocator);
-        self.constant_tags.deinit(allocator);
         self.code.deinit(allocator);
         self.locs.deinit(allocator);
     }
 
-    pub fn writeConstant(
-        self: *Module,
+    pub fn writeStringSpan(
+        self: *Self,
         allocator: Allocator,
-        comptime mode: Mode,
-        constant: if (mode == .debug) TaggedValue else Value,
+        string: []const u8,
+    ) Allocator.Error!Span(u8) {
+        const string_top = self.strings.items.len;
+
+        try self.strings.appendSlice(allocator, string);
+
+        return .init(string_top, self.strings.items.len);
+    }
+
+    pub fn writeConstant(
+        self: *Self,
+        allocator: Allocator,
+        constant: ConstantValue,
     ) (error{TooManyConstants} || Allocator.Error)!usize {
         if (self.constants.items.len == limits.max_constants) {
             return error.TooManyConstants;
         }
 
-        if (mode == .debug) {
-            const value, const tag = constant.separate();
-            try self.constants.append(allocator, value);
-            try self.constant_tags.append(allocator, tag);
-        } else {
-            try self.constants.append(allocator, constant);
-        }
+        try self.constants.append(allocator, constant);
 
         return self.constants.items.len - 1;
     }
 
     pub fn writeFn(
-        self: *Module,
+        self: *Self,
         allocator: Allocator,
         locals_count: u32,
         body: []const u8,

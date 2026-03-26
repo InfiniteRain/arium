@@ -1,0 +1,37 @@
+fn func1(): fn()
+  fn inner()
+    print("hello, world!")
+  end
+
+  return inner
+end
+
+fn func2(): fn(): Int
+  fn inner(): Int
+    return 123
+  end
+
+  return inner
+end
+
+fn func3(): fn(): fn(Int): Int
+  fn inner(): fn(Int): Int
+    fn deep_inner(a: Int): Int
+      return a
+    end
+
+    return deep_inner
+  end
+
+  return inner
+end
+
+func1()()
+print(func2()())
+print(func3()()(333))
+
+/// test(.run)
+/// out("hello, world!")
+/// out("123")
+/// out("333")
+

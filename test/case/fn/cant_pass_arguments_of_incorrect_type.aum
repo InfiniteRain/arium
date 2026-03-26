@@ -1,0 +1,11 @@
+fn some_func(a: String, b: String)
+  print(a ++ b)
+end
+
+some_func(12, 32)
+some_func("asd", 123)
+
+/// test(.sema)
+/// sema_err(line(5), {.unexpected_arg_type = {.index = 0, .expected = .type_string, .actual = .type_int}})
+/// sema_err(line(6), {.unexpected_arg_type = {.index = 1, .expected = .type_string, .actual = .type_int}})
+

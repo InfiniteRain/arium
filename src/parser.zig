@@ -39,7 +39,6 @@ pub const Parser = struct {
                 expected_right_paren_after_args,
                 expected_left_paren_before_params,
                 expected_right_paren_after_params,
-                expected_colon_after_params,
                 expected_colon_after_param,
                 expected_right_paren_after_expr,
                 invalid_assignment_target,
@@ -90,7 +89,6 @@ pub const Parser = struct {
             .diags = diags,
             .scratch = scratch,
         };
-
         errdefer parser.ast.deinit(allocator);
 
         parser.current_token = parser.nextNonCommentToken();
@@ -106,22 +104,6 @@ pub const Parser = struct {
         try parser.setNode(0, block, loc);
 
         return parser.ast;
-    }
-
-    fn parseType(self: *Parser) Error!Ast.Index {
-        const token = self.advance();
-
-        return switch (token.tag) {
-            .identifier => try self.addNode(.identifier, token.loc),
-            else => {
-                if (token.tag == .invalid) {
-                    try self.addDiag(.invalid_token, token.loc);
-                } else {
-                    try self.addDiag(.expected_expression, self.peek().loc);
-                }
-                return error.ParseFailure;
-            },
-        };
     }
 
     fn parseStmt(self: *Parser) Error!Ast.Index {
@@ -161,7 +143,7 @@ pub const Parser = struct {
 
         const matched_colon = self.match(.colon, .newline_terminated) != null;
         const type_opt = if (matched_colon)
-            try self.parseType()
+            try self.parseTypeExpr()
         else
             null;
 
@@ -199,7 +181,7 @@ pub const Parser = struct {
         while (self.match(.right_paren, .greedy) == null) {
             const param_identifier = try self.parseIdentifier();
             _ = try self.consume(.colon, .expected_colon_after_param);
-            const arg_type = try self.parseType();
+            const arg_type = try self.parseTypeExpr();
 
             try self.scratch.nodes.appendSlice(self.allocator, &[_]Ast.Index{
                 param_identifier,
@@ -217,9 +199,12 @@ pub const Parser = struct {
             }
         }
 
-        _ = try self.consume(.colon, .expected_colon_after_params);
+        const return_type =
+            if (self.match(.colon, .newline_terminated) != null)
+                try self.parseTypeExpr()
+            else
+                null;
 
-        const return_type = try self.parseType();
         const body = try self.parseBlockExpr(.end, fn_token.loc);
 
         return self.addNode(
@@ -523,21 +508,51 @@ pub const Parser = struct {
             self.skipNewLines();
         }
 
+        if (self.match(
+            .{
+                .int,
+                .float,
+                .true,
+                .false,
+                .string,
+                .do,
+                .@"if",
+                .@"for",
+                .@"break",
+                .@"continue",
+                .@"return",
+            },
+            .newline_terminated,
+        )) |token| {
+            return switch (token.tag) {
+                .int => try self.addNode(.literal_int, token.loc),
+                .float => try self.addNode(.literal_float, token.loc),
+                .true, .false => try self.addNode(.literal_bool, token.loc),
+                .string => try self.addNode(.literal_string, token.loc),
+                .do => try self.parseBlockExpr(.end, token.loc),
+                .@"if" => try self.parseIfExpr(),
+                .@"for" => try self.parseForExpr(),
+                .@"break" => try self.parseBreakExpr(),
+                .@"continue" => try self.parseContinueExpr(),
+                .@"return" => try self.parseReturnExpr(),
+                else => unreachable,
+            };
+        }
+
+        return self.parseTypeExpr();
+    }
+
+    fn parseTypeExpr(self: *Parser) Error!Ast.Index {
+        return self.parsePrimaryTypeExpr();
+    }
+
+    fn parsePrimaryTypeExpr(self: *Parser) Error!Ast.Index {
         const token = self.advance();
 
         return switch (token.tag) {
-            .int => try self.addNode(.literal_int, token.loc),
-            .float => try self.addNode(.literal_float, token.loc),
-            .true, .false => try self.addNode(.literal_bool, token.loc),
-            .string => try self.addNode(.literal_string, token.loc),
             .identifier => try self.addNode(.identifier, token.loc),
+            .@"fn" => try self.parseFnTypeExpr(token),
             .left_paren => try self.parseGroupExpr(),
-            .do => try self.parseBlockExpr(.end, token.loc),
-            .@"if" => try self.parseIfExpr(),
-            .@"for" => try self.parseForExpr(),
-            .@"break" => try self.parseBreakExpr(),
-            .@"continue" => try self.parseContinueExpr(),
-            .@"return" => try self.parseReturnExpr(),
             else => {
                 if (token.tag == .invalid) {
                     try self.addDiag(.invalid_token, token.loc);
@@ -547,6 +562,45 @@ pub const Parser = struct {
                 return error.ParseFailure;
             },
         };
+    }
+
+    fn parseFnTypeExpr(self: *Parser, fn_token: Token) Error!Ast.Index {
+        const scratch_top = self.scratch.nodes.items.len;
+        defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
+
+        _ = try self.consume(.left_paren, .expected_left_paren_before_params);
+
+        var right_paren: Token = undefined;
+
+        while (true) {
+            if (self.match(.right_paren, .greedy)) |token| {
+                right_paren = token;
+                break;
+            }
+
+            const arg_type = try self.parseTypeExpr();
+            try self.scratch.nodes.append(self.allocator, arg_type);
+
+            if (self.match(.comma, .greedy) == null and
+                self.peek().tag != .right_paren)
+            {
+                try self.addDiag(
+                    .expected_right_paren_after_params,
+                    self.peek().loc,
+                );
+                return error.ParseFailure;
+            }
+        }
+
+        const return_type = if (self.match(.colon, .newline_terminated)) |_|
+            try self.parseTypeExpr()
+        else
+            null;
+
+        return self.addNode(.{ .fn_type = .{
+            .arg_types = @ptrCast(self.scratch.nodes.items[scratch_top..]),
+            .return_type = return_type,
+        } }, fn_token.loc.extend(right_paren.loc));
     }
 
     fn parseIdentifier(self: *Parser) Error!Ast.Index {
@@ -635,10 +689,7 @@ pub const Parser = struct {
 
         const loc = self.prev().loc;
 
-        fsm: switch (enum {
-            @"if",
-            if_elseif,
-        }.@"if") {
+        fsm: switch (enum { @"if", if_elseif }.@"if") {
             .@"if" => {
                 const condition = try self.parseExpr(.greedy);
                 const then_token = try self.consume(.then, .{
@@ -1042,6 +1093,29 @@ pub const Parser = struct {
                 .a = call_simple.callee.toInt(),
                 .b = if (call_simple.arg) |arg| arg.toInt() else 0,
             },
+            .fn_type => |fn_type| blk: {
+                try self.ast.extra.ensureUnusedCapacity(
+                    self.allocator,
+                    fn_type.arg_types.len + 1,
+                );
+                self.ast.extra.appendAssumeCapacity(
+                    @intCast(fn_type.arg_types.len),
+                );
+                self.ast.extra.appendSliceAssumeCapacity(
+                    @ptrCast(fn_type.arg_types),
+                );
+
+                break :blk .{
+                    .tag = .fn_type,
+                    .a = if (fn_type.return_type) |return_type|
+                        return_type.toInt()
+                    else
+                        0,
+                    .b = @intCast(
+                        self.ast.extra.items.len - fn_type.arg_types.len - 1,
+                    ),
+                };
+            },
 
             .assert => |expr| .{ .tag = .assert, .a = expr.toInt() },
             .print => |expr| .{ .tag = .print, .a = expr.toInt() },
@@ -1051,7 +1125,7 @@ pub const Parser = struct {
             .@"fn" => |@"fn"| blk: {
                 try self.ast.extra.ensureUnusedCapacity(
                     self.allocator,
-                    @"fn".params.len + 3,
+                    @"fn".params.len * 2 + 3,
                 );
                 self.ast.extra.appendAssumeCapacity(@intCast(@"fn".params.len));
                 self.ast.extra.appendSliceAssumeCapacity(
@@ -1059,7 +1133,10 @@ pub const Parser = struct {
                 );
                 self.ast.extra.appendSliceAssumeCapacity(
                     &[_]u32{
-                        @"fn".return_type.toInt(),
+                        if (@"fn".return_type) |return_type|
+                            return_type.toInt()
+                        else
+                            0,
                         @"fn".body.toInt(),
                     },
                 );

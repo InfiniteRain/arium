@@ -1,0 +1,7 @@
+fn some_func()
+end
+
+some_func()
+
+/// test(.run)
+

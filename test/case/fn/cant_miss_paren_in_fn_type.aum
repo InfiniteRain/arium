@@ -1,0 +1,5 @@
+let a: fn
+
+/// test(.parse)
+/// parse_err(line(1), .expected_left_paren_before_params)
+

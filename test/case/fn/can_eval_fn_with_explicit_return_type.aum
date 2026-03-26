@@ -1,0 +1,9 @@
+fn some_func(): Int
+  return 123
+end
+
+print(some_func())
+
+/// test(.run)
+/// out("123")
+

@@ -1,0 +1,11 @@
+fn some_func(): Int
+end
+
+fn some_func2()
+  return 123
+end
+
+/// test(.run)
+/// sema_err(line(1), .not_all_branches_return)
+/// sema_err(line(5), {.unexpected_expr_type = {.expected = {.type_unit}, .actual = .type_int}})
+

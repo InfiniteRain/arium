@@ -2,10 +2,10 @@ const std = @import("std");
 const mem = std.mem;
 
 const arium = @import("arium");
-const Object = arium.Object;
 const Module = arium.Module;
 const OpCode = arium.OpCode;
 const Output = arium.Output;
+const ConstantValue = arium.ConstantValue;
 
 pub const ModulePrinter = struct {
     module: *const Module,
@@ -161,26 +161,7 @@ pub const ModulePrinter = struct {
 
         self.printOpCode(op_code);
         self.output.printf(" {: <4} '", .{index});
-
-        const value = self.module.constants.items[index];
-
-        if (self.module.constant_tags.items.len > 0) {
-            switch (self.module.constant_tags.items[index]) {
-                .int => self.output.printf("{}", .{value.int}),
-                .float => self.output.printf("{d}", .{value.float}),
-                .bool => self.output.printf("{}", .{value.bool}),
-                .@"fn" => self.output.printf("<fn {}>", .{value.@"fn"}),
-                .object => switch (value.object.tag) {
-                    .string => self.output.printf(
-                        "{s}",
-                        .{value.object.as(Object.String).chars},
-                    ),
-                },
-            }
-        } else {
-            self.output.printf("{X}", .{value.int});
-        }
-
+        self.printConstantValue(self.module.constants.items[index]);
         self.output.print("'\n");
 
         return 1 + @sizeOf(T);
@@ -255,6 +236,22 @@ pub const ModulePrinter = struct {
 
         for (0..fill) |_| {
             self.output.print(" ");
+        }
+    }
+
+    fn printConstantValue(
+        self: *const ModulePrinter,
+        value: ConstantValue,
+    ) void {
+        switch (value) {
+            .int => |int| self.output.printf("{}", .{int}),
+            .float => |float| self.output.printf("{d}", .{float}),
+            .bool => |@"bool"| self.output.printf("{}", .{@"bool"}),
+            .@"fn" => |@"fn"| self.output.printf("<fn {}>", .{@"fn"}),
+            .string => |string| self.output.printf(
+                "{s}",
+                .{string.toSlice(self.module.strings.items)},
+            ),
         }
     }
 };
