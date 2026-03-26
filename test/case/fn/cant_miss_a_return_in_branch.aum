@@ -1,0 +1,28 @@
+fn func(): Int
+  if true then
+    return 10
+  else
+
+  end
+end
+
+fn func2(): Int
+  if true then
+    
+  else
+    return 20
+  end
+end
+
+fn func3(): Int
+  if true then
+    return 10
+  else
+    return 20
+  end
+end
+
+/// test(.sema)
+/// sema_err(line(1), .not_all_branches_return)
+/// sema_err(line(9), .not_all_branches_return)
+

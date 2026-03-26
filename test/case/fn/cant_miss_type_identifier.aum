@@ -1,0 +1,5 @@
+fn func(a:
+
+/// test(.parse)
+/// parse_err(line(2), .expected_expression)
+

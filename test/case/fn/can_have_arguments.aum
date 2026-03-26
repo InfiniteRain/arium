@@ -1,0 +1,9 @@
+fn some_func(a: String, b: String)
+  print(a ++ b)
+end
+
+some_func("foo", "bar")
+
+/// test(.run)
+/// out("foobar")
+

@@ -1,0 +1,9 @@
+fn some_func()
+  return do end
+end
+
+print(some_func())
+
+/// test(.run)
+/// out("unit")
+

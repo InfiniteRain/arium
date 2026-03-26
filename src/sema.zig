@@ -464,7 +464,7 @@ pub const Sema = struct {
         try self.scope.append(
             self.allocator,
             .from(identifier),
-            fn_air_key.@"fn".fn_type,
+            fn_air.toType(&self.air, self.intern_pool),
             .{
                 .mutability = .immutable,
                 .assignment = .assigned,

@@ -1,0 +1,11 @@
+fn some_func()
+  print("hello, world")
+end
+
+some_func()
+some_func()
+
+/// test(.run)
+/// out("hello, world")
+/// out("hello, world")
+

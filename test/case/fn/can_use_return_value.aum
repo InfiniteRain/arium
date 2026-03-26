@@ -1,0 +1,11 @@
+fn some_func(a: Int): Int
+  return a * 10
+end
+
+print(some_func(10))
+print(some_func(20))
+
+/// test(.run)
+/// out("100")
+/// out("200")
+

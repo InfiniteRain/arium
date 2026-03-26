@@ -1,0 +1,13 @@
+fn fib(a: Int): Int
+  return if a < 2 then
+    2
+  else
+    fib(a - 1) + fib(a - 2)
+  end
+end
+
+print(fib(3))
+
+/// test(.run)
+/// out("6")
+

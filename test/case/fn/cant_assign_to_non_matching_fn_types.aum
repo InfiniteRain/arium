@@ -1,0 +1,24 @@
+fn func1_proto()
+end
+
+fn func2_proto(a: Int)
+end
+
+fn func3_proto(a: Int, b: Int)
+end
+
+fn func4_proto(a: Int, b: Int): Int
+  return 3
+end
+
+let func1: fn() = func4_proto
+let func2: fn(Int) = func3_proto
+let func3: fn(Int, Int) = func2_proto
+let func4: fn(Int, Int): Int = func1_proto
+
+/// test(.run)
+/// sema_err(line(14), {.unexpected_expr_type = {.expected = {ip({.type_fn = {.arg_types = {}, .return_type = .type_unit}})}, .actual = ip({.type_fn = {.arg_types = {.type_int, .type_int}, .return_type = .type_int}})}})
+/// sema_err(line(15), {.unexpected_expr_type = {.expected = {ip({.type_fn = {.arg_types = {.type_int}, .return_type = .type_unit}})}, .actual = ip({.type_fn = {.arg_types = {.type_int, .type_int}, .return_type = .type_unit}})}})
+/// sema_err(line(16), {.unexpected_expr_type = {.expected = {ip({.type_fn = {.arg_types = {.type_int, .type_int}, .return_type = .type_unit}})}, .actual = ip({.type_fn = {.arg_types = {.type_int}, .return_type = .type_unit}})}})
+/// sema_err(line(17), {.unexpected_expr_type = {.expected = {ip({.type_fn = {.arg_types = {.type_int, .type_int}, .return_type = .type_int}})}, .actual = ip({.type_fn = {.arg_types = {}, .return_type = .type_unit}})}})
+

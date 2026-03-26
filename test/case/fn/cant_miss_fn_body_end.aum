@@ -1,0 +1,4 @@
+/// test(.parse)
+/// parse_err(line(5), {.expected_end_token = {.end}})
+
+fn func(a: Int)
