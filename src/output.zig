@@ -14,16 +14,8 @@ pub const Output = struct {
         self.printf("{s}", .{text});
     }
 
-    pub fn printf(
-        self: *const Output,
-        comptime format: []const u8,
-        args: anytype,
-    ) void {
-        self.writer.print(format, args) catch {
-            @panic("Unable to print to output.");
-        };
-        self.writer.flush() catch {
-            @panic("Unable to flush output.");
-        };
+    pub fn printf(self: *const Output, comptime format: []const u8, args: anytype) void {
+        self.writer.print(format, args) catch @panic("Unable to print to output.");
+        self.writer.flush() catch @panic("Unable to flush output.");
     }
 };

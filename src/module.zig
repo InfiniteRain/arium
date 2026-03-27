@@ -159,9 +159,7 @@ pub const Module = struct {
         try self.code.ensureUnusedCapacity(allocator, additional_capacity);
         try self.locs.ensureUnusedCapacity(allocator, additional_capacity);
 
-        self.code.appendSliceAssumeCapacity(
-            &(locals_count_bytes ++ size_bytes),
-        );
+        self.code.appendSliceAssumeCapacity(&(locals_count_bytes ++ size_bytes));
         self.code.appendSliceAssumeCapacity(body);
 
         self.locs.appendSliceAssumeCapacity(&([_]Span(u8){.zero} ** 8));

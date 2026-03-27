@@ -96,10 +96,7 @@ pub const Parser = struct {
         try parser.ast.nodes.append(allocator, undefined);
         try parser.ast.locs.append(allocator, undefined);
 
-        const block, const loc = try parser.parseBlockExprKey(
-            .eof,
-            .{ .index = 1, .len = 0 },
-        );
+        const block, const loc = try parser.parseBlockExprKey(.eof, .{ .index = 1, .len = 0 });
 
         try parser.setNode(0, block, loc);
 
@@ -120,20 +117,14 @@ pub const Parser = struct {
         const assert_token = self.advance();
         const expr = try self.parseExpr(.newline_terminated);
 
-        return self.addNode(
-            .{ .assert = expr },
-            assert_token.loc.extend(expr.toLoc(&self.ast)),
-        );
+        return self.addNode(.{ .assert = expr }, assert_token.loc.extend(expr.toLoc(&self.ast)));
     }
 
     fn parsePrintStmt(self: *Parser) Error!Ast.Index {
         const print_token = self.advance();
         const expr = try self.parseExpr(.newline_terminated);
 
-        return self.addNode(
-            .{ .print = expr },
-            print_token.loc.extend(expr.toLoc(&self.ast)),
-        );
+        return self.addNode(.{ .print = expr }, print_token.loc.extend(expr.toLoc(&self.ast)));
     }
 
     fn parseLetStmt(self: *Parser) Error!Ast.Index {
@@ -142,10 +133,7 @@ pub const Parser = struct {
         const name_identifier = try self.parseIdentifier();
 
         const matched_colon = self.match(.colon, .newline_terminated) != null;
-        const type_opt = if (matched_colon)
-            try self.parseTypeExpr()
-        else
-            null;
+        const type_opt = if (matched_colon) try self.parseTypeExpr() else null;
 
         const matched_equal = self.match(.equal, .newline_terminated) != null;
         const expr_opt = if (matched_equal) blk: {
@@ -162,9 +150,7 @@ pub const Parser = struct {
         return self.addNode(
             if (is_mutable) .{ .let_mut = let } else .{ .let = let },
             let_token.loc.extend(
-                (expr_opt orelse (type_opt orelse name_identifier)).toLoc(
-                    &self.ast,
-                ),
+                (expr_opt orelse (type_opt orelse name_identifier)).toLoc(&self.ast),
             ),
         );
     }
@@ -183,18 +169,10 @@ pub const Parser = struct {
             _ = try self.consume(.colon, .expected_colon_after_param);
             const arg_type = try self.parseTypeExpr();
 
-            try self.scratch.nodes.appendSlice(self.allocator, &[_]Ast.Index{
-                param_identifier,
-                arg_type,
-            });
+            try self.scratch.nodes.appendSlice(self.allocator, &.{ param_identifier, arg_type });
 
-            if (self.match(.comma, .greedy) == null and
-                self.peek().tag != .right_paren)
-            {
-                try self.addDiag(
-                    .expected_right_paren_after_params,
-                    self.peek().loc,
-                );
+            if (self.match(.comma, .greedy) == null and self.peek().tag != .right_paren) {
+                try self.addDiag(.expected_right_paren_after_params, self.peek().loc);
                 return error.ParseFailure;
             }
         }
@@ -231,10 +209,7 @@ pub const Parser = struct {
         return self.parseAssignmentExpr(termination);
     }
 
-    fn parseAssignmentExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseAssignmentExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         const expr = try self.parseOrExpr(termination);
 
@@ -259,10 +234,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseOrExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseOrExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parseAndExpr(termination);
 
@@ -283,10 +255,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseAndExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseAndExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parseEqualityExpr(termination);
 
@@ -307,17 +276,11 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseEqualityExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseEqualityExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parseComparisonExpr(termination);
 
-        while (self.match(
-            .{ .equal_equal, .bang_equal },
-            termination,
-        )) |token| {
+        while (self.match(.{ .equal_equal, .bang_equal }, termination)) |token| {
             self.skipNewLines();
 
             const rhs = try self.parseComparisonExpr(termination);
@@ -335,17 +298,11 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseComparisonExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseComparisonExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parseTermExpr(termination);
 
-        while (self.match(
-            .{ .greater, .greater_equal, .less, .less_equal },
-            termination,
-        )) |token| {
+        while (self.match(.{ .greater, .greater_equal, .less, .less_equal }, termination)) |token| {
             self.skipNewLines();
 
             const rhs = try self.parseTermExpr(termination);
@@ -366,10 +323,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseTermExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseTermExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parseFactorExpr(termination);
 
@@ -380,10 +334,7 @@ pub const Parser = struct {
             const binary: Ast.Key.Binary = .{ .lhs = expr, .rhs = rhs };
 
             expr = try self.addNode(
-                if (token.tag == .minus)
-                    .{ .sub = binary }
-                else
-                    .{ .add = binary },
+                if (token.tag == .minus) .{ .sub = binary } else .{ .add = binary },
                 loc.extend(rhs.toLoc(&self.ast)),
             );
         }
@@ -391,10 +342,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseFactorExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseFactorExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parseConcatExpr(termination);
 
@@ -405,10 +353,7 @@ pub const Parser = struct {
             const binary: Ast.Key.Binary = .{ .lhs = expr, .rhs = rhs };
 
             expr = try self.addNode(
-                if (token.tag == .slash)
-                    .{ .div = binary }
-                else
-                    .{ .mul = binary },
+                if (token.tag == .slash) .{ .div = binary } else .{ .mul = binary },
                 loc.extend(rhs.toLoc(&self.ast)),
             );
         }
@@ -416,10 +361,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseConcatExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseConcatExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parseUnaryExpr(termination);
 
@@ -437,20 +379,14 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseUnaryExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseUnaryExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         if (self.match(.{ .minus, .not }, termination)) |token| {
             self.skipNewLines();
 
             const rhs = try self.parseUnaryExpr(termination);
 
             return self.addNode(
-                if (token.tag == .minus)
-                    .{ .neg_num = rhs }
-                else
-                    .{ .neg_bool = rhs },
+                if (token.tag == .minus) .{ .neg_num = rhs } else .{ .neg_bool = rhs },
                 token.loc.extend(rhs.toLoc(&self.ast)),
             );
         }
@@ -458,10 +394,7 @@ pub const Parser = struct {
         return self.parseCallExpr(termination);
     }
 
-    fn parseCallExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parseCallExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         const loc = self.peek().loc;
         var expr = try self.parsePrimaryExpr(termination);
 
@@ -470,18 +403,10 @@ pub const Parser = struct {
             defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
             while (self.match(.right_paren, .greedy) == null) {
-                try self.scratch.nodes.append(
-                    self.allocator,
-                    try self.parseExpr(.greedy),
-                );
+                try self.scratch.nodes.append(self.allocator, try self.parseExpr(.greedy));
 
-                if (self.match(.comma, .greedy) == null and
-                    self.peek().tag != .right_paren)
-                {
-                    try self.addDiag(
-                        .expected_right_paren_after_args,
-                        self.peek().loc,
-                    );
+                if (self.match(.comma, .greedy) == null and self.peek().tag != .right_paren) {
+                    try self.addDiag(.expected_right_paren_after_args, self.peek().loc);
                     return error.ParseFailure;
                 }
             }
@@ -500,10 +425,7 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parsePrimaryExpr(
-        self: *Parser,
-        termination: TerminationMode,
-    ) Error!Ast.Index {
+    fn parsePrimaryExpr(self: *Parser, termination: TerminationMode) Error!Ast.Index {
         if (termination == .greedy) {
             self.skipNewLines();
         }
@@ -581,13 +503,8 @@ pub const Parser = struct {
             const arg_type = try self.parseTypeExpr();
             try self.scratch.nodes.append(self.allocator, arg_type);
 
-            if (self.match(.comma, .greedy) == null and
-                self.peek().tag != .right_paren)
-            {
-                try self.addDiag(
-                    .expected_right_paren_after_params,
-                    self.peek().loc,
-                );
+            if (self.match(.comma, .greedy) == null and self.peek().tag != .right_paren) {
+                try self.addDiag(.expected_right_paren_after_params, self.peek().loc);
                 return error.ParseFailure;
             }
         }
@@ -614,15 +531,8 @@ pub const Parser = struct {
         return expr;
     }
 
-    fn parseBlockExpr(
-        self: *Parser,
-        end_tokens: anytype,
-        loc: Span(u8),
-    ) Error!Ast.Index {
-        const key, const block_loc = try self.parseBlockExprKey(
-            end_tokens,
-            loc,
-        );
+    fn parseBlockExpr(self: *Parser, end_tokens: anytype, loc: Span(u8)) Error!Ast.Index {
+        const key, const block_loc = try self.parseBlockExprKey(end_tokens, loc);
         return self.addNode(key, block_loc);
     }
 
@@ -636,7 +546,7 @@ pub const Parser = struct {
 
         if (self.match(end_tokens, .greedy)) |end_token| {
             return .{
-                .{ .block = &[_]Ast.Index{} },
+                .{ .block = &.{} },
                 loc.extend(end_token.loc),
             };
         }
@@ -675,10 +585,7 @@ pub const Parser = struct {
         const indexes = self.scratch.nodes.items[scratch_top..];
 
         return .{
-            if (ends_with_semicolon)
-                .{ .block_semicolon = indexes }
-            else
-                .{ .block = indexes },
+            if (ends_with_semicolon) .{ .block_semicolon = indexes } else .{ .block = indexes },
             loc.extend(end_token.loc),
         };
     }
@@ -695,10 +602,7 @@ pub const Parser = struct {
                 const then_token = try self.consume(.then, .{
                     .expected_token_after_condition = .then,
                 });
-                const body = try self.parseBlockExpr(
-                    .{ .end, .@"else", .elseif },
-                    then_token.loc,
-                );
+                const body = try self.parseBlockExpr(.{ .end, .@"else", .elseif }, then_token.loc);
                 const conditional: Ast.Key.Conditional = .{
                     .condition = condition,
                     .body = body,
@@ -712,10 +616,7 @@ pub const Parser = struct {
                         );
                     },
                     .@"else" => {
-                        const else_block = try self.parseBlockExpr(
-                            .end,
-                            self.prev().loc,
-                        );
+                        const else_block = try self.parseBlockExpr(.end, self.prev().loc);
 
                         return self.addNode(
                             .{ .if_else = .{
@@ -726,10 +627,7 @@ pub const Parser = struct {
                         );
                     },
                     .elseif => {
-                        try self.scratch.nodes.appendSlice(
-                            self.allocator,
-                            &[_]Ast.Index{ condition, body },
-                        );
+                        try self.scratch.nodes.appendSlice(self.allocator, &.{ condition, body });
 
                         continue :fsm .if_elseif;
                     },
@@ -741,43 +639,28 @@ pub const Parser = struct {
                 const then_token = try self.consume(.then, .{
                     .expected_token_after_condition = .then,
                 });
-                const body = try self.parseBlockExpr(
-                    .{ .end, .elseif, .@"else" },
-                    then_token.loc,
-                );
+                const body = try self.parseBlockExpr(.{ .end, .elseif, .@"else" }, then_token.loc);
 
-                try self.scratch.nodes.appendSlice(
-                    self.allocator,
-                    &[_]Ast.Index{ condition, body },
-                );
+                try self.scratch.nodes.appendSlice(self.allocator, &.{ condition, body });
 
                 switch (self.prev().tag) {
                     .end => {
                         return self.addNode(
                             .{ .if_elseif = .{
-                                .conditionals = @ptrCast(
-                                    self.scratch.nodes.items[scratch_top..],
-                                ),
+                                .conditionals = @ptrCast(self.scratch.nodes.items[scratch_top..]),
                             } },
-                            loc.extend(
-                                self.scratch.nodes.getLast().toLoc(&self.ast),
-                            ),
+                            loc.extend(self.scratch.nodes.getLast().toLoc(&self.ast)),
                         );
                     },
                     .elseif => {
                         continue :fsm .if_elseif;
                     },
                     .@"else" => {
-                        const else_block = try self.parseBlockExpr(
-                            .end,
-                            self.prev().loc,
-                        );
+                        const else_block = try self.parseBlockExpr(.end, self.prev().loc);
 
                         return self.addNode(
                             .{ .if_elseif_else = .{
-                                .conditionals = @ptrCast(
-                                    self.scratch.nodes.items[scratch_top..],
-                                ),
+                                .conditionals = @ptrCast(self.scratch.nodes.items[scratch_top..]),
                                 .else_block = else_block,
                             } },
                             loc.extend(else_block.toLoc(&self.ast)),
@@ -791,22 +674,13 @@ pub const Parser = struct {
 
     fn parseForExpr(self: *Parser) Error!Ast.Index {
         const loc = self.prev().loc;
-        const condition_opt = if (self.peek().tag != .do)
-            try self.parseExpr(.greedy)
-        else
-            null;
-        const do_token = try self.consume(
-            .do,
-            .{ .expected_token_after_condition = .do },
-        );
+        const condition_opt = if (self.peek().tag != .do) try self.parseExpr(.greedy) else null;
+        const do_token = try self.consume(.do, .{ .expected_token_after_condition = .do });
         const body_block = try self.parseBlockExpr(.end, do_token.loc);
 
         return self.addNode(
             if (condition_opt) |condition|
-                .{ .for_conditional = .{
-                    .condition = condition,
-                    .body = body_block,
-                } }
+                .{ .for_conditional = .{ .condition = condition, .body = body_block } }
             else
                 .{ .@"for" = body_block },
             loc.extend(body_block.toLoc(&self.ast)),
@@ -814,17 +688,11 @@ pub const Parser = struct {
     }
 
     fn parseBreakExpr(self: *Parser) Error!Ast.Index {
-        return self.addNode(
-            .@"break",
-            self.prev().loc,
-        );
+        return self.addNode(.@"break", self.prev().loc);
     }
 
     fn parseContinueExpr(self: *Parser) Error!Ast.Index {
-        return self.addNode(
-            .@"continue",
-            self.prev().loc,
-        );
+        return self.addNode(.@"continue", self.prev().loc);
     }
 
     fn parseReturnExpr(self: *Parser) Error!Ast.Index {
@@ -832,10 +700,7 @@ pub const Parser = struct {
 
         if (self.matchStmtTerminator() == .none) {
             const expr = try self.parseExpr(.newline_terminated);
-            return self.addNode(
-                .{ .return_value = expr },
-                loc.extend(expr.toLoc(&self.ast)),
-            );
+            return self.addNode(.{ .return_value = expr }, loc.extend(expr.toLoc(&self.ast)));
         }
 
         return self.addNode(.@"return", loc);
@@ -852,11 +717,7 @@ pub const Parser = struct {
         return self.prev_token;
     }
 
-    fn match(
-        self: *Parser,
-        tokens: anytype,
-        termination: TerminationMode,
-    ) ?Token {
+    fn match(self: *Parser, tokens: anytype, termination: TerminationMode) ?Token {
         if (termination == .greedy) {
             self.skipNewLines();
         }
@@ -868,11 +729,7 @@ pub const Parser = struct {
         return null;
     }
 
-    fn consume(
-        self: *Parser,
-        tokens: anytype,
-        diag: Diags.Entry.Tag,
-    ) Error!Token {
+    fn consume(self: *Parser, tokens: anytype, diag: Diags.Entry.Tag) Error!Token {
         if (self.check(tokens)) {
             return self.advance();
         }
@@ -951,11 +808,7 @@ pub const Parser = struct {
         }
     }
 
-    fn addNode(
-        self: *Parser,
-        key: Ast.Key,
-        loc: Span(u8),
-    ) Allocator.Error!Ast.Index {
+    fn addNode(self: *Parser, key: Ast.Key, loc: Span(u8)) Allocator.Error!Ast.Index {
         try self.ast.locs.append(self.allocator, loc);
         try self.ast.nodes.append(self.allocator, try self.prepareNode(key));
 
@@ -964,12 +817,7 @@ pub const Parser = struct {
         return Ast.Index.from(self.ast.nodes.len - 1);
     }
 
-    fn setNode(
-        self: *Parser,
-        index: u32,
-        key: Ast.Key,
-        loc: Span(u8),
-    ) Allocator.Error!void {
+    fn setNode(self: *Parser, index: u32, key: Ast.Key, loc: Span(u8)) Allocator.Error!void {
         self.ast.locs.items[index] = loc;
         self.ast.nodes.set(index, try self.prepareNode(key));
     }
@@ -994,19 +842,10 @@ pub const Parser = struct {
             .greater_equal => |binary| prepareBinary(.greater_equal, binary),
             .less_than => |binary| prepareBinary(.less_than, binary),
             .less_equal => |binary| prepareBinary(.less_equal, binary),
-            .neg_bool => |index| .{
-                .tag = .neg_bool,
-                .a = index.toInt(),
-            },
-            .neg_num => |index| .{
-                .tag = .neg_num,
-                .a = index.toInt(),
-            },
+            .neg_bool => |index| .{ .tag = .neg_bool, .a = index.toInt() },
+            .neg_num => |index| .{ .tag = .neg_num, .a = index.toInt() },
             .block => |indexes| try self.prepareBlock(.block, indexes),
-            .block_semicolon => |indexes| try self.prepareBlock(
-                .block_semicolon,
-                indexes,
-            ),
+            .block_semicolon => |indexes| try self.prepareBlock(.block_semicolon, indexes),
             .identifier => .{ .tag = .identifier },
             .assignment => |binary| prepareBinary(.assignment, binary),
             .@"if" => |conditional| .{
@@ -1015,7 +854,7 @@ pub const Parser = struct {
                 .b = conditional.body.toInt(),
             },
             .if_else => |if_else| blk: {
-                try self.ast.extra.appendSlice(self.allocator, &[_]u32{
+                try self.ast.extra.appendSlice(self.allocator, &.{
                     if_else.conditional.body.toInt(),
                     if_else.else_block.toInt(),
                 });
@@ -1029,10 +868,7 @@ pub const Parser = struct {
             .if_elseif => |if_elseif| blk: {
                 const data: []const u32 = @ptrCast(if_elseif.conditionals);
 
-                try self.ast.extra.appendSlice(
-                    self.allocator,
-                    data,
-                );
+                try self.ast.extra.appendSlice(self.allocator, data);
 
                 break :blk .{
                     .tag = .if_elseif,
@@ -1043,14 +879,9 @@ pub const Parser = struct {
             .if_elseif_else => |if_elseif_else| blk: {
                 const data: []const u32 = @ptrCast(if_elseif_else.conditionals);
 
-                try self.ast.extra.ensureUnusedCapacity(
-                    self.allocator,
-                    data.len + 1,
-                );
+                try self.ast.extra.ensureUnusedCapacity(self.allocator, data.len + 1);
                 self.ast.extra.appendSliceAssumeCapacity(data);
-                self.ast.extra.appendAssumeCapacity(
-                    if_elseif_else.else_block.toInt(),
-                );
+                self.ast.extra.appendAssumeCapacity(if_elseif_else.else_block.toInt());
 
                 break :blk .{
                     .tag = .if_elseif_else,
@@ -1058,10 +889,7 @@ pub const Parser = struct {
                     .b = @intCast(self.ast.extra.items.len - data.len - 1),
                 };
             },
-            .@"for" => |index| .{
-                .tag = .@"for",
-                .a = index.toInt(),
-            },
+            .@"for" => |index| .{ .tag = .@"for", .a = index.toInt() },
             .for_conditional => |conditional| .{
                 .tag = .for_conditional,
                 .a = conditional.condition.toInt(),
@@ -1070,15 +898,9 @@ pub const Parser = struct {
             .@"break" => .{ .tag = .@"break" },
             .@"continue" => .{ .tag = .@"continue" },
             .@"return" => .{ .tag = .@"return" },
-            .return_value => |index| .{
-                .tag = .return_value,
-                .a = index.toInt(),
-            },
+            .return_value => |index| .{ .tag = .return_value, .a = index.toInt() },
             .call => |call| blk: {
-                try self.ast.extra.ensureUnusedCapacity(
-                    self.allocator,
-                    call.args.len + 1,
-                );
+                try self.ast.extra.ensureUnusedCapacity(self.allocator, call.args.len + 1);
                 self.ast.extra.appendAssumeCapacity(@intCast(call.args.len));
                 self.ast.extra.appendSliceAssumeCapacity(@ptrCast(call.args));
 
@@ -1094,26 +916,14 @@ pub const Parser = struct {
                 .b = if (call_simple.arg) |arg| arg.toInt() else 0,
             },
             .fn_type => |fn_type| blk: {
-                try self.ast.extra.ensureUnusedCapacity(
-                    self.allocator,
-                    fn_type.arg_types.len + 1,
-                );
-                self.ast.extra.appendAssumeCapacity(
-                    @intCast(fn_type.arg_types.len),
-                );
-                self.ast.extra.appendSliceAssumeCapacity(
-                    @ptrCast(fn_type.arg_types),
-                );
+                try self.ast.extra.ensureUnusedCapacity(self.allocator, fn_type.arg_types.len + 1);
+                self.ast.extra.appendAssumeCapacity(@intCast(fn_type.arg_types.len));
+                self.ast.extra.appendSliceAssumeCapacity(@ptrCast(fn_type.arg_types));
 
                 break :blk .{
                     .tag = .fn_type,
-                    .a = if (fn_type.return_type) |return_type|
-                        return_type.toInt()
-                    else
-                        0,
-                    .b = @intCast(
-                        self.ast.extra.items.len - fn_type.arg_types.len - 1,
-                    ),
+                    .a = if (fn_type.return_type) |return_type| return_type.toInt() else 0,
+                    .b = @intCast(self.ast.extra.items.len - fn_type.arg_types.len - 1),
                 };
             },
 
@@ -1123,20 +933,12 @@ pub const Parser = struct {
             .let => |let| try self.prepareLet(.let, let),
             .let_mut => |let| try self.prepareLet(.let_mut, let),
             .@"fn" => |@"fn"| blk: {
-                try self.ast.extra.ensureUnusedCapacity(
-                    self.allocator,
-                    @"fn".params.len * 2 + 3,
-                );
+                try self.ast.extra.ensureUnusedCapacity(self.allocator, @"fn".params.len * 2 + 3);
                 self.ast.extra.appendAssumeCapacity(@intCast(@"fn".params.len));
+                self.ast.extra.appendSliceAssumeCapacity(@ptrCast(@"fn".params));
                 self.ast.extra.appendSliceAssumeCapacity(
-                    @ptrCast(@"fn".params),
-                );
-                self.ast.extra.appendSliceAssumeCapacity(
-                    &[_]u32{
-                        if (@"fn".return_type) |return_type|
-                            return_type.toInt()
-                        else
-                            0,
+                    &.{
+                        if (@"fn".return_type) |return_type| return_type.toInt() else 0,
                         @"fn".body.toInt(),
                     },
                 );
@@ -1144,23 +946,14 @@ pub const Parser = struct {
                 break :blk .{
                     .tag = .@"fn",
                     .a = @"fn".identifier.toInt(),
-                    .b = @intCast(
-                        self.ast.extra.items.len - @"fn".params.len * 2 - 3,
-                    ),
+                    .b = @intCast(self.ast.extra.items.len - @"fn".params.len * 2 - 3),
                 };
             },
         };
     }
 
-    fn prepareBinary(
-        tag: Ast.Node.Tag,
-        binary: Ast.Key.Binary,
-    ) Ast.Node {
-        return .{
-            .tag = tag,
-            .a = binary.lhs.toInt(),
-            .b = binary.rhs.toInt(),
-        };
+    fn prepareBinary(tag: Ast.Node.Tag, binary: Ast.Key.Binary) Ast.Node {
+        return .{ .tag = tag, .a = binary.lhs.toInt(), .b = binary.rhs.toInt() };
     }
 
     fn prepareBlock(
@@ -1177,12 +970,8 @@ pub const Parser = struct {
         };
     }
 
-    fn prepareLet(
-        self: *Parser,
-        tag: Ast.Node.Tag,
-        let: Ast.Key.Let,
-    ) Allocator.Error!Ast.Node {
-        try self.ast.extra.appendSlice(self.allocator, &[_]u32{
+    fn prepareLet(self: *Parser, tag: Ast.Node.Tag, let: Ast.Key.Let) Allocator.Error!Ast.Node {
+        try self.ast.extra.appendSlice(self.allocator, &.{
             if (let.type) |@"type"| @"type".toInt() else 0,
             if (let.expr) |expr| expr.toInt() else 0,
         });
@@ -1194,11 +983,7 @@ pub const Parser = struct {
         };
     }
 
-    fn addDiag(
-        self: *Parser,
-        diag: Diags.Entry.Tag,
-        loc: Span(u8),
-    ) Allocator.Error!void {
+    fn addDiag(self: *Parser, diag: Diags.Entry.Tag, loc: Span(u8)) Allocator.Error!void {
         try self.diags.entries.append(
             self.allocator,
             .{ .tag = diag, .loc = loc },
@@ -1214,10 +999,6 @@ pub const Parser = struct {
             struct { ArgType };
     } {
         const type_info = @typeInfo(@TypeOf(args));
-
-        return if (type_info == .@"struct" and type_info.@"struct".is_tuple)
-            args
-        else
-            .{args};
+        return if (type_info == .@"struct" and type_info.@"struct".is_tuple) args else .{args};
     }
 };

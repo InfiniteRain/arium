@@ -13,9 +13,7 @@ pub const TestWriter = struct {
             .allocator = allocator,
             .output = output,
             .interface = .{
-                .vtable = &.{
-                    .drain = drain,
-                },
+                .vtable = &.{ .drain = drain },
                 .buffer = &.{},
             },
         };
@@ -28,11 +26,9 @@ pub const TestWriter = struct {
     ) Writer.Error!usize {
         _ = splat;
 
-        const self: *TestWriter =
-            @alignCast(@fieldParentPtr("interface", io_w));
+        const self: *TestWriter = @alignCast(@fieldParentPtr("interface", io_w));
 
-        self.output.appendSlice(self.allocator, data[0]) catch
-            return error.WriteFailed;
+        self.output.appendSlice(self.allocator, data[0]) catch return error.WriteFailed;
 
         return data[0].len;
     }

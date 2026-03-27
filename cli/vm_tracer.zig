@@ -35,12 +35,7 @@ pub const VmTracer = struct {
 
         self.output.print("\n");
 
-        _ = ModulePrinter.printInstruction(
-            vm.module,
-            self.output,
-            8,
-            vm.ip,
-        );
+        _ = ModulePrinter.printInstruction(vm.module, self.output, 8, vm.ip);
     }
 
     fn printValue(self: *const VmTracer, value: Value(.debug)) void {
@@ -50,10 +45,7 @@ pub const VmTracer = struct {
             .bool => |@"bool"| self.output.printf("{}", .{@"bool"}),
             .@"fn" => |@"fn"| self.output.printf("<fn {}>", .{@"fn"}),
             .object => |object| switch (object.tag) {
-                .string => self.output.printf(
-                    "{s}",
-                    .{object.as(Object(.debug).String).chars},
-                ),
+                .string => self.output.printf("{s}", .{object.as(Object(.debug).String).chars}),
             },
         }
     }

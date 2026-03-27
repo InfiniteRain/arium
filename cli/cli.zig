@@ -92,21 +92,9 @@ pub fn main() !void {
 
     const result =
         if (args.print_byte_code or args.trace_execution)
-            runFile(
-                allocator,
-                &stdout,
-                &stderr,
-                args,
-                .debug,
-            )
+            runFile(allocator, &stdout, &stderr, args, .debug)
         else
-            runFile(
-                allocator,
-                &stdout,
-                &stderr,
-                args,
-                .release,
-            );
+            runFile(allocator, &stdout, &stderr, args, .release);
 
     result catch |err| switch (err) {
         error.OutOfMemory => {
@@ -207,11 +195,7 @@ fn runFile(
         &compiler_scratch,
     ) catch |err| switch (err) {
         error.CompileFailure => {
-            DiagsPrinter(mode).printCompilerDiags(
-                source,
-                &compiler_diags,
-                stderr,
-            );
+            DiagsPrinter(mode).printCompilerDiags(source, &compiler_diags, stderr);
             std.posix.exit(1);
         },
         else => |cli_error| return cli_error,
@@ -251,14 +235,8 @@ fn runFile(
         };
 }
 
-fn readFileAlloc(
-    allocator: Allocator,
-    file_path: []const u8,
-) Error![:0]const u8 {
-    const file = try fs.cwd().openFile(
-        file_path,
-        .{ .mode = .read_only },
-    );
+fn readFileAlloc(allocator: Allocator, file_path: []const u8) Error![:0]const u8 {
+    const file = try fs.cwd().openFile(file_path, .{ .mode = .read_only });
     defer file.close();
 
     var file_buffer: [512]u8 = undefined;

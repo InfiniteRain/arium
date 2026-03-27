@@ -10,12 +10,7 @@ const Wyhash = std.hash.Wyhash;
 const assert = std.debug.assert;
 
 pub const InternPool = struct {
-    map: ArrayHashMapUnmanaged(
-        void,
-        void,
-        std.array_hash_map.AutoContext(void),
-        false,
-    ),
+    map: ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false),
     items: MultiArrayList(Item),
     extra: ArrayList(u32),
     strings: ArrayList(u8),
@@ -92,35 +87,19 @@ pub const InternPool = struct {
                 const seed = @intFromEnum(@as(KeyTag, key));
                 const wyhash = switch (key) {
                     .none => Wyhash.hash(seed, mem.asBytes(&key)),
-                    .type_simple => |type_simple| Wyhash.hash(
-                        seed,
-                        mem.asBytes(&type_simple),
-                    ),
+                    .type_simple => |type_simple| Wyhash.hash(seed, mem.asBytes(&type_simple)),
                     .type_fn => |type_fn| blk: {
-                        const new_seed = Wyhash.hash(
-                            seed,
-                            mem.asBytes(&type_fn.return_type),
-                        );
-                        const final = Wyhash.hash(
-                            new_seed,
-                            @ptrCast(type_fn.arg_types),
-                        );
+                        const new_seed = Wyhash.hash(seed, mem.asBytes(&type_fn.return_type));
+                        const final = Wyhash.hash(new_seed, @ptrCast(type_fn.arg_types));
 
                         break :blk final;
                     },
-                    .value_simple => |value_simple| Wyhash.hash(
-                        seed,
-                        mem.asBytes(&value_simple),
-                    ),
+                    .value_simple => |value_simple| Wyhash.hash(seed, mem.asBytes(&value_simple)),
                     .value_int => |int| Wyhash.hash(seed, mem.asBytes(&int)),
-                    .value_float => |float| Wyhash.hash(
-                        seed,
-                        mem.asBytes(&float),
-                    ),
+                    .value_float => |float| Wyhash.hash(seed, mem.asBytes(&float)),
                     .value_fn => |value_fn| Wyhash.hash(
                         seed,
-                        mem.asBytes(&value_fn.id) ++
-                            mem.asBytes(&value_fn.locals_count) ++
+                        mem.asBytes(&value_fn.id) ++ mem.asBytes(&value_fn.locals_count) ++
                             mem.asBytes(&value_fn.type_fn),
                     ),
                     .value_string => |string| Wyhash.hash(seed, string),
@@ -130,12 +109,7 @@ pub const InternPool = struct {
                 return @truncate(wyhash);
             }
 
-            pub fn eql(
-                adapter: Adapter,
-                a: Key,
-                _: void,
-                b_index: usize,
-            ) bool {
+            pub fn eql(adapter: Adapter, a: Key, _: void, b_index: usize) bool {
                 const b = Index.from(b_index).toKey(adapter.intern_pool);
                 const KeyTag = @typeInfo(Key).@"union".tag_type.?;
 
@@ -148,29 +122,19 @@ pub const InternPool = struct {
 
                 return switch (a) {
                     .none => true,
-                    .type_simple => |type_simple| meta.eql(
-                        type_simple,
-                        b.type_simple,
-                    ),
+                    .type_simple => |type_simple| meta.eql(type_simple, b.type_simple),
                     .type_fn => |type_fn| std.mem.eql(
                         Index,
                         type_fn.arg_types,
                         b.type_fn.arg_types,
                     ) and type_fn.return_type == b.type_fn.return_type,
-                    .value_simple => |value_simple| meta.eql(
-                        value_simple,
-                        b.value_simple,
-                    ),
+                    .value_simple => |value_simple| meta.eql(value_simple, b.value_simple),
                     .value_int => |int| int == b.value_int,
                     .value_float => |float| float == b.value_float,
                     .value_fn => |value_fn| value_fn.id == b.value_fn.id and
                         value_fn.locals_count == b.value_fn.locals_count and
                         value_fn.type_fn == b.value_fn.type_fn,
-                    .value_string => |string| std.mem.eql(
-                        u8,
-                        string,
-                        b.value_string,
-                    ),
+                    .value_string => |string| std.mem.eql(u8, string, b.value_string),
                     .invalid => true,
                 };
             }
@@ -212,12 +176,7 @@ pub const InternPool = struct {
             );
         }
 
-        pub fn toKeyWith(
-            self: Index,
-            items: anytype,
-            extra: []const u32,
-            strings: []const u8,
-        ) Key {
+        pub fn toKeyWith(self: Index, items: anytype, extra: []const u32, strings: []const u8) Key {
             const item = items.get(self.toInt());
             const data = item.data;
 
@@ -237,22 +196,10 @@ pub const InternPool = struct {
                     },
                 },
                 .value_simple => .{ .value_simple = @enumFromInt(data) },
-                .value_int_small => .{ .value_int = mem.bytesToValue(
-                    i64,
-                    &[_]u32{ data, 0 },
-                ) },
-                .value_int_big => .{ .value_int = mem.bytesToValue(
-                    i64,
-                    extra[data..][0..2],
-                ) },
-                .value_float_small => .{ .value_float = mem.bytesToValue(
-                    f64,
-                    &[_]u32{ 0, data },
-                ) },
-                .value_float_big => .{ .value_float = mem.bytesToValue(
-                    f64,
-                    extra[data..][0..2],
-                ) },
+                .value_int_small => .{ .value_int = mem.bytesToValue(i64, &[_]u32{ data, 0 }) },
+                .value_int_big => .{ .value_int = mem.bytesToValue(i64, extra[data..][0..2]) },
+                .value_float_small => .{ .value_float = mem.bytesToValue(f64, &[_]u32{ 0, data }) },
+                .value_float_big => .{ .value_float = mem.bytesToValue(f64, extra[data..][0..2]) },
                 .value_fn => .{
                     .value_fn = .{
                         .id = extra[data],
@@ -320,11 +267,8 @@ pub const InternPool = struct {
 
                         .value_fn,
                         => value_blk: {
-                            const data =
-                                intern_pool.items.items(.data)[self.toInt()];
-                            break :value_blk .from(
-                                intern_pool.extra.items[data + 2],
-                            );
+                            const data = intern_pool.items.items(.data)[self.toInt()];
+                            break :value_blk .from(intern_pool.extra.items[data + 2]);
                         },
 
                         .value_string_short,
@@ -435,11 +379,7 @@ pub const InternPool = struct {
         self.strings.deinit(allocator);
     }
 
-    pub fn get(
-        self: *InternPool,
-        allocator: Allocator,
-        key: Key,
-    ) Allocator.Error!Index {
+    pub fn get(self: *InternPool, allocator: Allocator, key: Key) Allocator.Error!Index {
         const adapter: Key.Adapter = .{ .intern_pool = self };
         const result = try self.map.getOrPutAdapted(allocator, key, adapter);
 
@@ -451,10 +391,7 @@ pub const InternPool = struct {
 
         switch (key) {
             .none => {
-                self.items.appendAssumeCapacity(.{
-                    .tag = .none,
-                    .data = undefined,
-                });
+                self.items.appendAssumeCapacity(.{ .tag = .none, .data = undefined });
             },
             .type_simple => |type_simple| {
                 self.items.appendAssumeCapacity(.{
@@ -463,25 +400,15 @@ pub const InternPool = struct {
                 });
             },
             .type_fn => |type_fn| {
-                try self.extra.ensureUnusedCapacity(
-                    allocator,
-                    type_fn.arg_types.len + 2,
-                );
+                try self.extra.ensureUnusedCapacity(allocator, type_fn.arg_types.len + 2);
 
                 const top = self.extra.items.len;
 
-                self.extra.appendAssumeCapacity(
-                    @intCast(type_fn.arg_types.len),
-                );
-                self.extra.appendSliceAssumeCapacity(
-                    @ptrCast(type_fn.arg_types),
-                );
+                self.extra.appendAssumeCapacity(@intCast(type_fn.arg_types.len));
+                self.extra.appendSliceAssumeCapacity(@ptrCast(type_fn.arg_types));
                 self.extra.appendAssumeCapacity(type_fn.return_type.toInt());
 
-                self.items.appendAssumeCapacity(.{
-                    .tag = .type_fn,
-                    .data = @intCast(top),
-                });
+                self.items.appendAssumeCapacity(.{ .tag = .type_fn, .data = @intCast(top) });
             },
             .value_simple => |value_simple| {
                 self.items.appendAssumeCapacity(.{
@@ -526,7 +453,7 @@ pub const InternPool = struct {
 
                 const top = self.extra.items.len;
 
-                self.extra.appendSliceAssumeCapacity(&[_]u32{
+                self.extra.appendSliceAssumeCapacity(&.{
                     value_fn.id,
                     value_fn.locals_count,
                     value_fn.type_fn.toInt(),
@@ -551,7 +478,7 @@ pub const InternPool = struct {
                     });
                 } else {
                     try self.strings.appendSlice(allocator, string);
-                    try self.extra.appendSlice(allocator, &[_]u32{
+                    try self.extra.appendSlice(allocator, &.{
                         @intCast(self.strings.items.len - string.len),
                         @intCast(string.len),
                     });
@@ -577,15 +504,8 @@ test "should intern values" {
     var intern_pool: InternPool = try .init(testing.allocator);
     defer intern_pool.deinit(std.testing.allocator);
 
-    const index1 = try intern_pool.get(
-        testing.allocator,
-        .{ .type_simple = .type },
-    );
-
-    const index2 = try intern_pool.get(
-        testing.allocator,
-        .{ .type_simple = .type },
-    );
+    const index1 = try intern_pool.get(testing.allocator, .{ .type_simple = .type });
+    const index2 = try intern_pool.get(testing.allocator, .{ .type_simple = .type });
 
     try testing.expectEqual(index1, index2);
 }
@@ -595,36 +515,20 @@ test "should intern ints" {
     defer intern_pool.deinit(std.testing.allocator);
 
     for ([_]i64{ 1032, 9999999999999, -1032, -9999999999999 }) |test_int| {
-        const index1 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_int = test_int },
-        );
+        const index1 = try intern_pool.get(testing.allocator, .{ .value_int = test_int });
 
         try testing.expectEqual(test_int, index1.toKey(&intern_pool).value_int);
 
-        const index2 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_int = test_int },
-        );
+        const index2 = try intern_pool.get(testing.allocator, .{ .value_int = test_int });
 
         try testing.expectEqual(index1, index2);
 
-        const other_index1 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_int = test_int + 1 },
-        );
+        const other_index1 = try intern_pool.get(testing.allocator, .{ .value_int = test_int + 1 });
 
         try testing.expect(index1 != other_index1);
+        try testing.expectEqual(test_int + 1, other_index1.toKey(&intern_pool).value_int);
 
-        try testing.expectEqual(
-            test_int + 1,
-            other_index1.toKey(&intern_pool).value_int,
-        );
-
-        const other_index2 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_int = test_int + 1 },
-        );
+        const other_index2 = try intern_pool.get(testing.allocator, .{ .value_int = test_int + 1 });
 
         try testing.expectEqual(other_index1, other_index2);
     }
@@ -634,26 +538,12 @@ test "should intern floats" {
     var intern_pool: InternPool = try .init(testing.allocator);
     defer intern_pool.deinit(std.testing.allocator);
 
-    for ([_]f64{
-        1010.33,
-        9999999.000003,
-        -1010.33,
-        -9999999.000003,
-    }) |test_float| {
-        const index1 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_float = test_float },
-        );
+    for ([_]f64{ 1010.33, 9999999.000003, -1010.33, -9999999.000003 }) |test_float| {
+        const index1 = try intern_pool.get(testing.allocator, .{ .value_float = test_float });
 
-        try testing.expectEqual(
-            test_float,
-            index1.toKey(&intern_pool).value_float,
-        );
+        try testing.expectEqual(test_float, index1.toKey(&intern_pool).value_float);
 
-        const index2 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_float = test_float },
-        );
+        const index2 = try intern_pool.get(testing.allocator, .{ .value_float = test_float });
 
         try testing.expectEqual(index1, index2);
 
@@ -663,11 +553,7 @@ test "should intern floats" {
         );
 
         try testing.expect(index1 != other_index1);
-
-        try testing.expectEqual(
-            test_float + 0.5,
-            other_index1.toKey(&intern_pool).value_float,
-        );
+        try testing.expectEqual(test_float + 0.5, other_index1.toKey(&intern_pool).value_float);
 
         const other_index2 = try intern_pool.get(
             testing.allocator,
@@ -682,13 +568,8 @@ test "should intern bools" {
     var intern_pool: InternPool = try .init(testing.allocator);
     defer intern_pool.deinit(std.testing.allocator);
 
-    const index1 = try intern_pool.get(testing.allocator, .{
-        .value_simple = .bool_true,
-    });
-
-    const index2 = try intern_pool.get(testing.allocator, .{
-        .value_simple = .bool_true,
-    });
+    const index1 = try intern_pool.get(testing.allocator, .{ .value_simple = .bool_true });
+    const index2 = try intern_pool.get(testing.allocator, .{ .value_simple = .bool_true });
 
     try testing.expectEqual(
         InternPool.Key.ValueSimple.bool_true,
@@ -696,12 +577,8 @@ test "should intern bools" {
     );
     try testing.expectEqual(index1, index2);
 
-    const index3 = try intern_pool.get(testing.allocator, .{
-        .value_simple = .bool_false,
-    });
-    const index4 = try intern_pool.get(testing.allocator, .{
-        .value_simple = .bool_false,
-    });
+    const index3 = try intern_pool.get(testing.allocator, .{ .value_simple = .bool_false });
+    const index4 = try intern_pool.get(testing.allocator, .{ .value_simple = .bool_false });
 
     try testing.expectEqual(
         InternPool.Key.ValueSimple.bool_false,
@@ -723,19 +600,11 @@ test "should intern strings" {
         .{ "hello", "hellotest" },
     }) |tuple| {
         const test_string1, const test_string2 = tuple;
-        const index1 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_string = test_string1 },
-        );
+        const index1 = try intern_pool.get(testing.allocator, .{ .value_string = test_string1 });
 
-        try testing.expect(
-            mem.eql(u8, test_string1, index1.toKey(&intern_pool).value_string),
-        );
+        try testing.expect(mem.eql(u8, test_string1, index1.toKey(&intern_pool).value_string));
 
-        const index2 = try intern_pool.get(
-            testing.allocator,
-            .{ .value_string = test_string1 },
-        );
+        const index2 = try intern_pool.get(testing.allocator, .{ .value_string = test_string1 });
 
         try testing.expectEqual(index1, index2);
 
@@ -745,7 +614,6 @@ test "should intern strings" {
         );
 
         try testing.expect(index1 != other_index1);
-
         try testing.expect(mem.eql(
             u8,
             test_string2,
@@ -780,7 +648,7 @@ test "should intern type_fn" {
     defer intern_pool.deinit(std.testing.allocator);
 
     const fn_type_key: InternPool.Key = .{ .type_fn = .{
-        .arg_types = &[_]InternPool.Index{ .type_int, .type_float },
+        .arg_types = &.{ .type_int, .type_float },
         .return_type = .type_int,
     } };
 
@@ -808,7 +676,7 @@ test "should intern value_fn" {
     defer intern_pool.deinit(std.testing.allocator);
 
     const fn_type_key: InternPool.Key = .{ .type_fn = .{
-        .arg_types = &[_]InternPool.Index{ .type_int, .type_float },
+        .arg_types = &.{ .type_int, .type_float },
         .return_type = .type_int,
     } };
 

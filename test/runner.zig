@@ -106,14 +106,9 @@ pub const Runner = struct {
             test_parser_diag_entries: []const TestParser.Diags.Entry,
             source: [:0]const u8,
         ) Allocator.Error!void {
-            const test_parser_diag_entries_top =
-                self.test_parser_diag_entries.items.len;
+            const test_parser_diag_entries_top = self.test_parser_diag_entries.items.len;
 
-            try self.test_parser_diag_entries.appendSlice(
-                allocator,
-                test_parser_diag_entries,
-            );
-
+            try self.test_parser_diag_entries.appendSlice(allocator, test_parser_diag_entries);
             try self.entries.append(allocator, .{
                 .file_path = try self.appendString(allocator, file_path),
                 .tag = .{ .test_parse_failure = .{
@@ -146,10 +141,7 @@ pub const Runner = struct {
             for (expects) |expect| {
                 switch (expect) {
                     .out => |out| self.expects.appendAssumeCapacity(.{
-                        .out = try self.appendString(
-                            allocator,
-                            out.toSlice(source),
-                        ),
+                        .out = try self.appendString(allocator, out.toSlice(source)),
                     }),
 
                     .parse_err,
@@ -165,10 +157,7 @@ pub const Runner = struct {
             for (actuals) |actual| {
                 switch (actual) {
                     .out => |out| self.actuals.appendAssumeCapacity(.{
-                        .out = try self.appendString(
-                            allocator,
-                            out.toSlice(scratch.strings.items),
-                        ),
+                        .out = try self.appendString(allocator, out.toSlice(scratch.strings.items)),
                     }),
 
                     .parse_err,
@@ -179,23 +168,15 @@ pub const Runner = struct {
                 }
             }
 
-            try self.ip_items.ensureUnusedCapacity(
-                allocator,
-                intern_pool.items.len,
-            );
+            try self.ip_items.ensureUnusedCapacity(allocator, intern_pool.items.len);
 
             for (0..intern_pool.items.len) |index| {
-                self.ip_items.appendAssumeCapacity(
-                    intern_pool.items.get(index),
-                );
+                self.ip_items.appendAssumeCapacity(intern_pool.items.get(index));
             }
 
             try self.ip_extra.appendSlice(allocator, intern_pool.extra.items);
 
-            const ip_strings_span = try self.appendString(
-                allocator,
-                intern_pool.strings.items,
-            );
+            const ip_strings_span = try self.appendString(allocator, intern_pool.strings.items);
 
             try self.entries.append(allocator, .{
                 .file_path = try self.appendString(allocator, file_path),
@@ -206,10 +187,7 @@ pub const Runner = struct {
                         .source = try self.appendString(allocator, source),
 
                         .ip_items = .init(ip_items_top, self.ip_items.len),
-                        .ip_extra = .init(
-                            ip_extra_top,
-                            self.ip_extra.items.len,
-                        ),
+                        .ip_extra = .init(ip_extra_top, self.ip_extra.items.len),
                         .ip_strings = ip_strings_span,
                     },
                 },
@@ -276,10 +254,7 @@ pub const Runner = struct {
         };
     }
 
-    pub fn runTest(
-        self: *const Runner,
-        file_path: []const u8,
-    ) Error!void {
+    pub fn runTest(self: *const Runner, file_path: []const u8) Error!void {
         const actuals_top = self.scratch.actuals.items.len;
         defer self.scratch.actuals.shrinkRetainingCapacity(actuals_top);
 
@@ -287,10 +262,7 @@ pub const Runner = struct {
             switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.FileReadFailure => {
-                    try self.diags.appendFileReadFailure(
-                        self.allocator,
-                        file_path,
-                    );
+                    try self.diags.appendFileReadFailure(self.allocator, file_path);
                     return error.RunTestFailure;
                 },
             };
@@ -325,12 +297,7 @@ pub const Runner = struct {
         try self.run(&setup, source, &intern_pool);
 
         if (!self.validate(&setup, source)) {
-            return self.expectationMismatch(
-                &setup,
-                file_path,
-                source,
-                &intern_pool,
-            );
+            return self.expectationMismatch(&setup, file_path, source, &intern_pool);
         }
     }
 
@@ -400,9 +367,7 @@ pub const Runner = struct {
                 );
 
                 for (sema_diags.entries.items) |entry| {
-                    self.scratch.actuals.appendAssumeCapacity(.{
-                        .sema_err = entry,
-                    });
+                    self.scratch.actuals.appendAssumeCapacity(.{ .sema_err = entry });
                 }
 
                 return;
@@ -435,9 +400,7 @@ pub const Runner = struct {
                 );
 
                 for (compiler_diags.entries.items) |entry| {
-                    self.scratch.actuals.appendAssumeCapacity(.{
-                        .compile_err = entry,
-                    });
+                    self.scratch.actuals.appendAssumeCapacity(.{ .compile_err = entry });
                 }
 
                 return;
@@ -472,9 +435,7 @@ pub const Runner = struct {
             switch (err) {
                 error.Panic => {
                     if (vm_diags.entry) |entry| {
-                        self.scratch.actuals.appendAssumeCapacity(.{
-                            .vm_err = entry,
-                        });
+                        self.scratch.actuals.appendAssumeCapacity(.{ .vm_err = entry });
                     }
 
                     return;
@@ -496,11 +457,7 @@ pub const Runner = struct {
         }
     }
 
-    fn validate(
-        self: *const Runner,
-        setup: *const TestSetup,
-        source: [:0]const u8,
-    ) bool {
+    fn validate(self: *const Runner, setup: *const TestSetup, source: [:0]const u8) bool {
         const expects = setup.expects.items;
         const actuals = self.scratch.actuals.items;
 
@@ -515,27 +472,16 @@ pub const Runner = struct {
 
             const is_match = switch (expect) {
                 .parse_err,
-                => |parse_err| validateValue(
-                    parse_err.tag,
-                    actual.parse_err.tag,
-                ) and validateLoc(source, parse_err.loc, actual.parse_err.loc),
+                => |parse_err| validateValue(parse_err.tag, actual.parse_err.tag) and
+                    validateLoc(source, parse_err.loc, actual.parse_err.loc),
 
                 .sema_err,
-                => |sema_err| validateValue(
-                    sema_err.tag,
-                    actual.sema_err.tag,
-                ) and validateLoc(source, sema_err.loc, actual.sema_err.loc),
+                => |sema_err| validateValue(sema_err.tag, actual.sema_err.tag) and
+                    validateLoc(source, sema_err.loc, actual.sema_err.loc),
 
                 .compile_err,
-                => |compile_err| validateValue(
-                    compile_err.tag,
-                    actual.compile_err.tag,
-                ) and
-                    validateLoc(
-                        source,
-                        compile_err.loc,
-                        actual.compile_err.loc,
-                    ),
+                => |compile_err| validateValue(compile_err.tag, actual.compile_err.tag) and
+                    validateLoc(source, compile_err.loc, actual.compile_err.loc),
 
                 .vm_err,
                 => |vm_err| validateValue(vm_err.tag, actual.vm_err.tag) and
@@ -588,10 +534,8 @@ pub const Runner = struct {
             return error.FileReadFailure;
         defer tests_dir.close();
 
-        const file = tests_dir.openFile(
-            file_path,
-            .{ .mode = .read_only },
-        ) catch return error.FileReadFailure;
+        const file = tests_dir.openFile(file_path, .{ .mode = .read_only }) catch
+            return error.FileReadFailure;
         defer file.close();
 
         var file_buffer: [512]u8 = undefined;
@@ -601,14 +545,11 @@ pub const Runner = struct {
         var buffer: ArrayList(u8) = .empty;
         defer buffer.deinit(self.allocator);
 
-        file_reader.appendRemaining(
-            self.allocator,
-            &buffer,
-            .unlimited,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => return error.FileReadFailure,
-        };
+        file_reader.appendRemaining(self.allocator, &buffer, .unlimited) catch |err|
+            switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return error.FileReadFailure,
+            };
 
         return buffer.toOwnedSliceSentinel(self.allocator, 0);
     }
@@ -634,18 +575,13 @@ pub const Runner = struct {
 
             .@"struct" => validateStruct(expect, actual),
             .@"union" => validateUnion(expect, actual),
-            else => @compileError(
-                "validation for " ++ @typeName(Type) ++ " is not supported",
-            ),
+            else => @compileError("validation for " ++ @typeName(Type) ++ " is not supported"),
         };
     }
 
     fn validateStruct(expect: anytype, actual: @TypeOf(expect)) bool {
         inline for (meta.fields(@TypeOf(expect))) |field| {
-            if (!validateValue(
-                @field(expect, field.name),
-                @field(actual, field.name),
-            )) {
+            if (!validateValue(@field(expect, field.name), @field(actual, field.name))) {
                 return false;
             }
         }
@@ -660,10 +596,7 @@ pub const Runner = struct {
 
         inline for (meta.fields(@TypeOf(expect))) |field| {
             if (mem.eql(u8, field.name, @tagName(expect))) {
-                return validateValue(
-                    @field(expect, field.name),
-                    @field(actual, field.name),
-                );
+                return validateValue(@field(expect, field.name), @field(actual, field.name));
             }
         }
 
@@ -689,11 +622,7 @@ pub const Runner = struct {
         return true;
     }
 
-    fn validateLoc(
-        source: [:0]const u8,
-        expect: TestSetup.Expect.Loc,
-        actual: Span(u8),
-    ) bool {
+    fn validateLoc(source: [:0]const u8, expect: TestSetup.Expect.Loc, actual: Span(u8)) bool {
         switch (expect) {
             .span,
             => |span| {

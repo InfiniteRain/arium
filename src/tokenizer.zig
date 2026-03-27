@@ -324,9 +324,7 @@ pub const Tokenizer = struct {
                     continue :state .identifier;
                 },
                 else => {
-                    if (keyword_map.get(
-                        self.source[token.loc.index..self.index],
-                    )) |tag| {
+                    if (keyword_map.get(self.source[token.loc.index..self.index])) |tag| {
                         token.tag = tag;
                     } else {
                         token.tag = .identifier;

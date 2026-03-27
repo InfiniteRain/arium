@@ -31,10 +31,7 @@ pub fn main() !void {
     const stderr = Output.init(&stderr_writer.interface);
 
     {
-        var dir = try fs.cwd().openDir(
-            "./" ++ constants.tests_dir,
-            .{ .iterate = true },
-        );
+        var dir = try fs.cwd().openDir("./" ++ constants.tests_dir, .{ .iterate = true });
         defer dir.close();
 
         var walker = try dir.walk(allocator);
@@ -49,12 +46,7 @@ pub fn main() !void {
         var test_scratch: TestParser.Scratch = .empty;
         defer test_scratch.deinit(allocator);
 
-        const runner: Runner = .init(
-            allocator,
-            &runner_diags,
-            &runner_scratch,
-            &test_scratch,
-        );
+        const runner: Runner = .init(allocator, &runner_diags, &runner_scratch, &test_scratch);
         const start_ms = time.milliTimestamp();
         var passed: u32 = 0;
         var failed: u32 = 0;
@@ -84,10 +76,7 @@ pub fn main() !void {
 
             const strings_top = strings.items.len;
             try strings.appendSlice(allocator, file_path);
-            try test_files.append(
-                allocator,
-                .init(strings_top, strings.items.len),
-            );
+            try test_files.append(allocator, .init(strings_top, strings.items.len));
         }
 
         for (test_files.items) |file_path| {
@@ -102,10 +91,7 @@ pub fn main() !void {
             runner.runTest(file_path_str) catch |err|
                 switch (err) {
                     error.RunTestFailure => {
-                        stdout.printf(
-                            "{s}FAILED{s}\n",
-                            .{ style_err, style_end },
-                        );
+                        stdout.printf("{s}FAILED{s}\n", .{ style_err, style_end });
                         failed += 1;
 
                         continue;

@@ -123,10 +123,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
             self.ip = main + 8;
             self.lv = 0;
-            self.lv_len = mem.bytesToValue(
-                u32,
-                self.module.code.items[main..][0..4],
-            );
+            self.lv_len = mem.bytesToValue(u32, self.module.code.items[main..][0..4]);
             self.st = try .initCapacity(allocator, limits.max_constants);
 
             try self.push(.{ .@"fn" = main });
@@ -321,14 +318,10 @@ pub fn Vm(comptime mode: ExecutionMode) type {
                         const new_length = a.chars.len + b.chars.len;
                         const new_chars = try allocator.alloc(u8, new_length);
                         @memcpy(new_chars[0..a.chars.len], a.chars);
-                        @memcpy(
-                            new_chars[a.chars.len..][0..b.chars.len],
-                            b.chars,
-                        );
+                        @memcpy(new_chars[a.chars.len..][0..b.chars.len], b.chars);
 
                         const string =
-                            try Object(mode).String
-                                .createTakeOwnership(self.memory, new_chars);
+                            try Object(mode).String.createTakeOwnership(self.memory, new_chars);
 
                         _ = self.pop();
                         _ = self.pop();
@@ -467,10 +460,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
                     .print_bool => {
                         const value = self.pop();
-                        output.printf(
-                            "{s}\n",
-                            .{if (value.int == 0) "false" else "true"},
-                        );
+                        output.printf("{s}\n", .{if (value.int == 0) "false" else "true"});
                     },
 
                     .print_int => {
@@ -493,10 +483,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
                         switch (value.object.tag) {
                             .string => {
-                                const string = value.object.as(
-                                    Object(mode).String,
-                                );
-
+                                const string = value.object.as(Object(mode).String);
                                 output.printf("{s}\n", .{string.chars});
                             },
                         }
@@ -524,8 +511,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
 
                     .call => {
                         const args_count = self.readU8();
-                        const value =
-                            self.st.items[self.st.items.len - 1 - args_count];
+                        const value = self.st.items[self.st.items.len - 1 - args_count];
                         const locals_count = mem.bytesToValue(
                             u32,
                             self.module.code.items[value.@"fn"..][0..4],
@@ -539,15 +525,9 @@ pub fn Vm(comptime mode: ExecutionMode) type {
                         self.lv = self.st.items.len - 1 - args_count;
                         self.lv_len = locals_count;
 
-                        try self.ensureUnusedCapacity(
-                            (locals_count - args_count - 1) + 3,
-                        );
+                        try self.ensureUnusedCapacity((locals_count - args_count - 1) + 3);
 
-                        self.pushNTimesAssumeCapacity(
-                            .{ .int = 0 },
-                            locals_count - args_count - 1,
-                        );
-
+                        self.pushNTimesAssumeCapacity(.{ .int = 0 }, locals_count - args_count - 1);
                         self.pushSliceAssumeCapacity(&.{
                             .{ .int = @intCast(prev_ip) },
                             .{ .int = @intCast(prev_lv) },
@@ -580,10 +560,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
             self.st.appendAssumeCapacity(value);
         }
 
-        fn pushSliceAssumeCapacity(
-            self: *Self,
-            values: []const Value(mode),
-        ) void {
+        fn pushSliceAssumeCapacity(self: *Self, values: []const Value(mode)) void {
             self.st.appendSliceAssumeCapacity(values);
         }
 
@@ -595,11 +572,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
             self.pushNTimesAssumeCapacity(value, n);
         }
 
-        fn pushNTimesAssumeCapacity(
-            self: *Self,
-            value: Value(mode),
-            n: usize,
-        ) void {
+        fn pushNTimesAssumeCapacity(self: *Self, value: Value(mode), n: usize) void {
             self.st.appendNTimesAssumeCapacity(value, n);
         }
 
@@ -611,10 +584,7 @@ pub fn Vm(comptime mode: ExecutionMode) type {
             self.st.shrinkRetainingCapacity(new_len);
         }
 
-        fn ensureUnusedCapacity(
-            self: *Self,
-            additional_count: usize,
-        ) Error!void {
+        fn ensureUnusedCapacity(self: *Self, additional_count: usize) Error!void {
             if (self.st.items.len + additional_count > self.st.capacity) {
                 return self.panic(.stack_overflow);
             }
