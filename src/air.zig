@@ -158,9 +158,7 @@ pub const Air = struct {
 
             return switch (tag) {
                 .constant,
-                => InternPool.Index
-                    .from(air.nodes.items(.a)[idx])
-                    .toType(intern_pool),
+                => InternPool.Index.from(air.nodes.items(.a)[idx]).toType(intern_pool),
 
                 .add,
                 .sub,
@@ -169,20 +167,11 @@ pub const Air = struct {
                 .concat,
                 .neg,
                 => blk: {
-                    const lhs_type = Index
-                        .from(air.nodes.items(.a)[idx])
-                        .toType(air, intern_pool);
-                    const rhs_type = Index
-                        .from(air.nodes.items(.b)[idx])
-                        .toType(air, intern_pool);
+                    const lhs_type = Index.from(air.nodes.items(.a)[idx]).toType(air, intern_pool);
+                    const rhs_type = Index.from(air.nodes.items(.b)[idx]).toType(air, intern_pool);
+                    const is_never = lhs_type == .type_never or rhs_type == .type_never;
 
-                    const is_never = lhs_type == .type_never or
-                        rhs_type == .type_never;
-
-                    break :blk if (is_never)
-                        .type_never
-                    else
-                        lhs_type;
+                    break :blk if (is_never) .type_never else lhs_type;
                 },
 
                 .greater_than,
@@ -192,20 +181,11 @@ pub const Air = struct {
                 .equal,
                 .not_equal,
                 => blk: {
-                    const lhs_type = Index
-                        .from(air.nodes.items(.a)[idx])
-                        .toType(air, intern_pool);
-                    const rhs_type = Index
-                        .from(air.nodes.items(.b)[idx])
-                        .toType(air, intern_pool);
+                    const lhs_type = Index.from(air.nodes.items(.a)[idx]).toType(air, intern_pool);
+                    const rhs_type = Index.from(air.nodes.items(.b)[idx]).toType(air, intern_pool);
+                    const is_never = lhs_type == .type_never or rhs_type == .type_never;
 
-                    const is_never = lhs_type == .type_never or
-                        rhs_type == .type_never;
-
-                    break :blk if (is_never)
-                        .type_never
-                    else
-                        .type_bool;
+                    break :blk if (is_never) .type_never else .type_bool;
                 },
 
                 .cond,
@@ -221,10 +201,7 @@ pub const Air = struct {
                     const then = air.extra.items[extra_idx];
                     const then_type = Index.from(then).toType(air, intern_pool);
                     const @"else" = air.extra.items[extra_idx + 1];
-                    const else_type = Index.from(@"else").toType(
-                        air,
-                        intern_pool,
-                    );
+                    const else_type = Index.from(@"else").toType(air, intern_pool);
 
                     break :blk if (then_type != .type_never)
                         then_type
@@ -240,8 +217,7 @@ pub const Air = struct {
                     const b = air.nodes.items(.b)[idx];
                     const stmts = air.extra.items[b..][0..a];
 
-                    break :blk Index.from(stmts[stmts.len - 1])
-                        .toType(air, intern_pool);
+                    break :blk Index.from(stmts[stmts.len - 1]).toType(air, intern_pool);
                 },
 
                 .variable,
@@ -253,10 +229,7 @@ pub const Air = struct {
                     const a = air.nodes.items(.a)[idx];
                     const expr_type = Index.from(a).toType(air, intern_pool);
 
-                    break :blk if (expr_type == .type_never)
-                        .type_never
-                    else
-                        .type_unit;
+                    break :blk if (expr_type == .type_never) .type_never else .type_unit;
                 },
 
                 .let,
@@ -270,10 +243,7 @@ pub const Air = struct {
 
                     const expr_type = Index.from(b).toType(air, intern_pool);
 
-                    break :blk if (expr_type == .type_never)
-                        .type_never
-                    else
-                        .type_unit;
+                    break :blk if (expr_type == .type_never) .type_never else .type_unit;
                 },
 
                 .@"for",
@@ -281,10 +251,7 @@ pub const Air = struct {
                     const cond = air.nodes.items(.a)[idx];
                     const cond_type = Index.from(cond).toType(air, intern_pool);
 
-                    break :blk if (cond_type == .type_never)
-                        .type_never
-                    else
-                        .type_unit;
+                    break :blk if (cond_type == .type_never) .type_never else .type_unit;
                 },
 
                 .@"break",
@@ -295,9 +262,7 @@ pub const Air = struct {
                 .@"fn",
                 => blk: {
                     const b = air.nodes.items(.b)[idx];
-                    break :blk InternPool.Index.from(
-                        air.extra.items[b + 2],
-                    );
+                    break :blk InternPool.Index.from(air.extra.items[b + 2]);
                 },
 
                 .call_simple,
@@ -411,15 +376,13 @@ pub const Air = struct {
             .call_simple => .{ .call = .{
                 .callee = .from(a),
                 .args = if (b == 0)
-                    &[_]Index{}
+                    &.{}
                 else
                     @ptrCast((&self.nodes.items(.b)[index.toInt()])[0..1]),
             } },
             .call => .{ .call = .{
                 .callee = .from(a),
-                .args = @ptrCast(
-                    self.extra.items[b + 1 ..][0..self.extra.items[b]],
-                ),
+                .args = @ptrCast(self.extra.items[b + 1 ..][0..self.extra.items[b]]),
             } },
 
             .assert => .{ .assert = .from(a) },
@@ -432,9 +395,6 @@ pub const Air = struct {
     }
 
     fn getBinary(comptime tag: []const u8, a: u32, b: u32) Key {
-        return @unionInit(Key, tag, .{
-            .lhs = .from(a),
-            .rhs = .from(b),
-        });
+        return @unionInit(Key, tag, .{ .lhs = .from(a), .rhs = .from(b) });
     }
 };

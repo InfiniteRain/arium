@@ -212,17 +212,13 @@ pub const TestParser = struct {
             }
 
             parser.arium_token_loc = token.loc;
-            parser.test_tokenizer = TestTokenizer.init(
-                comment[special_comment_len..],
-            );
+            parser.test_tokenizer = TestTokenizer.init(comment[special_comment_len..]);
             parser.prev_token = undefined;
             parser.current_token = parser.nextToken();
 
             switch (state) {
                 .@"test" => {
-                    const test_directive = try parser.parseDirective(
-                        .{.@"test"},
-                    );
+                    const test_directive = try parser.parseDirective(.{.@"test"});
                     state = .expects;
                     test_setup.kind = test_directive.data.@"test";
                 },
@@ -230,10 +226,7 @@ pub const TestParser = struct {
                     const expect_directive = try parser.parseDirective(
                         .{ .parse_err, .sema_err, .compile_err, .vm_err, .out },
                     );
-                    try test_setup.expects.append(
-                        allocator,
-                        expect_directive.data.expect,
-                    );
+                    try test_setup.expects.append(allocator, expect_directive.data.expect);
                 },
             }
         }
@@ -245,10 +238,7 @@ pub const TestParser = struct {
         return test_setup;
     }
 
-    fn parseDirective(
-        self: *TestParser,
-        allowlist: anytype,
-    ) Error!Directive {
+    fn parseDirective(self: *TestParser, allowlist: anytype) Error!Directive {
         const AllowList = @TypeOf(allowlist);
         const type_info = @typeInfo(AllowList);
 
@@ -256,10 +246,7 @@ pub const TestParser = struct {
             @compileError("allowlist should be a tuple");
         }
 
-        const identifier = try self.consume(
-            .identifier,
-            .expected_directive_identifier,
-        );
+        const identifier = try self.consume(.identifier, .expected_directive_identifier);
         const identifier_str = self.locToStr(identifier.loc);
         var tag_opt: ?Directive.Tag = null;
 
@@ -276,13 +263,9 @@ pub const TestParser = struct {
             }
         }
 
-        const tag = tag_opt orelse
-            return self.parseError(.unexpected_directive, identifier.loc);
+        const tag = tag_opt orelse return self.parseError(.unexpected_directive, identifier.loc);
 
-        _ = try self.consume(
-            .left_paren,
-            .expected_left_paren_before_directive,
-        );
+        _ = try self.consume(.left_paren, .expected_left_paren_before_directive);
 
         const directive: Directive = .{
             .tag = tag,
@@ -299,10 +282,7 @@ pub const TestParser = struct {
             },
         };
 
-        _ = try self.consume(
-            .right_paren,
-            .expected_right_paren_after_directive_args,
-        );
+        _ = try self.consume(.right_paren, .expected_right_paren_after_directive_args);
 
         return directive;
     }
@@ -325,10 +305,7 @@ pub const TestParser = struct {
         return .{ .span = .{ .index = index, .len = len } };
     }
 
-    fn parseExpectDirective(
-        self: *TestParser,
-        tag: Directive.Tag,
-    ) Error!Directive.Data {
+    fn parseExpectDirective(self: *TestParser, tag: Directive.Tag) Error!Directive.Data {
         const loc_directive = try self.parseDirective(.{ .line, .span });
         const loc: TestSetup.Expect.Loc = switch (loc_directive.tag) {
             .line => .{ .line = loc_directive.data.line },
@@ -339,9 +316,7 @@ pub const TestParser = struct {
 
         return switch (tag) {
             .parse_err => .{ .expect = .{ .parse_err = .{
-                .tag = try self.parseType(
-                    AriumParser.Diags.Entry.Tag,
-                ),
+                .tag = try self.parseType(AriumParser.Diags.Entry.Tag),
                 .loc = loc,
             } } },
             .sema_err => .{ .expect = .{ .sema_err = .{
@@ -373,9 +348,7 @@ pub const TestParser = struct {
 
     fn parseIpDirective(self: *TestParser) Error!Directive.Data {
         const ip_indexes_top = self.scratch.primary_indexes.items.len;
-        defer self.scratch.primary_indexes.shrinkRetainingCapacity(
-            ip_indexes_top,
-        );
+        defer self.scratch.primary_indexes.shrinkRetainingCapacity(ip_indexes_top);
 
         const key = try self.parseType(InternPool.Key);
         const index = try self.intern_pool.get(self.allocator, key);
@@ -399,10 +372,7 @@ pub const TestParser = struct {
         }
 
         if (checkForFixedArray(T)) |fixed_array| {
-            return self.parseFixedArray(
-                fixed_array.T,
-                fixed_array.capacity,
-            );
+            return self.parseFixedArray(fixed_array.T, fixed_array.capacity);
         }
 
         return switch (type_info) {
@@ -412,9 +382,7 @@ pub const TestParser = struct {
             .@"struct" => try self.parseStruct(T),
             .@"enum" => try self.parseEnum(T),
             .@"union" => try self.parseUnion(T),
-            else => @compileError(
-                "parsing for " ++ @typeName(T) ++ " is not supported",
-            ),
+            else => @compileError("parsing for " ++ @typeName(T) ++ " is not supported"),
         };
     }
 
@@ -436,30 +404,19 @@ pub const TestParser = struct {
 
     fn parseIpIndexArray(self: *TestParser) Error![]const InternPool.Index {
         const secondary_top = self.scratch.secondary_indexes.items.len;
-        defer self.scratch.secondary_indexes.shrinkRetainingCapacity(
-            secondary_top,
-        );
+        defer self.scratch.secondary_indexes.shrinkRetainingCapacity(secondary_top);
 
-        _ = try self.consume(
-            .left_brace,
-            .expected_left_brace_before_list_elems,
-        );
+        _ = try self.consume(.left_brace, .expected_left_brace_before_list_elems);
 
         while (!self.check(.right_brace)) {
-            try self.scratch.secondary_indexes.append(
-                self.allocator,
-                try self.parseIpIndex(),
-            );
+            try self.scratch.secondary_indexes.append(self.allocator, try self.parseIpIndex());
 
             if (self.match(.comma) == null) {
                 break;
             }
         }
 
-        _ = try self.consume(
-            .right_brace,
-            .expected_right_brace_after_list_elems,
-        );
+        _ = try self.consume(.right_brace, .expected_right_brace_after_list_elems);
 
         const primary_top = self.scratch.primary_indexes.items.len;
 
@@ -481,10 +438,7 @@ pub const TestParser = struct {
     ) Error!FixedArray(T, capacity) {
         var buffer: [capacity]T = undefined;
 
-        _ = try self.consume(
-            .left_brace,
-            .expected_left_brace_before_list_elems,
-        );
+        _ = try self.consume(.left_brace, .expected_left_brace_before_list_elems);
 
         var index: usize = 0;
         var len: usize = 0;
@@ -505,10 +459,7 @@ pub const TestParser = struct {
             }
         }
 
-        _ = try self.consume(
-            .right_brace,
-            .expected_right_brace_after_list_elems,
-        );
+        _ = try self.consume(.right_brace, .expected_right_brace_after_list_elems);
 
         return .{
             .buffer = buffer,
@@ -557,16 +508,10 @@ pub const TestParser = struct {
         while (!self.check(.right_brace)) {
             _ = try self.consume(.dot, .expected_dot_before_field_name);
 
-            const name_token = try self.consume(
-                .identifier,
-                .expected_field_identifier,
-            );
+            const name_token = try self.consume(.identifier, .expected_field_identifier);
             const name = self.locToStr(name_token.loc);
 
-            _ = try self.consume(
-                .equal,
-                .expected_equal_after_field_identifier,
-            );
+            _ = try self.consume(.equal, .expected_equal_after_field_identifier);
 
             var is_field_found = false;
 
@@ -575,10 +520,7 @@ pub const TestParser = struct {
                     is_field_found = true;
 
                     if (initialized[index]) {
-                        return self.parseError(
-                            .field_redifinition,
-                            name_token.loc,
-                        );
+                        return self.parseError(.field_redifinition, name_token.loc);
                     }
 
                     @field(final, field.name) = try self.parseType(field.type);
@@ -600,11 +542,8 @@ pub const TestParser = struct {
             .expected_right_brace_after_struct_fields,
         );
 
-        if (mem.containsAtLeast(bool, &initialized, 1, &[_]bool{false})) {
-            return self.parseError(
-                .not_all_fields_initialized,
-                last_brace_token.loc,
-            );
+        if (mem.containsAtLeast(bool, &initialized, 1, &.{false})) {
+            return self.parseError(.not_all_fields_initialized, last_brace_token.loc);
         }
 
         return final;
@@ -617,10 +556,7 @@ pub const TestParser = struct {
 
         _ = try self.consume(.dot, .expected_dot_before_enum_variant);
 
-        const identifier = try self.consume(
-            .identifier,
-            .expected_enum_variant_identifier,
-        );
+        const identifier = try self.consume(.identifier, .expected_enum_variant_identifier);
         const enum_variant = self.locToStr(identifier.loc);
 
         return meta.stringToEnum(Enum, enum_variant) orelse
@@ -633,19 +569,13 @@ pub const TestParser = struct {
         }
 
         if (self.match(.dot)) |_| {
-            const identifier = try self.consume(
-                .identifier,
-                .expected_union_variant_identifier,
-            );
+            const identifier = try self.consume(.identifier, .expected_union_variant_identifier);
             const union_variant = self.locToStr(identifier.loc);
 
             inline for (meta.fields(Union)) |field| {
                 if (mem.eql(u8, union_variant, field.name)) {
                     if (field.type != void) {
-                        return self.parseError(
-                            .union_variant_is_not_void,
-                            identifier.loc,
-                        );
+                        return self.parseError(.union_variant_is_not_void, identifier.loc);
                     }
 
                     return @unionInit(Union, field.name, {});
@@ -655,44 +585,24 @@ pub const TestParser = struct {
             return self.parseError(.unknown_union_variant, identifier.loc);
         }
 
-        _ = try self.consume(
-            .left_brace,
-            .expected_dot_or_left_brace,
-        );
-        _ = try self.consume(
-            .dot,
-            .expected_dot_before_union_variant,
-        );
+        _ = try self.consume(.left_brace, .expected_dot_or_left_brace);
+        _ = try self.consume(.dot, .expected_dot_before_union_variant);
 
-        const identifier = try self.consume(
-            .identifier,
-            .expected_union_variant_identifier,
-        );
+        const identifier = try self.consume(.identifier, .expected_union_variant_identifier);
         const union_variant = self.locToStr(identifier.loc);
 
-        _ = try self.consume(
-            .equal,
-            .expected_equal_after_union_variant_identifier,
-        );
+        _ = try self.consume(.equal, .expected_equal_after_union_variant_identifier);
 
         var final_opt: ?Union = null;
 
         inline for (meta.fields(Union)) |field| {
             if (mem.eql(u8, union_variant, field.name)) {
-                final_opt = @unionInit(
-                    Union,
-                    field.name,
-                    try self.parseType(field.type),
-                );
+                final_opt = @unionInit(Union, field.name, try self.parseType(field.type));
             }
         }
 
         if (final_opt) |final| {
-            _ = try self.consume(
-                .right_brace,
-                .expected_right_brace_after_union_variant_value,
-            );
-
+            _ = try self.consume(.right_brace, .expected_right_brace_after_union_variant_value);
             return final;
         } else {
             return self.parseError(.unknown_union_variant, identifier.loc);
@@ -718,11 +628,7 @@ pub const TestParser = struct {
         return null;
     }
 
-    fn consume(
-        self: *TestParser,
-        token: TestToken.Tag,
-        diag: Diags.Entry.Tag,
-    ) Error!TestToken {
+    fn consume(self: *TestParser, token: TestToken.Tag, diag: Diags.Entry.Tag) Error!TestToken {
         if (self.check(token)) {
             return self.advance();
         }
@@ -748,17 +654,12 @@ pub const TestParser = struct {
 
     fn locToAriumLoc(self: *TestParser, loc: Span(u8)) Span(u8) {
         return .{
-            .index = self.arium_token_loc.index + special_comment_len +
-                loc.index,
+            .index = self.arium_token_loc.index + special_comment_len + loc.index,
             .len = loc.len,
         };
     }
 
-    fn parseError(
-        self: *TestParser,
-        diag: Diags.Entry.Tag,
-        loc: Span(u8),
-    ) Error {
+    fn parseError(self: *TestParser, diag: Diags.Entry.Tag, loc: Span(u8)) Error {
         try self.diags.entries.append(self.allocator, .{
             .tag = diag,
             .loc = self.locToAriumLoc(loc),
@@ -767,9 +668,7 @@ pub const TestParser = struct {
     }
 };
 
-fn parseExpectingSuccess(
-    source: [:0]const u8,
-) TestParser.Error!struct { TestSetup, InternPool } {
+fn parseExpectingSuccess(source: [:0]const u8) TestParser.Error!struct { TestSetup, InternPool } {
     var intern_pool = try InternPool.init(testing.allocator);
     errdefer intern_pool.deinit(testing.allocator);
 
@@ -780,13 +679,7 @@ fn parseExpectingSuccess(
     defer scratch.deinit(testing.allocator);
 
     return .{
-        try TestParser.parse(
-            testing.allocator,
-            source,
-            &intern_pool,
-            &diags,
-            &scratch,
-        ),
+        try TestParser.parse(testing.allocator, source, &intern_pool, &diags, &scratch),
         intern_pool,
     };
 }
@@ -800,9 +693,7 @@ test "test identifier" {
     }) |entry| {
         const str, const variant = entry;
 
-        var setup, var ip = try parseExpectingSuccess(
-            "/// test(" ++ str ++ ")",
-        );
+        var setup, var ip = try parseExpectingSuccess("/// test(" ++ str ++ ")");
         defer setup.deinit(testing.allocator);
         defer ip.deinit(testing.allocator);
 
@@ -854,12 +745,9 @@ test "sema_err with key ip" {
             .actual = try ip.get(
                 testing.allocator,
                 .{ .type_fn = .{
-                    .arg_types = &[_]InternPool.Index{
+                    .arg_types = &.{
                         .type_int,
-                        try ip.get(
-                            testing.allocator,
-                            .{ .value_string = "hello" },
-                        ),
+                        try ip.get(testing.allocator, .{ .value_string = "hello" }),
                     },
                     .return_type = .type_int,
                 } },

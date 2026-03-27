@@ -45,10 +45,7 @@ pub fn Object(comptime mode: ExecutionMode) type {
             object: Self,
             chars: []u8,
 
-            pub fn create(
-                memory: *Memory(mode),
-                buf: []const u8,
-            ) Allocator.Error!*String {
+            pub fn create(memory: *Memory(mode), buf: []const u8) Allocator.Error!*String {
                 if (memory.string_pool.get(buf)) |string| {
                     return string;
                 }
@@ -71,10 +68,7 @@ pub fn Object(comptime mode: ExecutionMode) type {
                 return string;
             }
 
-            pub fn createTakeOwnership(
-                memory: *Memory(mode),
-                buf: []u8,
-            ) Allocator.Error!*String {
+            pub fn createTakeOwnership(memory: *Memory(mode), buf: []u8) Allocator.Error!*String {
                 const allocator = memory.allocator();
 
                 if (memory.string_pool.get(buf)) |string| {
@@ -187,11 +181,7 @@ pub fn Memory(comptime mode: ExecutionMode) type {
             ret_addr: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const out_opt = self.backing_allocator.rawAlloc(
-                len,
-                ptr_align,
-                ret_addr,
-            );
+            const out_opt = self.backing_allocator.rawAlloc(len, ptr_align, ret_addr);
 
             if (out_opt != null) {
                 self.bytes_allocated += len;
@@ -234,12 +224,7 @@ pub fn Memory(comptime mode: ExecutionMode) type {
             ret_addr: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const result = self.backing_allocator.rawRemap(
-                memory,
-                alignment,
-                new_len,
-                ret_addr,
-            );
+            const result = self.backing_allocator.rawRemap(memory, alignment, new_len, ret_addr);
 
             if (result != null) {
                 if (new_len > memory.len) {
@@ -252,12 +237,7 @@ pub fn Memory(comptime mode: ExecutionMode) type {
             return result;
         }
 
-        fn free(
-            ctx: *anyopaque,
-            buf: []u8,
-            buf_align: std.mem.Alignment,
-            ret_addr: usize,
-        ) void {
+        fn free(ctx: *anyopaque, buf: []u8, buf_align: std.mem.Alignment, ret_addr: usize) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             self.backing_allocator.rawFree(buf, buf_align, ret_addr);

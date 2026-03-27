@@ -28,10 +28,7 @@ pub fn Span(T: type) type {
             };
         }
 
-        pub fn toLineCol(
-            span: Span(u8),
-            source: []const u8,
-        ) struct { u32, u32 } {
+        pub fn toLineCol(span: Span(u8), source: []const u8) struct { u32, u32 } {
             var line: u32 = 1;
             var column: u32 = 1;
 

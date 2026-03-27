@@ -34,10 +34,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn printParserDiagEntry(
-            self: *const Self,
-            diag: Parser.Diags.Entry,
-        ) void {
+        fn printParserDiagEntry(self: *const Self, diag: Parser.Diags.Entry) void {
             self.printErrorHeader(diag.loc);
 
             switch (diag.tag) {
@@ -107,10 +104,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn printSemaDiagEntry(
-            self: *const Self,
-            diag: Sema.Diags.Entry,
-        ) void {
+        fn printSemaDiagEntry(self: *const Self, diag: Sema.Diags.Entry) void {
             self.printErrorHeader(diag.loc);
 
             switch (diag.tag) {
@@ -225,10 +219,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn printCompilerDiagEntry(
-            self: *const Self,
-            diag: Compiler.Diags.Entry,
-        ) void {
+        fn printCompilerDiagEntry(self: *const Self, diag: Compiler.Diags.Entry) void {
             self.printErrorHeader(diag.loc);
 
             switch (diag.tag) {
@@ -260,10 +251,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn printVmDiagEntry(
-            self: *const Self,
-            diag: Vm(mode).Diags.Entry,
-        ) void {
+        fn printVmDiagEntry(self: *const Self, diag: Vm(mode).Diags.Entry) void {
             self.printErrorHeader(diag.loc);
 
             switch (diag.tag) {
@@ -272,10 +260,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn printTokenQuoted(
-            self: *const Self,
-            token_tag: Token.Tag,
-        ) void {
+        fn printTokenQuoted(self: *const Self, token_tag: Token.Tag) void {
             switch (token_tag) {
                 .eof => self.output.print("end of file"),
                 .end => self.output.print("'end'"),
@@ -287,10 +272,7 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn printType(
-            self: *const Self,
-            @"type": InternPool.Index,
-        ) void {
+        fn printType(self: *const Self, @"type": InternPool.Index) void {
             switch (@"type") {
                 .type_int => self.output.print("Int"),
                 .type_float => self.output.print("Float"),
@@ -338,16 +320,10 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
             }
         }
 
-        fn printErrorHeader(
-            self: *const Self,
-            loc: Span(u8),
-        ) void {
+        fn printErrorHeader(self: *const Self, loc: Span(u8)) void {
             const line, const column = loc.toLineCol(self.source);
 
-            self.output.printf("Error at {}:{}: ", .{
-                line,
-                column,
-            });
+            self.output.printf("Error at {}:{}: ", .{ line, column });
         }
     };
 }

@@ -230,20 +230,12 @@ pub const Ast = struct {
             .neg_bool => .{ .neg_bool = .from(a) },
             .neg_num => .{ .neg_num = .from(a) },
             .block => .{ .block = @ptrCast(self.extra.items[b..][0..a]) },
-            .block_semicolon => .{
-                .block_semicolon = @ptrCast(self.extra.items[b..][0..a]),
-            },
+            .block_semicolon => .{ .block_semicolon = @ptrCast(self.extra.items[b..][0..a]) },
             .identifier => .identifier,
             .assignment => getBinary("assignment", a, b),
-            .@"if" => .{ .@"if" = .{
-                .condition = .from(a),
-                .body = .from(b),
-            } },
+            .@"if" => .{ .@"if" = .{ .condition = .from(a), .body = .from(b) } },
             .if_else => .{ .if_else = .{
-                .conditional = .{
-                    .condition = .from(a),
-                    .body = .from(self.extra.items[b]),
-                },
+                .conditional = .{ .condition = .from(a), .body = .from(self.extra.items[b]) },
                 .else_block = .from(self.extra.items[b + 1]),
             } },
             .if_elseif => .{ .if_elseif = .{
@@ -264,9 +256,7 @@ pub const Ast = struct {
             .return_value => .{ .return_value = .from(a) },
             .call => .{ .call = .{
                 .callee = .from(a),
-                .args = @ptrCast(
-                    self.extra.items[b + 1 ..][0..self.extra.items[b]],
-                ),
+                .args = @ptrCast(self.extra.items[b + 1 ..][0..self.extra.items[b]]),
             } },
             .call_simple => .{ .call_simple = .{
                 .callee = .from(a),
@@ -296,10 +286,7 @@ pub const Ast = struct {
                 break :blk .{ .@"fn" = .{
                     .identifier = .from(a),
                     .params = @ptrCast(params),
-                    .return_type = if (return_type == 0)
-                        null
-                    else
-                        .from(return_type),
+                    .return_type = if (return_type == 0) null else .from(return_type),
                     .body = .from(body),
                 } };
             },

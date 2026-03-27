@@ -4,7 +4,7 @@
     "avoid-as": "error",
     "empty-file": "error",
     "homeless-try": "error",
-    "line-length": ["error", { "max_length": 80 }],
+    "line-length": ["error", { "max_length": 100 }],
     "must-return-ref": "error",
     "no-catch-return": "error",
     "no-return-try": "error",

@@ -8,22 +8,14 @@ pub fn FixedArray(T: type, comptime capacity: usize) type {
         pub fn from(value: anytype) Self {
             const Type = @TypeOf(value);
             const type_info = @typeInfo(Type);
-            const is_tuple = type_info == .@"struct" and
-                type_info.@"struct".is_tuple;
-
-            const new_capacity = if (is_tuple)
-                type_info.@"struct".fields.len
-            else
-                1;
+            const is_tuple = type_info == .@"struct" and type_info.@"struct".is_tuple;
+            const new_capacity = if (is_tuple) type_info.@"struct".fields.len else 1;
 
             if (new_capacity > capacity) {
                 @compileError("not enough capacity to initialize fixed array");
             }
 
-            var array: Self = .{
-                .buffer = undefined,
-                .len = 0,
-            };
+            var array: Self = .{ .buffer = undefined, .len = 0 };
             array.len = new_capacity;
 
             if (is_tuple) {

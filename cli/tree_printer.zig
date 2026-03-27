@@ -71,35 +71,24 @@ fn GenericTreePrinter(AstType: type) type {
             ast_printer.printAstIndex(.from(0), .root);
         }
 
-        fn printAstIndex(
-            self: *const Self,
-            index: AstType.Index,
-            indent: Indent,
-        ) void {
+        fn printAstIndex(self: *const Self, index: AstType.Index, indent: Indent) void {
             const key = index.toKey(self.ast);
 
-            self.output.printf(
-                "{s}.{s}{s}",
-                .{ style_underline, @tagName(key), style_end },
-            );
+            self.output.printf("{s}.{s}{s}", .{ style_underline, @tagName(key), style_end });
 
             inline for (meta.fields(AstType.Key)) |field| {
                 if (std.mem.eql(u8, field.name, @tagName(key))) {
                     if (field.type != void) {
                         self.output.print(" = ");
                     } else {
-                        const str = index.toLoc(self.ast)
-                            .toSlice(self.source);
+                        const str = index.toLoc(self.ast).toSlice(self.source);
 
                         if (str.len > 0) {
                             self.output.printf(" '{s}'", .{str});
                         }
                     }
 
-                    self.printAstField(
-                        @field(key, field.name),
-                        indent,
-                    );
+                    self.printAstField(@field(key, field.name), indent);
                 }
             }
 
@@ -108,34 +97,20 @@ fn GenericTreePrinter(AstType: type) type {
             }
         }
 
-        fn printInternPoolIndex(
-            self: *const Self,
-            index: InternPool.Index,
-            indent: Indent,
-        ) void {
+        fn printInternPoolIndex(self: *const Self, index: InternPool.Index, indent: Indent) void {
             const key = index.toKey(self.intern_pool.?);
 
-            self.output.printf(
-                ".{s}",
-                .{@tagName(key)},
-            );
+            self.output.printf(".{s}", .{@tagName(key)});
 
             inline for (meta.fields(InternPool.Key)) |field| {
                 if (std.mem.eql(u8, field.name, @tagName(key))) {
                     self.output.print(" = ");
-                    self.printAstField(
-                        @field(key, field.name),
-                        indent,
-                    );
+                    self.printAstField(@field(key, field.name), indent);
                 }
             }
         }
 
-        fn printAstField(
-            self: *const Self,
-            field: anytype,
-            indent: Indent,
-        ) void {
+        fn printAstField(self: *const Self, field: anytype, indent: Indent) void {
             const Type = @TypeOf(field);
             const type_info = @typeInfo(Type);
 
@@ -157,19 +132,14 @@ fn GenericTreePrinter(AstType: type) type {
             }
 
             if (Type == InternPool.Index) {
-                self.printInternPoolIndex(
-                    field,
-                    indent,
-                );
+                self.printInternPoolIndex(field, indent);
                 return;
             }
 
             switch (type_info) {
                 .pointer => |pointer| {
                     if (pointer.size != .slice) {
-                        @compileError(
-                            "ast printer doesn't support non-slice pointers",
-                        );
+                        @compileError("ast printer doesn't support non-slice pointers");
                     }
 
                     if (field.len == 0) {
@@ -181,16 +151,10 @@ fn GenericTreePrinter(AstType: type) type {
 
                     for (field, 0..) |element, index| {
                         const row_finality: Indent.RowFinality =
-                            if (index == field.len - 1)
-                                .final_row
-                            else
-                                .middle_row;
+                            if (index == field.len - 1) .final_row else .middle_row;
 
                         self.printIndent(indent.wrap(row_finality));
-                        self.printAstField(
-                            element,
-                            indent.wrapNewLevel(row_finality),
-                        );
+                        self.printAstField(element, indent.wrapNewLevel(row_finality));
                         self.output.print("\n");
                     }
 
@@ -209,10 +173,7 @@ fn GenericTreePrinter(AstType: type) type {
 
                     inline for (fields, 0..) |child_field, index| {
                         const row_finality: Indent.RowFinality =
-                            if (index == fields.len - 1)
-                                .final_row
-                            else
-                                .middle_row;
+                            if (index == fields.len - 1) .final_row else .middle_row;
 
                         self.printIndent(indent.wrap(row_finality));
                         self.output.printf(".{s} = ", .{child_field.name});
@@ -235,10 +196,7 @@ fn GenericTreePrinter(AstType: type) type {
                     if (field == null) {
                         self.output.print("null");
                     } else {
-                        self.printAstField(
-                            field.?,
-                            indent,
-                        );
+                        self.printAstField(field.?, indent);
                     }
                 },
 
@@ -250,10 +208,12 @@ fn GenericTreePrinter(AstType: type) type {
                     self.output.printf("{d}", .{field});
                 },
 
-                else => @compileError(fmt.comptimePrint(
-                    "ast printer doesn't support {s} / {s}",
-                    .{ @typeName(Type), @tagName(type_info) },
-                )),
+                else => @compileError(
+                    fmt.comptimePrint(
+                        "ast printer doesn't support {s} / {s}",
+                        .{ @typeName(Type), @tagName(type_info) },
+                    ),
+                ),
             }
         }
 
@@ -278,8 +238,7 @@ fn GenericTreePrinter(AstType: type) type {
             }
 
             const is_final_column_and_connected =
-                column_finality == .final_column and
-                connectedness == .connected;
+                column_finality == .final_column and connectedness == .connected;
 
             self.output.print(
                 if (indent.row_finality == .final_row)
@@ -297,11 +256,7 @@ fn GenericTreePrinter(AstType: type) type {
 }
 
 pub const TreePrinter = struct {
-    pub fn printAst(
-        source: []const u8,
-        output: *const Output,
-        ast: *const Ast,
-    ) void {
+    pub fn printAst(source: []const u8, output: *const Output, ast: *const Ast) void {
         GenericTreePrinter(Ast).print(source, output, null, ast);
     }
 

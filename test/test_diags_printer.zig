@@ -18,10 +18,7 @@ pub const TestDiagsPrinter = struct {
     output: *const Output,
     current_validation_failure: Runner.Diags.Entry.Tag.ValidationFailure,
 
-    pub fn printRunnerDiags(
-        diags: *const Runner.Diags,
-        output: *const Output,
-    ) void {
+    pub fn printRunnerDiags(diags: *const Runner.Diags, output: *const Output) void {
         var diags_printer: TestDiagsPrinter = .{
             .diags = diags,
             .output = output,
@@ -34,10 +31,7 @@ pub const TestDiagsPrinter = struct {
         }
     }
 
-    fn printRunnerDiagEntry(
-        self: *TestDiagsPrinter,
-        diag: Runner.Diags.Entry,
-    ) void {
+    fn printRunnerDiagEntry(self: *TestDiagsPrinter, diag: Runner.Diags.Entry) void {
         self.output.printf(
             "Diagnostics for '{s}':\n",
             .{diag.file_path.toSlice(self.diags.strings.items)},
@@ -51,12 +45,8 @@ pub const TestDiagsPrinter = struct {
 
             .test_parse_failure,
             => |parse_failure| self.printTestParserDiagEntries(
-                parse_failure.source.toSlice(
-                    self.diags.strings.items,
-                ),
-                parse_failure.entries.toSlice(
-                    self.diags.test_parser_diag_entries.items,
-                ),
+                parse_failure.source.toSlice(self.diags.strings.items),
+                parse_failure.entries.toSlice(self.diags.test_parser_diag_entries.items),
             ),
 
             .validation_failure => |mismatch| {
@@ -83,30 +73,21 @@ pub const TestDiagsPrinter = struct {
     ) void {
         const line, const column = entry.loc.toLineCol(source);
 
-        self.output.printf("Test parser error at {}:{}: ", .{
-            line,
-            column,
-        });
+        self.output.printf("Test parser error at {}:{}: ", .{ line, column });
 
         switch (entry.tag) {
             .expected_directive_identifier,
             => self.output.print("Expected a directive identifier."),
 
             .unexpected_directive,
-            => self.output.printf(
-                "Unexpected directive \"{s}\".",
-                .{entry.loc.toSlice(source)},
-            ),
+            => self.output.printf("Unexpected directive \"{s}\".", .{entry.loc.toSlice(source)}),
 
             .expected_left_paren_before_directive,
-            => self.output.print(
-                "Expected a left parenthesis before the directive identifier.",
-            ),
+            => self.output.print("Expected a left parenthesis before the directive identifier."),
 
             .expected_right_paren_after_directive_args,
             => self.output.print(
-                "Expected a right parenthesis after the directive " ++
-                    "identifier arguments.",
+                "Expected a right parenthesis after the directive identifier arguments.",
             ),
 
             .expected_dot_before_enum_variant,
@@ -116,10 +97,7 @@ pub const TestDiagsPrinter = struct {
             => self.output.print("Expected an enum variant identifier."),
 
             .unknown_enum_variant,
-            => self.output.printf(
-                "Unknown enum variant \"{s}\".",
-                .{entry.loc.toSlice(source)},
-            ),
+            => self.output.printf("Unknown enum variant \"{s}\".", .{entry.loc.toSlice(source)}),
 
             .expected_test_directive,
             => self.output.print("Expected a \"test\" directive."),
@@ -136,12 +114,7 @@ pub const TestDiagsPrinter = struct {
             .overflow,
             => |int| {
                 self.output.print("Parsed value for ");
-                self.output.print(
-                    if (int.signedness == .signed)
-                        "i"
-                    else
-                        "u",
-                );
+                self.output.print(if (int.signedness == .signed) "i" else "u");
                 self.output.printf("{} overflows.", .{int.bits});
             },
 
@@ -158,37 +131,25 @@ pub const TestDiagsPrinter = struct {
             => self.output.print("Expected a field identifier."),
 
             .expected_equal_after_field_identifier,
-            => self.output.print(
-                "Expected equals after a field identifier.",
-            ),
+            => self.output.print("Expected equals after a field identifier."),
 
             .unknown_struct_field,
-            => self.output.printf(
-                "Unknown struct field \"{s}\".",
-                .{entry.loc.toSlice(source)},
-            ),
+            => self.output.printf("Unknown struct field \"{s}\".", .{entry.loc.toSlice(source)}),
 
             .not_all_fields_initialized,
             => self.output.print("Not all struct fields are initialized."),
 
             .field_redifinition,
-            => self.output.printf(
-                "Field \"{s}\" is redefined.",
-                .{entry.loc.toSlice(source)},
-            ),
+            => self.output.printf("Field \"{s}\" is redefined.", .{entry.loc.toSlice(source)}),
 
             .expected_comma_after_loc,
-            => self.output.print(
-                "Expected a comma after the location argument.",
-            ),
+            => self.output.print("Expected a comma after the location argument."),
 
             .expected_dot_before_union_variant,
             => self.output.print("Expected a dot before a union variant."),
 
             .expected_dot_or_left_brace,
-            => self.output.print(
-                "Expected a dot or a left brace.",
-            ),
+            => self.output.print("Expected a dot or a left brace."),
 
             .union_variant_is_not_void,
             => self.output.printf(
@@ -197,23 +158,16 @@ pub const TestDiagsPrinter = struct {
             ),
 
             .unknown_union_variant,
-            => self.output.printf(
-                "Unknown union variant \"{s}\".",
-                .{entry.loc.toSlice(source)},
-            ),
+            => self.output.printf("Unknown union variant \"{s}\".", .{entry.loc.toSlice(source)}),
 
             .expected_union_variant_identifier,
             => self.output.print("Expected a union variant identifier."),
 
             .expected_equal_after_union_variant_identifier,
-            => self.output.print(
-                "Expected equals after a union variant identifier",
-            ),
+            => self.output.print("Expected equals after a union variant identifier"),
 
             .expected_right_brace_after_union_variant_value,
-            => self.output.print(
-                "Expected a right brace after union variant value.",
-            ),
+            => self.output.print("Expected a right brace after union variant value."),
 
             .expected_left_brace_before_list_elems,
             => self.output.print("Expected a left brace before list elements."),
@@ -222,10 +176,7 @@ pub const TestDiagsPrinter = struct {
             => self.output.print("Expected a right brace after list elements."),
 
             .fixed_array_limit_reached,
-            => |limit| self.output.printf(
-                "List elements limit of {} is exceeded.",
-                .{limit},
-            ),
+            => |limit| self.output.printf("List elements limit of {} is exceeded.", .{limit}),
 
             .expected_string,
             => self.output.print("Expected a string."),
@@ -245,9 +196,7 @@ pub const TestDiagsPrinter = struct {
         self.printIndent(1);
         self.output.print("Expected:\n");
 
-        for (validation_failure.expects.toSlice(
-            self.diags.expects.items,
-        )) |expect| {
+        for (validation_failure.expects.toSlice(self.diags.expects.items)) |expect| {
             self.printIndent(2);
             self.printValidationFailureExpect(expect);
             self.output.print("\n");
@@ -256,9 +205,7 @@ pub const TestDiagsPrinter = struct {
         self.printIndent(1);
         self.output.print("Actual:\n");
 
-        for (validation_failure.actuals.toSlice(
-            self.diags.actuals.items,
-        )) |actual| {
+        for (validation_failure.actuals.toSlice(self.diags.actuals.items)) |actual| {
             self.printIndent(2);
             self.printValidationFailureActual(
                 validation_failure.source.toSlice(self.diags.strings.items),
@@ -268,10 +215,7 @@ pub const TestDiagsPrinter = struct {
         }
     }
 
-    fn printValidationFailureExpect(
-        self: *const TestDiagsPrinter,
-        expect: TestSetup.Expect,
-    ) void {
+    fn printValidationFailureExpect(self: *const TestDiagsPrinter, expect: TestSetup.Expect) void {
         switch (expect) {
             .parse_err => |parse_err| {
                 self.output.print("Parse error ");
@@ -341,10 +285,7 @@ pub const TestDiagsPrinter = struct {
         }
     }
 
-    fn printValue(
-        self: *const TestDiagsPrinter,
-        value: anytype,
-    ) void {
+    fn printValue(self: *const TestDiagsPrinter, value: anytype) void {
         const Type = @TypeOf(value);
         const type_info = @typeInfo(Type);
 
@@ -358,9 +299,7 @@ pub const TestDiagsPrinter = struct {
             return;
         }
 
-        if (type_info == .array or
-            (type_info == .pointer and type_info.pointer.size == .slice))
-        {
+        if (type_info == .array or (type_info == .pointer and type_info.pointer.size == .slice)) {
             self.printArray(value);
             return;
         }
@@ -377,16 +316,11 @@ pub const TestDiagsPrinter = struct {
             .@"struct" => self.printStruct(value),
             .@"enum" => self.output.printf(".{s}", .{@tagName(value)}),
             .@"union" => self.printUnion(value),
-            else => @compileError(
-                "printing for " ++ @typeName(Type) ++ " is not supported",
-            ),
+            else => @compileError("printing for " ++ @typeName(Type) ++ " is not supported"),
         }
     }
 
-    fn printIpIndex(
-        self: *const TestDiagsPrinter,
-        index: InternPool.Index,
-    ) void {
+    fn printIpIndex(self: *const TestDiagsPrinter, index: InternPool.Index) void {
         switch (index) {
             _ => {},
             else => {
@@ -400,21 +334,14 @@ pub const TestDiagsPrinter = struct {
                 self.current_validation_failure.ip_items.index,
                 self.current_validation_failure.ip_items.len,
             ),
-            self.current_validation_failure.ip_extra.toSlice(
-                self.diags.ip_extra.items,
-            ),
-            self.current_validation_failure.ip_strings.toSlice(
-                self.diags.strings.items,
-            ),
+            self.current_validation_failure.ip_extra.toSlice(self.diags.ip_extra.items),
+            self.current_validation_failure.ip_strings.toSlice(self.diags.strings.items),
         );
 
         self.printUnion(key);
     }
 
-    fn printArray(
-        self: *const TestDiagsPrinter,
-        value: anytype,
-    ) void {
+    fn printArray(self: *const TestDiagsPrinter, value: anytype) void {
         self.output.print("{");
 
         for (value, 0..) |item, index| {
@@ -428,10 +355,7 @@ pub const TestDiagsPrinter = struct {
         self.output.print("}");
     }
 
-    fn printStruct(
-        self: *const TestDiagsPrinter,
-        value: anytype,
-    ) void {
+    fn printStruct(self: *const TestDiagsPrinter, value: anytype) void {
         const Type = @TypeOf(value);
 
         self.output.print("{");
@@ -450,10 +374,7 @@ pub const TestDiagsPrinter = struct {
         self.output.print("}");
     }
 
-    fn printUnion(
-        self: *const TestDiagsPrinter,
-        value: anytype,
-    ) void {
+    fn printUnion(self: *const TestDiagsPrinter, value: anytype) void {
         inline for (meta.fields(@TypeOf(value))) |field| {
             if (mem.eql(u8, @tagName(value), field.name)) {
                 if (field.type == void) {
@@ -467,10 +388,7 @@ pub const TestDiagsPrinter = struct {
         }
     }
 
-    fn printExpectLoc(
-        self: *const TestDiagsPrinter,
-        loc: TestSetup.Expect.Loc,
-    ) void {
+    fn printExpectLoc(self: *const TestDiagsPrinter, loc: TestSetup.Expect.Loc) void {
         switch (loc) {
             .line => |line| self.output.printf("at line {}", .{line}),
             .span => |span| self.output.printf(
@@ -480,11 +398,7 @@ pub const TestDiagsPrinter = struct {
         }
     }
 
-    fn printActualLoc(
-        self: *const TestDiagsPrinter,
-        source: []const u8,
-        loc: Span(u8),
-    ) void {
+    fn printActualLoc(self: *const TestDiagsPrinter, source: []const u8, loc: Span(u8)) void {
         const line, const col = loc.toLineCol(source);
         self.output.printf("at {}:{}", .{ line, col });
     }
