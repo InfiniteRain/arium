@@ -1,7 +1,8 @@
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const Writer = std.io.Writer;
+const Writer = Io.Writer;
 
 pub const TestWriter = struct {
     allocator: Allocator,

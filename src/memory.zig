@@ -16,7 +16,7 @@ pub fn Value(comptime mode: ExecutionMode) type {
             @"fn": u64,
             object: *Object(.debug),
         },
-        .release => packed union {
+        .release => extern union {
             int: i64,
             float: f64,
             bool: bool,

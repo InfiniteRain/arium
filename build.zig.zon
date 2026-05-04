@@ -2,11 +2,11 @@
     .name = .arium,
     .version = "0.0.0",
     .fingerprint = 0x850ba10e4d59bff9,
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.11.0.tar.gz",
-            .hash = "clap-0.11.0-oBajB-HnAQDPCKYzwF7rO3qDFwRcD39Q0DALlTSz5H7e",
+            .url = "git+https://github.com/Hejsil/zig-clap#8d97efa1ee1e575443c7888d5c38e1c3fc145cf5",
+            .hash = "clap-0.12.0-oBajB7foAQDqlSwaSG5g0yq7xGbQARUsBk5T64gAOqP5",
         },
     },
     .paths = .{

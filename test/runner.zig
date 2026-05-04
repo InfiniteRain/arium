@@ -1,7 +1,7 @@
 const std = @import("std");
-const fs = std.fs;
 const mem = std.mem;
 const meta = std.meta;
+const Io = std.Io;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const MultiArrayList = std.MultiArrayList;
@@ -254,11 +254,11 @@ pub const Runner = struct {
         };
     }
 
-    pub fn runTest(self: *const Runner, file_path: []const u8) Error!void {
+    pub fn runTest(self: *const Runner, io: Io, file_path: []const u8) Error!void {
         const actuals_top = self.scratch.actuals.items.len;
         defer self.scratch.actuals.shrinkRetainingCapacity(actuals_top);
 
-        const source = self.readFileAlloc(file_path) catch |err|
+        const source = self.readFileAlloc(io, file_path) catch |err|
             switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.FileReadFailure => {
@@ -528,18 +528,19 @@ pub const Runner = struct {
 
     fn readFileAlloc(
         self: *const Runner,
+        io: Io,
         file_path: []const u8,
     ) (error{FileReadFailure} || Allocator.Error)![:0]const u8 {
-        var tests_dir = fs.cwd().openDir(constants.tests_dir, .{}) catch
+        var tests_dir = Io.Dir.cwd().openDir(io, constants.tests_dir, .{}) catch
             return error.FileReadFailure;
-        defer tests_dir.close();
+        defer tests_dir.close(io);
 
-        const file = tests_dir.openFile(file_path, .{ .mode = .read_only }) catch
+        const file = tests_dir.openFile(io, file_path, .{ .mode = .read_only }) catch
             return error.FileReadFailure;
-        defer file.close();
+        defer file.close(io);
 
         var file_buffer: [512]u8 = undefined;
-        var reader = file.reader(&file_buffer);
+        var reader = file.reader(io, &file_buffer);
         var file_reader = &reader.interface;
 
         var buffer: ArrayList(u8) = .empty;

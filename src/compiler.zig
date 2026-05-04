@@ -634,7 +634,8 @@ pub const Compiler = struct {
                     try self.scratch.then_jumps.append(self.allocator, top);
                 }
 
-                try self.patchJumps(jumps);
+                // `jumps` is potentially invalid here (if the condition above was executed)
+                try self.patchJumps(self.scratch.else_jumps.items[else_scratch_top..]);
             } else {
                 const jumps = self.scratch.then_jumps.items[then_scratch_top..];
                 try self.patchJumps(jumps);

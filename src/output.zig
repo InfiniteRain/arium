@@ -1,5 +1,5 @@
 const std = @import("std");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const Output = struct {
     writer: *Writer,

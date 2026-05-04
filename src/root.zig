@@ -32,5 +32,5 @@ pub const ExecutionMode = debug_mod.ExecutionMode;
 pub const FixedArray = @import("fixed_array.zig").FixedArray;
 
 test {
-    _ = std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDecls(@This());
 }
