@@ -96,9 +96,11 @@ pub const Parser = struct {
         try parser.ast.nodes.append(allocator, undefined);
         try parser.ast.locs.append(allocator, undefined);
 
-        const block, const loc = try parser.parseBlockExprKey(.eof, .{ .index = 1, .len = 0 });
-
-        try parser.setNode(0, block, loc);
+        _ = try parser.parseBlockExprAux(
+            .eof,
+            .{ .index = 1, .len = 0 },
+            .{ .set_at = 0 },
+        );
 
         return parser.ast;
     }
@@ -532,23 +534,20 @@ pub const Parser = struct {
     }
 
     fn parseBlockExpr(self: *Parser, end_tokens: anytype, loc: Span(u8)) Error!Ast.Index {
-        const key, const block_loc = try self.parseBlockExprKey(end_tokens, loc);
-        return self.addNode(key, block_loc);
+        return self.parseBlockExprAux(end_tokens, loc, .append_back);
     }
 
-    fn parseBlockExprKey(
+    fn parseBlockExprAux(
         self: *Parser,
         end_tokens: anytype,
         loc: Span(u8),
-    ) Error!struct { Ast.Key, Span(u8) } {
+        insert_mode: union(enum) { append_back, set_at: u32 },
+    ) Error!Ast.Index {
         const scratch_top = self.scratch.nodes.items.len;
         defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
         if (self.match(end_tokens, .greedy)) |end_token| {
-            return .{
-                .{ .block = &.{} },
-                loc.extend(end_token.loc),
-            };
+            return self.addNode(.{ .block = &.{} }, loc.extend(end_token.loc));
         }
 
         const old_errors_num = self.diags.entries.items.len;
@@ -583,10 +582,16 @@ pub const Parser = struct {
         }
 
         const indexes = self.scratch.nodes.items[scratch_top..];
+        const final_key: Ast.Key =
+            if (ends_with_semicolon) .{ .block_semicolon = indexes } else .{ .block = indexes };
+        const final_loc = loc.extend(end_token.loc);
 
-        return .{
-            if (ends_with_semicolon) .{ .block_semicolon = indexes } else .{ .block = indexes },
-            loc.extend(end_token.loc),
+        return switch (insert_mode) {
+            .append_back => self.addNode(final_key, final_loc),
+            .set_at => |at| blk: {
+                try self.setNode(at, final_key, final_loc);
+                break :blk Ast.Index.from(at);
+            },
         };
     }
 

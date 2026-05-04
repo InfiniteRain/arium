@@ -1,8 +1,7 @@
 const std = @import("std");
-const fs = std.fs;
 const mem = std.mem;
-const time = std.time;
-const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const Init = std.process.Init;
+const Io = std.Io;
 const ArrayList = std.ArrayList;
 
 const arium = @import("arium");
@@ -18,21 +17,21 @@ const style_end = "\x1b[0m";
 const style_err = "\x1b[31m";
 const style_success = "\x1b[32m";
 
-pub fn main() !void {
-    var gpa: GeneralPurposeAllocator(.{}) = .init;
-    const allocator = gpa.allocator();
+pub fn main(init: Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = Output.init(&stdout_writer.interface);
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = Output.init(&stderr_writer.interface);
 
     {
-        var dir = try fs.cwd().openDir("./" ++ constants.tests_dir, .{ .iterate = true });
-        defer dir.close();
+        var dir = try Io.Dir.cwd().openDir(io, "./" ++ constants.tests_dir, .{ .iterate = true });
+        defer dir.close(io);
 
         var walker = try dir.walk(allocator);
         defer walker.deinit();
@@ -47,7 +46,8 @@ pub fn main() !void {
         defer test_scratch.deinit(allocator);
 
         const runner: Runner = .init(allocator, &runner_diags, &runner_scratch, &test_scratch);
-        const start_ms = time.milliTimestamp();
+        const start_ms = Io.Timestamp.now(io, .boot).toMilliseconds();
+
         var passed: u32 = 0;
         var failed: u32 = 0;
 
@@ -59,7 +59,7 @@ pub fn main() !void {
 
         var max_str_len: usize = 0;
 
-        while (try walker.next()) |entry| {
+        while (try walker.next(io)) |entry| {
             if (entry.kind != .file) {
                 continue;
             }
@@ -88,7 +88,7 @@ pub fn main() !void {
                 stdout.print(" ");
             }
 
-            runner.runTest(file_path_str) catch |err|
+            runner.runTest(io, file_path_str) catch |err|
                 switch (err) {
                     error.RunTestFailure => {
                         stdout.printf("{s}FAILED{s}\n", .{ style_err, style_end });
@@ -109,7 +109,7 @@ pub fn main() !void {
             .{ "Tests ran", passed + failed },
             .{ "Tests passed", passed },
             .{ "Tests failed", failed },
-            .{ "Time elapsed (ms)", time.milliTimestamp() - start_ms },
+            .{ "Time elapsed (ms)", Io.Timestamp.now(io, .boot).toMilliseconds() - start_ms },
         };
 
         comptime var max_info_len: u32 = 0;
@@ -136,12 +136,8 @@ pub fn main() !void {
             return error.TestFailure;
         }
     }
-
-    if (gpa.deinit() == .leak) {
-        return error.MemoryLeak;
-    }
 }
 
 test {
-    _ = std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDecls(@This());
 }

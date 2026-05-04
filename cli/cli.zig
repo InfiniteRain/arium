@@ -1,9 +1,10 @@
 const std = @import("std");
-const fs = std.fs;
+const system = std.posix.system;
+const Init = std.process.Init;
+const Io = std.Io;
+const OpenError = Io.File.OpenError;
 const Allocator = std.mem.Allocator;
-const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const ArrayList = std.ArrayList;
-const OpenError = fs.File.OpenError;
 
 const arium = @import("arium");
 const Output = arium.Output;
@@ -32,16 +33,16 @@ const CliArgs = struct {
     file_name: []const u8,
 };
 
-pub fn main() !void {
-    var gpa: GeneralPurposeAllocator(.{}) = .init;
-    const allocator = gpa.allocator();
+pub fn main(init: Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = Output.init(&stdout_writer.interface);
 
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer = fs.File.stderr().writer(&stderr_buffer);
+    var stderr_writer = Io.File.stderr().writer(io, &stderr_buffer);
     const stderr = Output.init(&stderr_writer.interface);
 
     const params = comptime clap.parseParamsComptime(
@@ -59,13 +60,13 @@ pub fn main() !void {
     };
 
     var diag = clap.Diagnostic{};
-    const res = clap.parse(clap.Help, &params, parsers, .{
+    const res = clap.parse(clap.Help, &params, parsers, init.minimal.args, .{
         .diagnostic = &diag,
         .allocator = allocator,
     }) catch |err| {
         try diag.report(stderr.writer, err);
         try usage(&stderr, &params);
-        std.posix.exit(64);
+        system.exit(64);
     };
     defer res.deinit();
 
@@ -92,31 +93,32 @@ pub fn main() !void {
 
     const result =
         if (args.print_byte_code or args.trace_execution)
-            runFile(allocator, &stdout, &stderr, args, .debug)
+            runFile(allocator, io, &stdout, &stderr, args, .debug)
         else
-            runFile(allocator, &stdout, &stderr, args, .release);
+            runFile(allocator, io, &stdout, &stderr, args, .release);
 
     result catch |err| switch (err) {
         error.OutOfMemory => {
             stderr.print("Out of memory.\n");
-            std.posix.exit(1);
+            system.exit(1);
         },
     };
 }
 
 fn runFile(
     allocator: Allocator,
+    io: Io,
     stdout: *const Output,
     stderr: *const Output,
     args: CliArgs,
     comptime mode: ExecutionMode,
 ) Allocator.Error!void {
-    const source = readFileAlloc(allocator, args.file_name) catch |err|
+    const source = readFileAlloc(allocator, io, args.file_name) catch |err|
         switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
                 stderr.printf("Failed to read file: {s}.", .{@errorName(err)});
-                std.posix.exit(1);
+                system.exit(1);
             },
         };
     defer allocator.free(source);
@@ -137,7 +139,7 @@ fn runFile(
     ) catch |err| switch (err) {
         error.ParseFailure => {
             DiagsPrinter(mode).printParserDiags(source, &parser_diags, stderr);
-            std.posix.exit(1);
+            system.exit(1);
         },
         else => |cli_error| return cli_error,
     };
@@ -171,7 +173,7 @@ fn runFile(
                 &intern_pool,
                 stderr,
             );
-            std.posix.exit(1);
+            system.exit(1);
         },
         else => |cli_error| return cli_error,
     };
@@ -196,7 +198,7 @@ fn runFile(
     ) catch |err| switch (err) {
         error.CompileFailure => {
             DiagsPrinter(mode).printCompilerDiags(source, &compiler_diags, stderr);
-            std.posix.exit(1);
+            system.exit(1);
         },
         else => |cli_error| return cli_error,
     };
@@ -229,18 +231,18 @@ fn runFile(
         switch (err) {
             error.Panic => {
                 DiagsPrinter(mode).printVmDiags(source, &vm_diags, stderr);
-                std.posix.exit(1);
+                system.exit(1);
             },
             else => |cli_error| return cli_error,
         };
 }
 
-fn readFileAlloc(allocator: Allocator, file_path: []const u8) Error![:0]const u8 {
-    const file = try fs.cwd().openFile(file_path, .{ .mode = .read_only });
-    defer file.close();
+fn readFileAlloc(allocator: Allocator, io: Io, file_path: []const u8) Error![:0]const u8 {
+    const file = try Io.Dir.cwd().openFile(io, file_path, .{ .mode = .read_only });
+    defer file.close(io);
 
     var file_buffer: [512]u8 = undefined;
-    var reader = file.reader(&file_buffer);
+    var reader = file.reader(io, &file_buffer);
     var file_reader = &reader.interface;
 
     var buffer: ArrayList(u8) = .empty;
