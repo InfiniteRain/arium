@@ -78,6 +78,9 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
                 .expected_right_paren_after_expr,
                 => self.output.print("Expected ')' after expression."),
 
+                .expected_equal_after_variable_declaration,
+                => self.output.print("Expected '=' after variable declaration."),
+
                 .invalid_assignment_target,
                 => self.output.print("Invalid assignment target."),
 
@@ -142,12 +145,6 @@ pub fn DiagsPrinter(comptime mode: ExecutionMode) type {
 
                 .too_many_locals,
                 => self.output.print("Too many locals declared."),
-
-                .unassigned_variable,
-                => self.output.printf(
-                    "Variable '{s}' was not assigned a value.",
-                    .{diag.loc.toSlice(self.source)},
-                ),
 
                 .immutable_mutation,
                 => |loc| self.output.printf(

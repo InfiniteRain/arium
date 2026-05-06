@@ -43,7 +43,6 @@ pub const Sema = struct {
                 integer_overflow,
                 undeclared_identifier,
                 too_many_locals,
-                unassigned_variable,
                 immutable_mutation: Span(u8),
                 unreachable_stmt,
                 break_outside_loop,
@@ -170,13 +169,10 @@ pub const Sema = struct {
 
         const Flags = packed struct {
             mutability: Mutability,
-            assignment: Assignement,
             eval_time: EvalTime,
         };
 
         const Mutability = enum(u1) { mutable, immutable };
-
-        const Assignement = enum(u1) { assigned, unassigned };
 
         const EvalTime = enum(u1) { @"comptime", runtime };
 
@@ -228,6 +224,7 @@ pub const Sema = struct {
             .{ "Bool", .type_bool },
             .{ "String", .type_string },
             .{ "Unit", .type_unit },
+            .{ "Type", .type_type },
         }) |entry| {
             try scope.append(
                 allocator,
@@ -235,7 +232,6 @@ pub const Sema = struct {
                 entry[1],
                 .{
                     .mutability = .immutable,
-                    .assignment = .assigned,
                     .eval_time = .@"comptime",
                 },
             );
@@ -345,31 +341,7 @@ pub const Sema = struct {
             null;
         const mutability: Local.Mutability = if (ast_stmt_key == .let) .immutable else .mutable;
         const identifier = let.identifier;
-
-        const ast_expr = let.expr orelse {
-            try self.scope.append(
-                self.allocator,
-                .from(identifier),
-                if (let_type_opt) |let_type| let_type else .none,
-                .{
-                    .mutability = mutability,
-                    .assignment = .unassigned,
-                    .eval_time = .runtime,
-                },
-            );
-
-            return self.addNode(
-                .{ .let = .{
-                    .stack_index = @intCast(
-                        self.scope.runtime_locals_count - 1,
-                    ),
-                    .rhs = null,
-                } },
-                ast_stmt.toLoc(self.ast),
-            );
-        };
-
-        const air_expr = try self.analyzeExpr(ast_expr, .use);
+        const air_expr = try self.analyzeExpr(let.expr, .use);
 
         if (self.scope.runtime_locals_count >= limits.max_locals) {
             try self.addDiag(.too_many_locals, ast_stmt.toLoc(self.ast));
@@ -387,7 +359,7 @@ pub const Sema = struct {
                         .expected = .from(let_type),
                         .actual = local_type,
                     } },
-                    ast_expr.toLoc(self.ast),
+                    let.expr.toLoc(self.ast),
                 );
                 final_type = .invalid;
             }
@@ -399,7 +371,6 @@ pub const Sema = struct {
             final_type,
             .{
                 .mutability = mutability,
-                .assignment = .assigned,
                 .eval_time = .runtime,
             },
         );
@@ -431,7 +402,6 @@ pub const Sema = struct {
             fn_air.toType(&self.air, self.intern_pool),
             .{
                 .mutability = .immutable,
-                .assignment = .assigned,
                 .eval_time = .runtime,
             },
         );
@@ -501,7 +471,6 @@ pub const Sema = struct {
                 fn_type,
                 .{
                     .mutability = .immutable,
-                    .assignment = .assigned,
                     .eval_time = .runtime,
                 },
             );
@@ -513,7 +482,6 @@ pub const Sema = struct {
                     .from(type_idx),
                     .{
                         .mutability = .immutable,
-                        .assignment = .assigned,
                         .eval_time = .runtime,
                     },
                 );
@@ -963,16 +931,10 @@ pub const Sema = struct {
             };
         const loc = ast_expr.toLoc(self.ast);
         const scope_slice = self.scope.locals.slice();
-        const flags = scope_slice.items(.flags);
         const types = scope_slice.items(.ip_value);
 
         switch (result) {
             .runtime => |data| {
-                if (flags[data.index].assignment == .unassigned) {
-                    try self.addDiag(.unassigned_variable, ast_expr.toLoc(self.ast));
-                    return self.addInvalidNode();
-                }
-
                 return self.addNode(
                     .{ .variable = .{
                         .stack_index = @intCast(data.stack_index),
@@ -981,10 +943,7 @@ pub const Sema = struct {
                     loc,
                 );
             },
-            .@"comptime" => |data| {
-                return self.addNode(.{ .constant = data.ip_index }, loc);
-            },
-            .comptime_upvalue => |data| {
+            .@"comptime", .comptime_upvalue => |data| {
                 return self.addNode(.{ .constant = data.ip_index }, loc);
             },
         }
@@ -1011,14 +970,10 @@ pub const Sema = struct {
             switch (result) {
                 .runtime,
                 => |data| blk: {
-                    if (flags[data.index].mutability == .immutable and
-                        flags[data.index].assignment == .assigned)
-                    {
+                    if (flags[data.index].mutability == .immutable) {
                         try self.addDiag(.{ .immutable_mutation = lhs_loc }, expr_loc);
                         return self.addInvalidNode();
                     }
-
-                    flags[data.index].assignment = .assigned;
 
                     break :blk .{ data.index, data.stack_index };
                 },

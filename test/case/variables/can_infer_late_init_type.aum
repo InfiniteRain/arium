@@ -1,9 +1,0 @@
-let variable
-
-variable = "hello, world"
-
-print(variable)
-
-/// test(.run)
-/// out("hello, world")
-

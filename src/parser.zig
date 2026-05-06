@@ -41,6 +41,7 @@ pub const Parser = struct {
                 expected_right_paren_after_params,
                 expected_colon_after_param,
                 expected_right_paren_after_expr,
+                expected_equal_after_variable_declaration,
                 invalid_assignment_target,
                 invalid_token,
 
@@ -137,23 +138,20 @@ pub const Parser = struct {
         const matched_colon = self.match(.colon, .newline_terminated) != null;
         const type_opt = if (matched_colon) try self.parseTypeExpr() else null;
 
-        const matched_equal = self.match(.equal, .newline_terminated) != null;
-        const expr_opt = if (matched_equal) blk: {
-            self.skipNewLines();
-            break :blk try self.parseExpr(.newline_terminated);
-        } else null;
+        _ = try self.consume(.equal, .expected_equal_after_variable_declaration);
+        self.skipNewLines();
+
+        const expr = try self.parseExpr(.newline_terminated);
 
         const let: Ast.Key.Let = .{
             .identifier = name_identifier,
             .type = type_opt,
-            .expr = expr_opt,
+            .expr = expr,
         };
 
         return self.addNode(
             if (is_mutable) .{ .let_mut = let } else .{ .let = let },
-            let_token.loc.extend(
-                (expr_opt orelse (type_opt orelse name_identifier)).toLoc(&self.ast),
-            ),
+            let_token.loc.extend(expr.toLoc(&self.ast)),
         );
     }
 
@@ -978,7 +976,7 @@ pub const Parser = struct {
     fn prepareLet(self: *Parser, tag: Ast.Node.Tag, let: Ast.Key.Let) Allocator.Error!Ast.Node {
         try self.ast.extra.appendSlice(self.allocator, &.{
             if (let.type) |@"type"| @"type".toInt() else 0,
-            if (let.expr) |expr| expr.toInt() else 0,
+            let.expr.toInt(),
         });
 
         return .{

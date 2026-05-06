@@ -136,7 +136,7 @@ pub const Ast = struct {
         pub const Let = struct {
             identifier: Index,
             type: ?Index,
-            expr: ?Index,
+            expr: Index,
         };
 
         pub const Fn = struct {
@@ -305,7 +305,7 @@ pub const Ast = struct {
         return @unionInit(Key, tag, .{
             .identifier = .from(a),
             .type = if (extra[0] == 0) null else .from(extra[0]),
-            .expr = if (extra[1] == 0) null else .from(extra[1]),
+            .expr = .from(extra[1]),
         });
     }
 };

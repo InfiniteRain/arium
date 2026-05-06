@@ -1,4 +1,4 @@
-let mut variable;
+let mut variable = ""
 
 variable = "hello,"
 

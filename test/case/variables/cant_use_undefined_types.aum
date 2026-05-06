@@ -1,4 +1,4 @@
-let test: BadType
+let test: BadType = 0
 
 /// test(.sema)
 /// sema_err(line(1), .undeclared_identifier)

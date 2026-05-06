@@ -1,4 +1,7 @@
-let a: fn(Int,)
+fn test_fn(a: Int)
+end
+
+let a: fn(Int,) = test_fn
 
 /// test(.parse)
 
