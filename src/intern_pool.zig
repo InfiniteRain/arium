@@ -139,6 +139,18 @@ pub const InternPool = struct {
                 };
             }
         };
+
+        fn fromInt(int: i64) InternPool.Key {
+            return .{ .value_int = int };
+        }
+
+        fn fromFloat(float: f64) InternPool.Key {
+            return .{ .value_float = float };
+        }
+
+        fn fromBool(value: bool) InternPool.Key {
+            return .{ .value_simple = if (value) .bool_true else .bool_false };
+        }
     };
 
     pub const Index = enum(u32) {

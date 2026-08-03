@@ -443,6 +443,7 @@ pub const Parser = struct {
                 .@"break",
                 .@"continue",
                 .@"return",
+                .type,
             },
             .newline_terminated,
         )) |token| {
@@ -457,6 +458,7 @@ pub const Parser = struct {
                 .@"break" => try self.parseBreakExpr(),
                 .@"continue" => try self.parseContinueExpr(),
                 .@"return" => try self.parseReturnExpr(),
+                .type => try self.parseTypeExpr(),
                 else => unreachable,
             };
         }

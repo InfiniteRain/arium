@@ -203,6 +203,45 @@ pub const Sema = struct {
         no_force_append_unit,
     };
 
+    const ResolveIdentifierResult = union(enum) {
+        runtime: struct { index: usize, stack_index: usize },
+        // TODO: closures
+        // runtime_upvalue: struct { index: usize },
+        @"comptime": Comptime,
+        comptime_upvalue: Comptime,
+
+        pub const Comptime = struct {
+            index: usize,
+            ip_index: InternPool.Index,
+        };
+    };
+
+    const AnalysisResult = union(enum) {
+        comptime_known: struct { InternPool.Index, Span(u8) },
+        runtime: Air.Index,
+
+        fn fromConstant(index: InternPool.Index) AnalysisResult {
+            return .{ .comptime_known = index };
+        }
+
+        fn fromNode(index: Air.Index) AnalysisResult {
+            return .{ .runtime = index };
+        }
+
+        fn toType(
+            self: AnalysisResult,
+            air: *const Air,
+            intern_pool: *const InternPool,
+        ) InternPool.Index {
+            return switch (self) {
+                .comptime_known => |data| data.@"0".toType(intern_pool),
+                .runtime => |index| index.toType(air, intern_pool),
+            };
+        }
+    };
+
+    const TypeCheckResult = enum { ok, mismatch };
+
     pub fn analyze(
         allocator: Allocator,
         source: []const u8,
@@ -279,7 +318,7 @@ pub const Sema = struct {
             => |child_expr| try self.analyzePrintStmt(ast_stmt, child_expr),
 
             .expr_stmt,
-            => |expr| try self.analyzeExpr(expr, value_usage),
+            => |expr| try self.addNodeFromResult(try self.analyzeExpr(expr, value_usage)),
 
             .let,
             .let_mut,
@@ -303,7 +342,9 @@ pub const Sema = struct {
         ast_stmt: Ast.Index,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
-        const sema_child_expr = try self.analyzeExpr(child_ast_expr, .use);
+        const sema_child_expr = try self.addNodeFromResult(
+            try self.analyzeExpr(child_ast_expr, .use),
+        );
         const child_type = sema_child_expr.toType(&self.air, self.intern_pool);
 
         if (self.typeCheck(child_type, .from(.type_bool)) == .mismatch) {
@@ -325,7 +366,9 @@ pub const Sema = struct {
         ast_stmt: Ast.Index,
         child_ast_expr: Ast.Index,
     ) Error!Air.Index {
-        const sema_child_expr = try self.analyzeExpr(child_ast_expr, .use);
+        const sema_child_expr = try self.addNodeFromResult(
+            try self.analyzeExpr(child_ast_expr, .use),
+        );
         return self.addNode(.{ .print = sema_child_expr }, ast_stmt.toLoc(self.ast));
     }
 
@@ -378,7 +421,7 @@ pub const Sema = struct {
         return self.addNode(
             .{ .let = .{
                 .stack_index = @intCast(self.scope.runtime_locals_count - 1),
-                .rhs = air_expr,
+                .rhs = try self.addNodeFromResult(air_expr),
             } },
             ast_stmt.toLoc(self.ast),
         );
@@ -515,7 +558,7 @@ pub const Sema = struct {
         } };
     }
 
-    fn analyzeExpr(self: *Sema, ast_expr: Ast.Index, value_usage: ValueUsage) Error!Air.Index {
+    fn analyzeExpr(self: *Sema, ast_expr: Ast.Index, value_usage: ValueUsage) Error!AnalysisResult {
         const ast_key = ast_expr.toKey(self.ast);
 
         return switch (ast_key) {
@@ -589,7 +632,11 @@ pub const Sema = struct {
         };
     }
 
-    fn analyzeLiteralExpr(self: *Sema, ast_expr: Ast.Index, ast_expr_key: Ast.Key) Error!Air.Index {
+    fn analyzeLiteralExpr(
+        self: *Sema,
+        ast_expr: Ast.Index,
+        ast_expr_key: Ast.Key,
+    ) Error!AnalysisResult {
         const intern_pool_key: InternPool.Key = switch (ast_expr_key) {
             .literal_unit => .{ .value_simple = .unit },
 
@@ -633,7 +680,7 @@ pub const Sema = struct {
 
         const intern_pool_index = try self.intern_pool.get(self.allocator, intern_pool_key);
 
-        return self.addNode(.{ .constant = intern_pool_index }, ast_expr.toLoc(self.ast));
+        return .fromConstant(intern_pool_index);
     }
 
     fn analyzeBinaryExpr(
@@ -641,16 +688,14 @@ pub const Sema = struct {
         ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         ast_binary: Ast.Key.Binary,
-    ) Error!Air.Index {
-        const air_binary: Air.Key.Binary = .{
-            .lhs = try self.analyzeExpr(ast_binary.lhs, .use),
-            .rhs = try self.analyzeExpr(ast_binary.rhs, .use),
-        };
+    ) Error!AnalysisResult {
+        const lhs = self.analyzeExpr(ast_binary.lhs, .use);
+        const rhs = self.analyzeExpr(ast_binary.rhs, .use);
 
-        if (air_binary.lhs.toType(&self.air, self.intern_pool) == .invalid or
-            air_binary.rhs.toType(&self.air, self.intern_pool) == .invalid)
+        if (lhs.toType(&self.air, self.intern_pool) == .invalid or
+            rhs.toType(&self.air, self.intern_pool) == .invalid)
         {
-            return self.addInvalidNode();
+            return .fromNode(self.addInvalidNode());
         }
 
         return switch (ast_expr_key) {
@@ -662,18 +707,18 @@ pub const Sema = struct {
             .greater_equal,
             .less_than,
             .less_equal,
-            => try self.analyzeNumericBinaryExpr(ast_expr, ast_expr_key, ast_binary, air_binary),
+            => try self.analyzeNumericBinaryExpr(ast_expr, ast_expr_key, ast_binary, lhs, rhs),
 
             .concat,
-            => try self.analyzeConcatBinaryExpr(ast_expr, ast_expr_key, ast_binary, air_binary),
+            => try self.analyzeConcatBinaryExpr(ast_expr, ast_expr_key, ast_binary, lhs, rhs),
 
             .equal,
             .not_equal,
-            => try self.analyzeEqualBinaryExpr(ast_expr, ast_expr_key, ast_binary, air_binary),
+            => try self.analyzeEqualBinaryExpr(ast_expr, ast_expr_key, ast_binary, lhs, rhs),
 
             .@"and",
             .@"or",
-            => try self.analyzeCondBinaryExpr(ast_expr, ast_expr_key, ast_binary, air_binary),
+            => try self.analyzeCondBinaryExpr(ast_expr, ast_expr_key, ast_binary, lhs, rhs),
 
             else => unreachable,
         };
@@ -684,27 +729,38 @@ pub const Sema = struct {
         ast_expr: Ast.Index,
         ast_expr_key: Ast.Key,
         ast_binary: Ast.Key.Binary,
-        air_binary: Air.Key.Binary,
-    ) Error!Air.Index {
-        if (try self.typeCheckBinary(
-            ast_binary,
-            air_binary,
-            .from(.{ .type_int, .type_float }),
-        ) == .mismatch) {
-            return self.addInvalidNode();
+        lhs_result: AnalysisResult,
+        rhs_result: AnalysisResult,
+    ) Error!AnalysisResult {
+        if (lhs_result == .comptime_known and rhs_result == .comptime_known) {
+            return .fromConstant(try self.evaluateNumericBinaryExpr(
+                ast_expr_key,
+                ast_binary,
+                lhs_result,
+                rhs_result,
+            ));
         }
 
-        return self.addNode(switch (ast_expr_key) {
-            .add => .{ .add = air_binary },
-            .sub => .{ .sub = air_binary },
-            .mul => .{ .mul = air_binary },
-            .div => .{ .div = air_binary },
-            .greater_than => .{ .greater_than = air_binary },
-            .greater_equal => .{ .greater_equal = air_binary },
-            .less_than => .{ .less_than = air_binary },
-            .less_equal => .{ .less_equal = air_binary },
-            else => unreachable, // non-numeric binary node
-        }, ast_expr.toLoc(self.ast));
+        if (try typeCheckNumericBinaryExpr(ast_binary, lhs_result, rhs_result) == .mismatch) {
+            return .fromNode(self.addInvalidNode());
+        }
+
+        return try .fromNode(
+            self.addNode(
+                switch (ast_expr_key) {
+                    .add => .{ .add = air_binary },
+                    .sub => .{ .sub = air_binary },
+                    .mul => .{ .mul = air_binary },
+                    .div => .{ .div = air_binary },
+                    .greater_than => .{ .greater_than = air_binary },
+                    .greater_equal => .{ .greater_equal = air_binary },
+                    .less_than => .{ .less_than = air_binary },
+                    .less_equal => .{ .less_equal = air_binary },
+                    else => unreachable, // non-numeric binary node
+                },
+                ast_expr.toLoc(self.ast),
+            ),
+        );
     }
 
     fn analyzeConcatBinaryExpr(
@@ -1341,6 +1397,50 @@ pub const Sema = struct {
         };
     }
 
+    fn evaluateNumericBinaryExpr(
+        self: *Sema,
+        ast_expr_key: Ast.Key,
+        ast_binary: Ast.Key.Binary,
+        lhs: InternPool.Index,
+        rhs: InternPool.Index,
+    ) Error!InternPool.Index {
+        if (try typeCheckNumericBinaryExpr(ast_binary, lhs, rhs) == .mismatch) {
+            return .invalid;
+        }
+
+        const lhs_key = lhs.toKey(self.intern_pool);
+        const rhs_key = rhs.toKey(self.intern_pool);
+
+        return self.intern_pool.get(
+            self.allocator,
+            switch (lhs_key) {
+                .value_int => switch (ast_expr_key) {
+                    .add => .fromInt(lhs_key.value_int + rhs_key.value_int),
+                    .sub => .fromInt(lhs_key.value_int - rhs_key.value_int),
+                    .mul => .fromInt(lhs_key.value_int * rhs_key.value_int),
+                    .div => .fromInt(lhs_key.value_int / rhs_key.value_int),
+                    .greater_than => .fromBool(lhs_key.value_int > rhs_key.value_int),
+                    .greater_equal => .fromBool(lhs_key.value_int >= rhs_key.value_int),
+                    .less_than => .fromBool(lhs_key.value_int < rhs_key.value_int),
+                    .less_equal => .fromBool(lhs_key.value_int <= rhs_key.value_int),
+                    else => unreachable, // non-numeric binary node
+                },
+                .value_float => switch (ast_expr_key) {
+                    .add => .fromInt(lhs_key.value_float + rhs_key.value_float),
+                    .sub => .fromInt(lhs_key.value_float - rhs_key.value_float),
+                    .mul => .fromInt(lhs_key.value_float * rhs_key.value_float),
+                    .div => .fromInt(lhs_key.value_float / rhs_key.value_float),
+                    .greater_than => .fromBool(lhs_key.value_float > rhs_key.value_float),
+                    .greater_equal => .fromBool(lhs_key.value_float >= rhs_key.value_float),
+                    .less_than => .fromBool(lhs_key.value_float < rhs_key.value_float),
+                    .less_equal => .fromBool(lhs_key.value_float <= rhs_key.value_float),
+                    else => unreachable, // non-numeric binary node
+                },
+                else => unreachable,
+            },
+        );
+    }
+
     fn evaluateVariableExpr(self: *Sema, ast_expr: Ast.Index) Error!InternPool.Index {
         const expr_loc = ast_expr.toLoc(self.ast);
         const result = self.resolveIdentifier(ast_expr) catch |err|
@@ -1392,17 +1492,9 @@ pub const Sema = struct {
         );
     }
 
-    pub const ResolveIdentifierResult = union(enum) {
-        runtime: struct { index: usize, stack_index: usize },
-        // TODO: closures
-        // runtime_upvalue: struct { index: usize },
-        @"comptime": Comptime,
-        comptime_upvalue: Comptime,
-
-        pub const Comptime = struct {
-            index: usize,
-            ip_index: InternPool.Index,
-        };
+    const FoldingResult = union(enum) {
+        constant: InternPool.Index,
+        air: Air.Index,
     };
 
     fn resolveIdentifier(
@@ -1477,7 +1569,7 @@ pub const Sema = struct {
         self.scope.max_runtime_locals_count = snap.max_runtime_locals_count;
     }
 
-    fn typeCheck(self: *Sema, subject: InternPool.Index, targets: TypeArray) enum { ok, mismatch } {
+    fn typeCheck(self: *Sema, subject: InternPool.Index, targets: TypeArray) TypeCheckResult {
         assert(subject == .invalid or subject.toType(self.intern_pool) == .type_type);
 
         if (subject == .invalid or subject == .type_never) {
@@ -1550,10 +1642,15 @@ pub const Sema = struct {
     fn typeCheckBinary(
         self: *Sema,
         ast_binary: Ast.Key.Binary,
-        air_binary: Air.Key.Binary,
+        lhs: anytype,
+        rhs: @TypeOf(lhs),
         target_types: TypeArray,
-    ) Error!enum { ok, mismatch } {
-        const lhs_type = air_binary.lhs.toType(&self.air, self.intern_pool);
+    ) Error!TypeCheckResult {
+        const lhs_type = switch (@TypeOf(lhs)) {
+            AnalysisResult => lhs.toType(&self.air, self.intern_pool),
+            InternPool.Index => lhs.toType(self.intern_pool),
+            else => @compileError("invalid operand type"),
+        };
 
         if (self.typeCheck(lhs_type, target_types) == .mismatch) {
             try self.addDiag(
@@ -1566,7 +1663,11 @@ pub const Sema = struct {
             return .mismatch;
         }
 
-        const rhs_type = air_binary.rhs.toType(&self.air, self.intern_pool);
+        const rhs_type = switch (@TypeOf(rhs)) {
+            AnalysisResult => rhs.toType(&self.air, self.intern_pool),
+            InternPool.Index => rhs.toType(self.intern_pool),
+            else => unreachable,
+        };
 
         if (self.typeCheck(rhs_type, target_types) == .mismatch) {
             try self.addDiag(
@@ -1582,11 +1683,35 @@ pub const Sema = struct {
         return .ok;
     }
 
+    fn typeCheckNumericBinaryExpr(
+        self: *Sema,
+        ast_binary: Ast.Key.Binary,
+        lhs: anytype,
+        rhs: @TypeOf(lhs),
+    ) Error!TypeCheckResult {
+        return self.typeCheckBinary(
+            ast_binary,
+            lhs,
+            rhs,
+            .from(.{ .type_int, .type_float }),
+        );
+    }
+
     fn addNode(self: *Sema, key: Air.Key, loc: Span(u8)) Allocator.Error!Air.Index {
         try self.air.nodes.append(self.allocator, try self.prepareNode(key));
         try self.air.locs.append(self.allocator, loc);
 
         return .from(self.air.nodes.len - 1);
+    }
+
+    fn addNodeFromResult(self: *Sema, result: AnalysisResult) Allocator.Error!Air.Index {
+        return switch (result) {
+            .comptime_known => |data| try self.addNode(
+                .{ .constant = data.@"0" },
+                data.@"1",
+            ),
+            .runtime => |index| index,
+        };
     }
 
     fn addInvalidNode(self: *Sema) Allocator.Error!Air.Index {

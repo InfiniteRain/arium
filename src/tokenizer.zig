@@ -11,6 +11,8 @@ pub const Token = struct {
     pub const Tag = enum {
         left_paren,
         right_paren,
+        left_brace,
+        right_brace,
         minus,
         plus,
         slash,
@@ -37,6 +39,7 @@ pub const Token = struct {
         @"or",
         do,
         end,
+        type,
 
         mut,
         let,
@@ -105,6 +108,7 @@ pub const Tokenizer = struct {
         .{ "continue", .@"continue" },
         .{ "fn", .@"fn" },
         .{ "return", .@"return" },
+        .{ "type", .type },
     });
 
     pub fn init(source: [:0]const u8) Tokenizer {
@@ -149,6 +153,14 @@ pub const Tokenizer = struct {
                 ')' => {
                     _ = self.advance();
                     token.tag = .right_paren;
+                },
+                '{' => {
+                    _ = self.advance();
+                    token.tag = .left_brace;
+                },
+                '}' => {
+                    _ = self.advance();
+                    token.tag = .right_brace;
                 },
                 '-' => {
                     continue :state .minus;
