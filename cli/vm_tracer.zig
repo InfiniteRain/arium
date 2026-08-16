@@ -27,7 +27,7 @@ pub const VmTracer = struct {
     fn step(ctx: *const anyopaque, vm: *const Vm(.debug)) void {
         const self: *const VmTracer = @ptrCast(@alignCast(ctx));
 
-        for (vm.st.items) |item| {
+        for (vm.st.items[vm.lv..]) |item| {
             self.output.print("[");
             self.printValue(item);
             self.output.print("] ");
@@ -35,7 +35,12 @@ pub const VmTracer = struct {
 
         self.output.print("\n");
 
-        _ = ModulePrinter.printInstruction(vm.module, self.output, 8, vm.ip);
+        _ = ModulePrinter.printInstruction(
+            vm.module,
+            self.output,
+            vm.st.items[vm.lv].@"fn" + 8,
+            vm.ip,
+        );
     }
 
     fn printValue(self: *const VmTracer, value: Value(.debug)) void {
