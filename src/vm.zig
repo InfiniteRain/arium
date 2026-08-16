@@ -7,15 +7,14 @@ const assert = debug.assert;
 
 const ExecutionMode = @import("debug.zig").ExecutionMode;
 const limits = @import("limits.zig");
-const Span = @import("span.zig").Span;
 const memory_mod = @import("memory.zig");
 const Value = memory_mod.Value;
 const Object = memory_mod.Object;
 const Memory = memory_mod.Memory;
-const module_mod = @import("module.zig");
-const Module = module_mod.Module;
-const OpCode = module_mod.OpCode;
-const Output = @import("output.zig").Output;
+const Module = @import("Module.zig");
+const OpCode = Module.OpCode;
+const Output = @import("Output.zig");
+const Span = @import("span.zig").Span;
 
 // todo: underflow/overflow checks
 pub fn Vm(comptime mode: ExecutionMode) type {

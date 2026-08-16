@@ -19,9 +19,9 @@ const Vm = arium.Vm;
 const clap = @import("clap");
 
 const DiagsPrinter = @import("diags_printer.zig").DiagsPrinter;
-const ModulePrinter = @import("module_printer.zig").ModulePrinter;
+const ModulePrinter = @import("ModulePrinter.zig");
 const TreePrinter = @import("tree_printer.zig").TreePrinter;
-const VmTracer = @import("vm_tracer.zig").VmTracer;
+const VmTracer = @import("VmTracer.zig");
 
 pub const Error = Allocator.Error || OpenError || error{ReadFailed};
 

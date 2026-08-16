@@ -9,9 +9,9 @@ const Span = arium.Span;
 const Output = arium.Output;
 
 const constants = @import("constants.zig");
-const Runner = @import("runner.zig").Runner;
-const TestDiagsPrinter = @import("test_diags_printer.zig").TestDiagsPrinter;
-const TestParser = @import("test_parser.zig").TestParser;
+const Runner = @import("Runner.zig");
+const TestDiagsPrinter = @import("TestDiagsPrinter.zig");
+const TestParser = @import("TestParser.zig");
 
 const style_end = "\x1b[0m";
 const style_err = "\x1b[31m";
