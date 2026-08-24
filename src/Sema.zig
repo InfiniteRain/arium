@@ -19,7 +19,7 @@ allocator: Allocator,
 source: []const u8,
 intern_pool: *InternPool,
 ast: *const Ast,
-air: Air,
+result: Result,
 diags: *Diags,
 scratch: *Scratch,
 
@@ -77,6 +77,22 @@ pub const Diags = struct {
 
     pub fn deinit(self: *Diags, allocator: Allocator) void {
         self.entries.deinit(allocator);
+    }
+};
+
+pub const Result = struct {
+    fns: ArrayList(Air),
+
+    pub const empty: Result = .{
+        .fns = .empty,
+    };
+
+    pub fn deinit(self: *Result, allocator: Allocator) void {
+        for (self.fns.items) |*air| {
+            air.deinit(allocator);
+        }
+
+        self.fns.deinit(allocator);
     }
 };
 
@@ -145,10 +161,12 @@ const Scope = struct {
 const Func = struct {
     next_id: u32,
     return_type: InternPool.Index,
+    air: Air,
 
     const init: Func = .{
         .next_id = 0,
         .return_type = .type_unit,
+        .air = .empty,
     };
 };
 
@@ -212,10 +230,14 @@ pub fn analyze(
     ast: *const Ast,
     diags: *Diags,
     scratch: *Scratch,
-) Error!Air {
+) Error!Result {
     const diags_top = diags.entries.items.len;
 
-    const func: Func = .init;
+    var result: Result = .empty;
+    errdefer result.deinit(allocator);
+
+    var func: Func = .init;
+    errdefer func.air.deinit(allocator);
 
     var scope: Scope = .init;
     defer scope.deinit(allocator);
@@ -244,7 +266,7 @@ pub fn analyze(
         .source = source,
         .intern_pool = intern_pool,
         .ast = ast,
-        .air = .empty,
+        .result = result,
         .diags = diags,
         .scratch = scratch,
 
@@ -252,25 +274,28 @@ pub fn analyze(
         .scope = scope,
         .loop = null,
     };
-    errdefer sema.air.deinit(allocator);
 
-    try sema.air.nodes.append(allocator, undefined);
-    try sema.air.locs.append(allocator, .zero);
+    // try sema.result.fns.ensureUnusedCapacity(allocator, 1);
+    // sema.result.fns.appendAssumeCapacity(func.air);
+    //
+    // try func.air.nodes.append(allocator, undefined);
+    // try func.air.locs.append(allocator, .zero);
+    //
 
-    const @"fn" = try sema.analyzeFnExpr(null, &.{}, null, .from(0));
+    _ = try sema.analyzeFnExpr(null, &.{}, null, .from(0));
 
     if (diags.entries.items.len > diags_top) {
         return error.AnalyzeFailure;
     }
 
-    sema.air.nodes.set(0, try sema.prepareNode(@"fn"));
+    // func.air.nodes.set(0, try sema.prepareNode(@"fn"));
+    //
+    assert(sema.func.air.nodes.len == sema.func.air.locs.items.len);
 
-    assert(sema.air.nodes.len == sema.air.locs.items.len);
-
-    return sema.air;
+    return sema.result;
 }
 
-fn analyzeStmt(self: *Sema, ast_stmt: Ast.Index, value_usage: ValueUsage) Error!Air.Index {
+fn analyzeStmt(self: *Sema, ast_stmt: Ast.Index, value_usage: ValueUsage) Error!?Air.Index {
     const ast_key = ast_stmt.toKey(self.ast);
 
     return switch (ast_key) {
@@ -288,13 +313,17 @@ fn analyzeStmt(self: *Sema, ast_stmt: Ast.Index, value_usage: ValueUsage) Error!
         => |let| try self.analyzeLetStmt(ast_stmt, ast_key, let),
 
         .@"fn",
-        => |@"fn"| try self.analyzeFnStmt(
-            ast_stmt,
-            @"fn".identifier,
-            @"fn".params,
-            @"fn".return_type,
-            @"fn".body,
-        ),
+        => |@"fn"| blk: {
+            try self.analyzeFnStmt(
+                // ast_stmt,
+                @"fn".identifier,
+                @"fn".params,
+                @"fn".return_type,
+                @"fn".body,
+            );
+
+            break :blk null;
+        },
 
         else => unreachable, // non-stmt node
     };
@@ -306,7 +335,7 @@ fn analyzeAssertStmt(
     child_ast_expr: Ast.Index,
 ) Error!Air.Index {
     const sema_child_expr = try self.analyzeExpr(child_ast_expr, .use);
-    const child_type = sema_child_expr.toType(&self.air, self.intern_pool);
+    const child_type = sema_child_expr.toType(&self.func.air, self.intern_pool);
 
     if (self.typeCheck(child_type, .from(.type_bool)) == .mismatch) {
         try self.addDiag(
@@ -373,7 +402,7 @@ fn analyzeLetStmt(
         try self.addDiag(.too_many_locals, ast_stmt.toLoc(self.ast));
     }
 
-    const local_type = air_expr.toType(&self.air, self.intern_pool);
+    const local_type = air_expr.toType(&self.func.air, self.intern_pool);
     var final_type = local_type;
 
     if (let_type_opt) |let_type| {
@@ -413,31 +442,32 @@ fn analyzeLetStmt(
 
 fn analyzeFnStmt(
     self: *Sema,
-    ast_stmt: Ast.Index,
+    // ast_stmt: Ast.Index,
     identifier: Ast.Index,
     args: []const Ast.Key.FnArg,
     return_type: ?Ast.Index,
     body: Ast.Index,
-) Error!Air.Index {
-    const loc = ast_stmt.toLoc(self.ast);
-    const fn_air_key = try self.analyzeFnExpr(identifier, args, return_type, body);
-    const fn_air = try self.addNode(fn_air_key, loc);
+) Error!void {
+    // const loc = ast_stmt.toLoc(self.ast);
+    // _ = loc; // autofix
+    const ip_index = try self.analyzeFnExpr(identifier, args, return_type, body);
+    // const fn_air = try self.addNode(fn_air_key, loc);
 
     try self.scope.append(
         self.allocator,
         .from(identifier),
-        fn_air.toType(&self.air, self.intern_pool),
+        ip_index,
         .{
             .mutability = .immutable,
             .assignment = .assigned,
-            .eval_time = .runtime,
+            .eval_time = .@"comptime",
         },
     );
 
-    return self.addNode(.{ .let = .{
-        .stack_index = @intCast(self.scope.runtime_locals_count - 1),
-        .rhs = fn_air,
-    } }, loc);
+    // return self.addNode(.{ .let = .{
+    //     .stack_index = @intCast(self.scope.runtime_locals_count - 1),
+    //     .rhs = fn_air,
+    // } }, loc);
 }
 
 fn analyzeFnExpr(
@@ -446,7 +476,7 @@ fn analyzeFnExpr(
     args: []const Ast.Key.FnArg,
     return_type: ?Ast.Index,
     body: Ast.Index,
-) Error!Air.Key {
+) Error!InternPool.Index {
     const scratch_top = self.scratch.nodes.items.len;
     defer self.scratch.nodes.shrinkRetainingCapacity(scratch_top);
 
@@ -480,6 +510,19 @@ fn analyzeFnExpr(
         .from(try self.intern_pool.get(self.allocator, .{ .value_string = "" }));
 
     var air_body: Air.Index = undefined;
+
+    const prev_air = self.func.air;
+    defer self.func.air = prev_air;
+
+    self.func.air = .empty;
+    errdefer self.func.air.deinit(self.allocator);
+
+    try self.func.air.nodes.append(self.allocator, undefined);
+    try self.func.air.locs.append(self.allocator, .zero);
+
+    try self.result.fns.ensureUnusedCapacity(self.allocator, 1);
+    const fn_index = self.result.fns.items.len;
+    self.result.fns.appendAssumeCapacity(undefined);
 
     const locals_count: u32 = blk: {
         const scope_snapshot = self.beginScope();
@@ -528,21 +571,35 @@ fn analyzeFnExpr(
 
         // todo: we should not need this at all
         if (identifier_opt != null and return_type_index != .type_unit and
-            air_body.toType(&self.air, self.intern_pool) != .type_never)
+            air_body.toType(&self.func.air, self.intern_pool) != .type_never)
         {
             try self.addDiag(.not_all_branches_return, identifier_opt.?.toLoc(self.ast));
-            return .{ .constant = .invalid };
+            return .invalid;
         }
 
         break :blk @intCast(self.scope.max_runtime_locals_count);
     };
 
-    return .{ .@"fn" = .{
+    const @"fn": Air.Key = .{ .@"fn" = .{
         .id = id,
         .body = air_body,
         .locals_count = locals_count,
         .fn_type = fn_type,
     } };
+
+    self.func.air.nodes.set(0, try self.prepareNode(@"fn"));
+
+    assert(self.func.air.nodes.len == self.func.air.locs.items.len);
+
+    self.result.fns.items[fn_index] = self.func.air;
+
+    return self.intern_pool.get(self.allocator, .{
+        .value_fn = .{
+            .id = id,
+            .locals_count = locals_count,
+            .type_fn = fn_type,
+        },
+    });
 }
 
 fn analyzeExpr(self: *Sema, ast_expr: Ast.Index, value_usage: ValueUsage) Error!Air.Index {
@@ -677,8 +734,8 @@ fn analyzeBinaryExpr(
         .rhs = try self.analyzeExpr(ast_binary.rhs, .use),
     };
 
-    if (air_binary.lhs.toType(&self.air, self.intern_pool) == .invalid or
-        air_binary.rhs.toType(&self.air, self.intern_pool) == .invalid)
+    if (air_binary.lhs.toType(&self.func.air, self.intern_pool) == .invalid or
+        air_binary.rhs.toType(&self.func.air, self.intern_pool) == .invalid)
     {
         return self.addInvalidNode();
     }
@@ -793,8 +850,8 @@ fn analyzeEqualBinaryExpr(
     ast_binary: Ast.Key.Binary,
     air_binary: Air.Key.Binary,
 ) Error!Air.Index {
-    const lhs_type = air_binary.lhs.toType(&self.air, self.intern_pool);
-    const rhs_type = air_binary.rhs.toType(&self.air, self.intern_pool);
+    const lhs_type = air_binary.lhs.toType(&self.func.air, self.intern_pool);
+    const rhs_type = air_binary.rhs.toType(&self.func.air, self.intern_pool);
 
     if (self.typeCheck(rhs_type, .from(lhs_type)) == .mismatch) {
         try self.addDiag(
@@ -821,7 +878,7 @@ fn analyzeUnaryExpr(
     child_ast_expr: Ast.Index,
 ) Error!Air.Index {
     const child_air_expr = try self.analyzeExpr(child_ast_expr, .use);
-    const child_type = child_air_expr.toType(&self.air, self.intern_pool);
+    const child_type = child_air_expr.toType(&self.func.air, self.intern_pool);
 
     if (child_type == .invalid) {
         return self.addInvalidNode();
@@ -889,20 +946,22 @@ fn analyzeBlockExprInheritScope(
     for (stmts, 0..) |stmt, i| {
         const is_last = i == stmts.len - 1;
         const stmt_value_usage = if (is_last) value_usage else .discard;
-        const sema_stmt = self.analyzeStmt(stmt, stmt_value_usage) catch |err|
+        const maybe_sema_stmt = self.analyzeStmt(stmt, stmt_value_usage) catch |err|
             switch (err) {
                 error.AnalyzeFailure => continue,
                 else => return err,
             };
 
-        try self.scratch.nodes.append(self.allocator, sema_stmt.toInt());
+        if (maybe_sema_stmt) |sema_stmt| {
+            try self.scratch.nodes.append(self.allocator, sema_stmt.toInt());
 
-        if (sema_stmt.toType(&self.air, self.intern_pool) == .type_never) {
-            is_last_stmt_never = true;
+            if (sema_stmt.toType(&self.func.air, self.intern_pool) == .type_never) {
+                is_last_stmt_never = true;
 
-            if (!is_last) {
-                try self.addDiag(.unreachable_stmt, stmts[i + 1].toLoc(self.ast));
-                break;
+                if (!is_last) {
+                    try self.addDiag(.unreachable_stmt, stmts[i + 1].toLoc(self.ast));
+                    break;
+                }
             }
         }
     }
@@ -911,9 +970,9 @@ fn analyzeBlockExprInheritScope(
     const last_stmt_opt =
         if (!is_block_empty) Air.Index.from(self.scratch.nodes.getLast()) else null;
     const is_last_stmt_not_expr =
-        if (last_stmt_opt) |last_stmt| last_stmt.toKind(&self.air) != .expr else false;
+        if (last_stmt_opt) |last_stmt| last_stmt.toKind(&self.func.air) != .expr else false;
     const is_last_stmt_unit =
-        !is_block_empty and last_stmt_opt.?.toType(&self.air, self.intern_pool) != .type_unit;
+        !is_block_empty and last_stmt_opt.?.toType(&self.func.air, self.intern_pool) != .type_unit;
     const is_block_sm_no_unit = ast_expr_key == .block_semicolon and is_last_stmt_unit;
     const should_append_unit =
         is_block_empty or
@@ -1030,7 +1089,7 @@ fn analyzeAssignmentExpr(
         };
 
     const rhs = try self.analyzeExpr(binary.rhs, .use);
-    const rhs_type = rhs.toType(&self.air, self.intern_pool);
+    const rhs_type = rhs.toType(&self.func.air, self.intern_pool);
     const lhs_type = &scope_slice.items(.ip_value)[local_index];
 
     if (lhs_type.* != .none and self.typeCheck(rhs_type, .from(lhs_type.*)) == .mismatch) {
@@ -1104,7 +1163,7 @@ fn analyzeIfExprAux(
     value_usage: ValueUsage,
 ) Error!Air.Index {
     const air_cond = try self.analyzeExpr(cond.condition, .use);
-    const air_cond_type = air_cond.toType(&self.air, self.intern_pool);
+    const air_cond_type = air_cond.toType(&self.func.air, self.intern_pool);
 
     if (self.typeCheck(air_cond_type, .from(.type_bool)) == .mismatch) {
         try self.addDiag(.{ .unexpected_expr_type = .{
@@ -1139,7 +1198,7 @@ fn analyzeIfExprAux(
         value_usage,
         force_append_unit_mode,
     );
-    const then_block_type = then_block.toType(&self.air, self.intern_pool);
+    const then_block_type = then_block.toType(&self.func.air, self.intern_pool);
 
     const @"type" = if (type_opt != null and type_opt.? != .type_never)
         type_opt.?
@@ -1184,7 +1243,7 @@ fn analyzeIfExprAux(
                 cond.body.toLoc(self.ast),
             };
         };
-    const else_block_type = else_block.toType(&self.air, self.intern_pool);
+    const else_block_type = else_block.toType(&self.func.air, self.intern_pool);
 
     if (value_usage == .use and @"type" != .type_never and
         self.typeCheck(else_block_type, .from(@"type")) == .mismatch)
@@ -1220,7 +1279,7 @@ fn analyzeForExpr(self: *Sema, ast_expr: Ast.Index, ast_key: Ast.Key) Error!Air.
         else => unreachable, // non-for expr
     };
 
-    const air_cond_type = air_cond.toType(&self.air, self.intern_pool);
+    const air_cond_type = air_cond.toType(&self.func.air, self.intern_pool);
 
     if (ast_key == .for_conditional and
         self.typeCheck(air_cond_type, .from(.type_bool)) == .mismatch)
@@ -1270,7 +1329,7 @@ fn analyzeReturnExpr(self: *Sema, ast_expr: Ast.Index, ast_key: Ast.Key) Error!A
             try self.analyzeExpr(ast_key.return_value, .use)
         else
             try self.addNode(.{ .constant = .value_unit }, loc);
-    const rhs_type = rhs.toType(&self.air, self.intern_pool);
+    const rhs_type = rhs.toType(&self.func.air, self.intern_pool);
 
     if (self.typeCheck(rhs_type, .from(self.func.return_type)) == .mismatch) {
         try self.addDiag(
@@ -1296,7 +1355,7 @@ fn analyzeCallExpr(self: *Sema, ast_expr: Ast.Index, ast_key: Ast.Key) Error!Air
         else => unreachable, // non-call expr
     };
     const callee = try self.analyzeExpr(ast_callee, .use);
-    const callee_type = callee.toType(&self.air, self.intern_pool);
+    const callee_type = callee.toType(&self.func.air, self.intern_pool);
 
     if (callee_type == .invalid) {
         return self.addInvalidNode();
@@ -1332,7 +1391,7 @@ fn analyzeCallExpr(self: *Sema, ast_expr: Ast.Index, ast_key: Ast.Key) Error!Air
 
     for (arg_types, args, 0..) |arg_type, arg, index| {
         const expr = try self.analyzeExpr(arg, .use);
-        const expr_type = expr.toType(&self.air, self.intern_pool);
+        const expr_type = expr.toType(&self.func.air, self.intern_pool);
 
         if (self.typeCheck(expr_type, .from(arg_type)) == .mismatch) {
             try self.addDiag(.{ .unexpected_arg_type = .{
@@ -1596,7 +1655,7 @@ fn typeCheckBinary(
     air_binary: Air.Key.Binary,
     target_types: TypeArray,
 ) Error!enum { ok, mismatch } {
-    const lhs_type = air_binary.lhs.toType(&self.air, self.intern_pool);
+    const lhs_type = air_binary.lhs.toType(&self.func.air, self.intern_pool);
 
     if (self.typeCheck(lhs_type, target_types) == .mismatch) {
         try self.addDiag(
@@ -1609,7 +1668,7 @@ fn typeCheckBinary(
         return .mismatch;
     }
 
-    const rhs_type = air_binary.rhs.toType(&self.air, self.intern_pool);
+    const rhs_type = air_binary.rhs.toType(&self.func.air, self.intern_pool);
 
     if (self.typeCheck(rhs_type, target_types) == .mismatch) {
         try self.addDiag(
@@ -1626,10 +1685,10 @@ fn typeCheckBinary(
 }
 
 fn addNode(self: *Sema, key: Air.Key, loc: Span(u8)) Allocator.Error!Air.Index {
-    try self.air.nodes.append(self.allocator, try self.prepareNode(key));
-    try self.air.locs.append(self.allocator, loc);
+    try self.func.air.nodes.append(self.allocator, try self.prepareNode(key));
+    try self.func.air.locs.append(self.allocator, loc);
 
-    return .from(self.air.nodes.len - 1);
+    return .from(self.func.air.nodes.len - 1);
 }
 
 fn addInvalidNode(self: *Sema) Allocator.Error!Air.Index {
@@ -1655,7 +1714,7 @@ fn prepareNode(self: *Sema, key: Air.Key) Allocator.Error!Air.Node {
         .less_than => |binary| prepareBinary(.less_than, binary),
         .less_equal => |binary| prepareBinary(.less_equal, binary),
         .cond => |cond| blk: {
-            try self.air.extra.appendSlice(
+            try self.func.air.extra.appendSlice(
                 self.allocator,
                 &.{
                     cond.then_branch.toInt(),
@@ -1666,11 +1725,11 @@ fn prepareNode(self: *Sema, key: Air.Key) Allocator.Error!Air.Node {
             break :blk .{
                 .tag = .cond,
                 .a = cond.cond.toInt(),
-                .b = @intCast(self.air.extra.items.len - 2),
+                .b = @intCast(self.func.air.extra.items.len - 2),
             };
         },
         .block => |indexes| blk: {
-            try self.air.extra.appendSlice(
+            try self.func.air.extra.appendSlice(
                 self.allocator,
                 @ptrCast(indexes),
             );
@@ -1678,7 +1737,7 @@ fn prepareNode(self: *Sema, key: Air.Key) Allocator.Error!Air.Node {
             break :blk .{
                 .tag = .block,
                 .a = @intCast(indexes.len),
-                .b = @intCast(self.air.extra.items.len - indexes.len),
+                .b = @intCast(self.func.air.extra.items.len - indexes.len),
             };
         },
         .variable => |variable| .{
@@ -1707,21 +1766,21 @@ fn prepareNode(self: *Sema, key: Air.Key) Allocator.Error!Air.Node {
             .a = call.callee.toInt(),
             .b = if (call.args.len == 1) call.args[0].toInt() else 0,
         } else blk: {
-            try self.air.extra.ensureUnusedCapacity(self.allocator, call.args.len + 1);
+            try self.func.air.extra.ensureUnusedCapacity(self.allocator, call.args.len + 1);
 
-            self.air.extra.appendAssumeCapacity(@intCast(call.args.len));
-            self.air.extra.appendSliceAssumeCapacity(@ptrCast(call.args));
+            self.func.air.extra.appendAssumeCapacity(@intCast(call.args.len));
+            self.func.air.extra.appendSliceAssumeCapacity(@ptrCast(call.args));
 
             break :blk .{
                 .tag = .call,
                 .a = call.callee.toInt(),
-                .b = @intCast(self.air.extra.items.len - (call.args.len + 1)),
+                .b = @intCast(self.func.air.extra.items.len - (call.args.len + 1)),
             };
         },
         .@"fn" => |@"fn"| blk: {
-            try self.air.extra.ensureUnusedCapacity(self.allocator, 3);
+            try self.func.air.extra.ensureUnusedCapacity(self.allocator, 3);
 
-            self.air.extra.appendSliceAssumeCapacity(
+            self.func.air.extra.appendSliceAssumeCapacity(
                 &.{
                     @"fn".body.toInt(),
                     @"fn".locals_count,
@@ -1732,7 +1791,7 @@ fn prepareNode(self: *Sema, key: Air.Key) Allocator.Error!Air.Node {
             break :blk .{
                 .tag = .@"fn",
                 .a = @"fn".id,
-                .b = @intCast(self.air.extra.items.len - 3),
+                .b = @intCast(self.func.air.extra.items.len - 3),
             };
         },
 

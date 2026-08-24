@@ -158,7 +158,7 @@ fn runFile(
     var sema_scratch: Sema.Scratch = .empty;
     defer sema_scratch.deinit(allocator);
 
-    var air = Sema.analyze(
+    var sema_result = Sema.analyze(
         allocator,
         source,
         &intern_pool,
@@ -177,10 +177,12 @@ fn runFile(
         },
         else => |cli_error| return cli_error,
     };
-    defer air.deinit(allocator);
+    defer sema_result.deinit(allocator);
 
     if (args.print_air) {
-        TreePrinter.printAir(source, stderr, &intern_pool, &air);
+        for (sema_result.fns.items) |*airr| {
+            TreePrinter.printAir(source, stderr, &intern_pool, airr);
+        }
     }
 
     var compiler_diags: Compiler.Diags = .empty;
@@ -192,7 +194,7 @@ fn runFile(
     var module = Compiler.compile(
         allocator,
         &intern_pool,
-        &air,
+        &sema_result,
         &compiler_diags,
         &compiler_scratch,
     ) catch |err| switch (err) {

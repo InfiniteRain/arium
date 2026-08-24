@@ -7,6 +7,8 @@ const assert = debug.assert;
 const ArrayList = std.ArrayList;
 
 const Air = @import("Air.zig");
+const Sema = @import("Sema.zig");
+const SemaResult = Sema.Result;
 const InternPool = @import("InternPool.zig");
 const Module = @import("Module.zig");
 const ConstantValue = Module.ConstantValue;
@@ -56,6 +58,12 @@ pub const Scratch = struct {
     break_jumps: ArrayList(usize),
     break_never_pops: usize,
     loop_top: usize,
+    fn_patches: ArrayList(FnPatch),
+
+    const FnPatch = struct {
+        index: u32,
+        id: u32,
+    };
 
     pub const empty: Scratch = .{
         .code = .empty,
@@ -66,6 +74,7 @@ pub const Scratch = struct {
         .break_jumps = .empty,
         .break_never_pops = 0,
         .loop_top = 0,
+        .fn_patches = .empty,
     };
 
     pub fn deinit(self: *Scratch, allocator: Allocator) void {
@@ -74,7 +83,16 @@ pub const Scratch = struct {
         self.then_jumps.deinit(allocator);
         self.else_jumps.deinit(allocator);
         self.break_jumps.deinit(allocator);
+        self.fn_patches.deinit(allocator);
     }
+};
+
+const Func = struct {
+    code_index: u64,
+
+    pub const init: Func = .{
+        .code_index = 0,
+    };
 };
 
 const ValueUsage = enum {
@@ -85,25 +103,34 @@ const ValueUsage = enum {
 pub fn compile(
     allocator: Allocator,
     intern_pool: *const InternPool,
-    air: *const Air,
+    result: *const SemaResult,
     diags: *Diags,
     scratch: *Scratch,
 ) Error!Module {
     var module: Module = .empty;
     errdefer module.deinit(allocator);
 
+    const fn_patches_top = scratch.fn_patches.items.len;
+    defer scratch.fn_patches.shrinkRetainingCapacity(fn_patches_top);
+
     var compiler: Compiler = .{
         .allocator = allocator,
         .module = &module,
         .intern_pool = intern_pool,
-        .air = air,
+        .air = undefined,
         .diags = diags,
         .scratch = scratch,
     };
 
-    const root = Air.Index.from(0);
+    for (result.fns.items, 0..) |*fn_air, i| {
+        compiler.air = fn_air;
+        const root = Air.Index.from(0);
+        const index = try compiler.compileFn(root.toKey(fn_air).@"fn", root.toLoc(fn_air));
 
-    module.main = try compiler.compileFn(root.toKey(air).@"fn", root.toLoc(air));
+        if (i == 0) {
+            module.main = index;
+        }
+    }
 
     return module;
 }
@@ -321,6 +348,10 @@ fn compileConstantExpr(
             try self.writeConstant(.{
                 .string = try self.module.writeStringSpan(self.allocator, string),
             }, loc);
+        },
+        .value_fn => |@"fn"| {
+            _ = @"fn"; // autofix
+            try self.writeConstant(.{ .@"fn" = self.func.code_index });
         },
         else => unreachable, // invalid constant
     }

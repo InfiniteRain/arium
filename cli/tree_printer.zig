@@ -61,7 +61,7 @@ fn GenericTreePrinter(AstType: type) type {
             intern_pool: ?*const InternPool,
             ast: *const AstType,
         ) void {
-            var ast_printer: Self = .{
+            const ast_printer: Self = .{
                 .source = source,
                 .output = output,
                 .intern_pool = intern_pool,
